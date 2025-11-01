@@ -25,6 +25,7 @@ export const AuthProvider = ({ children }) => {
     if (authStatus === 'success' && userData) {
       try {
         const user = JSON.parse(decodeURIComponent(userData));
+        console.log('Discord login successful:', user.username);
         setUser(user);
         localStorage.setItem('soundgarden_user', JSON.stringify(user));
         // Clean up URL
@@ -34,7 +35,7 @@ export const AuthProvider = ({ children }) => {
       }
     } else if (error) {
       console.error('Auth error:', error);
-      alert('Failed to login with Discord. Please try again.');
+      alert(`Failed to login with Discord: ${error}. Please ensure the backend server is running and Discord OAuth is properly configured.`);
       // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
     }
@@ -44,7 +45,9 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithDiscord = () => {
     // Redirect to backend OAuth endpoint
-    window.location.href = `${API_URL}/auth/discord`;
+    const authUrl = `${API_URL}/auth/discord`;
+    console.log('Redirecting to Discord OAuth:', authUrl);
+    window.location.href = authUrl;
   };
 
   const logout = () => {
