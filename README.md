@@ -126,5 +126,4 @@ The application uses a jungle-inspired dark green theme matching the main SoundG
 This is part of the SoundGarden ecosystem. Contact the SoundGarden team for contribution guidelines.
 
 ## License
-
-© SoundGarden · Collab Warz
+© 2025 Heymow
