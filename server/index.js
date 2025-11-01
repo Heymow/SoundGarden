@@ -75,10 +75,12 @@ app.get('/auth/discord/callback', async (req, res) => {
     // Create user object
     const userData = {
       id: user.id,
-      username: `${user.username}#${user.discriminator}`,
+      username: user.discriminator && user.discriminator !== '0' 
+        ? `${user.username}#${user.discriminator}` 
+        : user.username,
       avatar: user.avatar 
         ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
-        : `https://cdn.discordapp.com/embed/avatars/${parseInt(user.discriminator) % 5}.png`
+        : `https://cdn.discordapp.com/embed/avatars/${user.discriminator ? parseInt(user.discriminator) % 5 : 0}.png`
     };
     
     // Redirect to frontend with user data

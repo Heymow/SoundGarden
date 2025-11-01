@@ -81,7 +81,7 @@ class CollabWarz(commands.Cog):
         # Check if we need to switch phases or post reminders
         # This is a simplified version - in production, you'd track state more carefully
         
-    async def generate_announcement(self, announcement_type: str, theme: str, deadline: Optional[str] = None) -> str:
+    async def generate_announcement(self, guild: discord.Guild, announcement_type: str, theme: str, deadline: Optional[str] = None) -> str:
         """
         Generate an announcement using AI.
         Falls back to template if AI is not configured.
@@ -89,8 +89,8 @@ class CollabWarz(commands.Cog):
         announcement_type: "submission_start", "voting_start", "reminder", "winner"
         """
         # Try AI generation first
-        ai_url = await self.config.guild(None).ai_api_url() if hasattr(self, 'config') else ""
-        ai_key = await self.config.guild(None).ai_api_key() if hasattr(self, 'config') else ""
+        ai_url = await self.config.guild(guild).ai_api_url()
+        ai_key = await self.config.guild(guild).ai_api_key()
         
         if ai_url and ai_key:
             try:
@@ -210,7 +210,7 @@ class CollabWarz(commands.Cog):
         deadline = "Soon"  # In production, get from config
         
         async with ctx.typing():
-            announcement = await self.generate_announcement(announcement_type, theme, deadline)
+            announcement = await self.generate_announcement(ctx.guild, announcement_type, theme, deadline)
             
             embed = discord.Embed(
                 description=announcement,
