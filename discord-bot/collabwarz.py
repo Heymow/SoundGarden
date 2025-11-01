@@ -415,7 +415,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         error_msg += "@YourPartner check out our track!\n"
         error_msg += "[attachment or music platform link]\n"
         error_msg += "```\n"
-        error_msg += "💡 **Tip**: You can also submit via the website form!"
+        error_msg += "💡 **Alternative:** Submit via our website: **https://collabwarz.soundgarden.app**\n"
+        error_msg += "ℹ️ **Need help?** Use `!info` for submission guide or `!status` for competition status"
         
         await channel.send(error_msg)
     
@@ -2126,7 +2127,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         return False
     
     async def _delete_message_with_explanation(self, message, title: str, explanation: str, 
-                                             auto_delete_enabled: bool, delete_after: int = 10) -> None:
+                                             auto_delete_enabled: bool, delete_after: int = 10, 
+                                             include_help_commands: bool = True) -> None:
         """
         Delete message and send explanation if auto-delete is enabled
         
@@ -2136,24 +2138,27 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             explanation: Explanation text
             auto_delete_enabled: Whether auto-deletion is enabled
             delete_after: Seconds after which to delete the explanation
+            include_help_commands: Whether to include info about !info and !status commands
         """
+        help_text = "\nℹ️ **Need help?** Use `!info` for competition guide or `!status` for current status" if include_help_commands else ""
+        
         if auto_delete_enabled:
             try:
                 await message.delete()
                 await message.channel.send(
-                    f"{title}\n\n{explanation}\n\n*This message will be deleted in {delete_after} seconds.*",
+                    f"{title}\n\n{explanation}{help_text}\n\n*This message will be deleted in {delete_after} seconds.*",
                     delete_after=delete_after
                 )
             except discord.Forbidden:
                 # Can't delete message, send warning instead
                 await message.channel.send(
-                    f"{title} - {message.author.mention} {explanation}",
+                    f"{title} - {message.author.mention} {explanation}{help_text}",
                     delete_after=delete_after
                 )
         else:
             # Just send a warning without deleting
             await message.channel.send(
-                f"{title} - {message.author.mention} {explanation}",
+                f"{title} - {message.author.mention} {explanation}{help_text}",
                 delete_after=delete_after
             )
     
@@ -2281,6 +2286,11 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                         "total": total_rep
                     })
             
+            # Get winning team's song information
+            submissions = await self.config.guild(guild).submissions()
+            winning_song_info = submissions.get(team_name, {})
+            song_url = winning_song_info.get('track_url', '')
+            
             # Create enhanced winner message
             if from_face_off:
                 base_msg = f"⚔️ **FACE-OFF WINNER!** ⚔️\n\n🏆 **{team_name}** wins the 24-hour tie-breaker! 🏆\n\n"
@@ -2290,7 +2300,23 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             # Add team and member info
             if len(member_details) >= 2:
                 base_msg += f"**🎵 Winning Team:** `{team_name}`\n"
-                base_msg += f"**👥 Members:** {member_details[0]['user'].mention} & {member_details[1]['user'].mention}\n\n"
+                base_msg += f"**👥 Members:** {member_details[0]['user'].mention} & {member_details[1]['user'].mention}\n"
+                
+                # Add song information if available
+                if song_url:
+                    base_msg += f"**🎧 Winning Song:** {song_url}\n"
+                    
+                    # Try to get Suno metadata for additional song details
+                    if 'suno.com' in song_url.lower():
+                        song_id = self._extract_suno_song_id(song_url)
+                        if song_id:
+                            metadata = await self._fetch_suno_metadata(song_id, guild)
+                            if metadata and metadata.get('title'):
+                                base_msg += f"**🎤 Title:** \"{metadata['title']}\"\n"
+                                if metadata.get('duration'):
+                                    base_msg += f"**⏱️ Duration:** {metadata['duration']:.1f}s\n"
+                
+                base_msg += "\n"
                 
                 # Add voting results if available
                 if vote_counts:
@@ -2314,19 +2340,28 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                         base_msg += f"• {detail['user'].mention}: +{detail['gained']} petals (Total: {detail['total']} petals)\n"
                     base_msg += "\n"
                 
-                base_msg += "🔥 Incredible collaboration and amazing music! 🎵✨\n\n🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
+                base_msg += "🔥 Incredible collaboration and amazing music! 🎵✨\n\n"
+                base_msg += "🌐 **Listen to all tracks:** https://collabwarz.soundgarden.app\n"
+                base_msg += "💡 **Commands:** Use `!info` for competition guide or `!status` for details\n\n"
+                base_msg += "🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
             else:
                 # Fallback if member info unavailable
-                base_msg += f"**🎵 Winning Team:** `{team_name}`\n\n"
+                base_msg += f"**🎵 Winning Team:** `{team_name}`\n"
+                if song_url:
+                    base_msg += f"**🎧 Winning Song:** {song_url}\n"
+                base_msg += "\n"
                 base_msg += f"**🌸 Each member receives:** +{rep_amount} petals!\n\n"
-                base_msg += "🔥 Incredible collaboration and amazing music! 🎵✨\n\n🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
+                base_msg += "🔥 Incredible collaboration and amazing music! 🎵✨\n\n"
+                base_msg += "🌐 **Listen to all tracks:** https://collabwarz.soundgarden.app\n"
+                base_msg += "💡 **Commands:** Use `!info` for competition guide or `!status` for details\n\n"
+                base_msg += "🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
             
             return base_msg
             
         except Exception as e:
             print(f"Error creating winner announcement with rep: {e}")
             # Fallback to simple announcement
-            return f"🏆 **WINNER ANNOUNCEMENT!** 🏆\n\n🎉 Congratulations to team **{team_name}** for winning **{theme}**! 🎉\n\n🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
+            return f"🏆 **WINNER ANNOUNCEMENT!** 🏆\n\n🎉 Congratulations to team **{team_name}** for winning **{theme}**! 🎉\n\n� **Commands:** Use `!info` for competition guide or `!status` for details\n\n�🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
     
     async def announcement_loop(self):
         """Background task that checks and posts announcements"""
@@ -2944,13 +2979,13 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             deadline_full = deadline
         
         templates = {
-            "submission_start": f"🎵 **Collab Warz - NEW WEEK STARTS!** 🎵\n\n✨ **This week's theme:** **{theme}** ✨\n\n📝 **Submission Phase:** Monday to Friday noon\n🗳️ **Voting Phase:** Friday noon to Sunday\n\nTeam up with someone and create magic together! 🤝\n\n⏰ **Submissions deadline:** {deadline_full}",
+            "submission_start": f"🎵 **Collab Warz - NEW WEEK STARTS!** 🎵\n\n✨ **This week's theme:** **{theme}** ✨\n\n📝 **Submission Phase:** Monday to Friday noon\n🗳️ **Voting Phase:** Friday noon to Sunday\n\nTeam up with someone and create magic together! 🤝\n\n**📋 How to Submit (Discord):**\nIn ONE message, include:\n• `Team name: YourTeamName`\n• Tag your partner: `@username`\n• Your song link (Suno, SoundCloud, etc.)\n\n**🌐 Alternative:** Submit & vote on our website:\n**https://collabwarz.soundgarden.app**\n\n**💡 Need Help?** Use `!info` for submission guide or `!status` for current competition status\n\n⏰ **Submissions deadline:** {deadline_full}",
             
-            "voting_start": f"🗳️ **VOTING IS NOW OPEN!** 🗳️\n\n🎵 **Theme:** **{theme}**\n\nThe submissions are in! Time to listen and vote for your favorites! 🎧\n\nEvery vote counts - support the artists! 💫\n\n⏰ **Voting closes:** {deadline_full}",
+            "voting_start": f"🗳️ **VOTING IS NOW OPEN!** 🗳️\n\n🎵 **Theme:** **{theme}**\n\nThe submissions are in! Time to listen and vote for your favorites! 🎧\n\n**🌐 Listen & Vote:** https://collabwarz.soundgarden.app\n\n**💡 Commands:** Use `!info` for competition guide or `!status` for detailed status\n\nEvery vote counts - support the artists! 💫\n\n⏰ **Voting closes:** {deadline_full}",
             
-            "reminder": f"⏰ **FINAL CALL!** ⏰\n\n{'🎵 Submissions' if 'submission' in announcement_type else '🗳️ Voting'} for **{theme}** ends {deadline}!\n\n{'Submit your collaboration now!' if 'submission' in announcement_type else 'Cast your votes and support the artists!'} 🎶\n\n{'⏰ Last chance to team up and create!' if 'submission' in announcement_type else '⏰ Every vote matters!'}",
+            "reminder": f"⏰ **FINAL CALL!** ⏰\n\n{'🎵 Submissions' if 'submission' in announcement_type else '🗳️ Voting'} for **{theme}** ends {deadline}!\n\n{'Submit your collaboration now!' if 'submission' in announcement_type else 'Cast your votes and support the artists!'} 🎶\n\n🌐 **Website:** https://collabwarz.soundgarden.app\n💡 **Help:** Use `!info` or `!status` for guidance\n\n{'⏰ Last chance to team up and create!' if 'submission' in announcement_type else '⏰ Every vote matters!'}",
             
-            "winner": f"🏆 **WINNER ANNOUNCEMENT!** 🏆\n\n🎉 Congratulations to the champions of **{theme}**! 🎉\n\nIncredible collaboration and amazing music! 🎵✨\n\n🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
+            "winner": f"🏆 **WINNER ANNOUNCEMENT!** 🏆\n\n🎉 Congratulations to the champions of **{theme}**! 🎉\n\nIncredible collaboration and amazing music! 🎵✨\n\n🌐 **Listen to all tracks:** https://collabwarz.soundgarden.app\n💡 **Commands:** Use `!info` for competition guide or `!status` for details\n\n🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
         }
         
         return templates.get(announcement_type, f"Collab Warz update: {theme}")
@@ -3182,7 +3217,30 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             inline=False
         )
         
-        embed.set_footer(text="Admin permissions required for most commands")
+        embed.add_field(
+            name="🌐 Website Integration",
+            value=(
+                "**https://collabwarz.soundgarden.app**\n"
+                "• 🎵 **Submit songs** via web form\n"
+                "• 🎧 **Listen to all submissions** with audio player\n"
+                "• 🗳️ **Vote for your favorites** (only way to vote!)\n"
+                "• 📊 **View live results** and competition history\n"
+                "• 📱 **Mobile-friendly** interface"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="👥 Public Commands (Everyone Can Use)",
+            value=(
+                "`!info` - Competition guide & submission format\n"
+                "`!status` - Current status & detailed information\n\n"
+                "**These commands are available to all users!**"
+            ),
+            inline=False
+        )
+        
+        embed.set_footer(text="Admin permissions required for most commands • !info and !status are public")
         
         await ctx.send(embed=embed)
 
@@ -3535,8 +3593,77 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         if next_events:
             embed.add_field(name="Upcoming Events", value="\n".join(next_events), inline=False)
         
+        embed.add_field(
+            name="🌐 Website",
+            value="**https://collabwarz.soundgarden.app**\nSubmit songs, listen to tracks & vote!",
+            inline=False
+        )
+        
         embed.set_footer(text=f"Current time: {now.strftime('%A, %H:%M UTC')}")
         
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="info")
+    async def show_info(self, ctx):
+        """Show basic competition information and submission format (public access)"""
+        current_theme = await self.config.guild(ctx.guild).current_theme()
+        current_phase = await self.config.guild(ctx.guild).current_phase()
+        
+        embed = discord.Embed(
+            title="🎵 Collab Warz - Competition Info",
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(
+            name="📊 Current Status",
+            value=(
+                f"**Theme:** {current_theme}\n"
+                f"**Phase:** {current_phase.title()}\n"
+                f"**Website:** https://collabwarz.soundgarden.app"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📋 How to Submit (Discord)",
+            value=(
+                "**In ONE message, include:**\n"
+                "• `Team name: YourTeamName`\n"
+                "• Tag your partner: `@username`\n"
+                "• Your song link (Suno, SoundCloud, etc.)\n\n"
+                "**Example:**\n"
+                "```\nTeam name: Sonic Wizards\n"
+                "@john Check out our collab!\n"
+                "https://suno.com/song/example123\n```"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🌐 Website Features",
+            value=(
+                "**https://collabwarz.soundgarden.app**\n"
+                "• 🎵 Submit songs via web form\n"
+                "• 🎧 Listen to all submissions\n"
+                "• 🗳️ Vote for your favorites\n"
+                "• 📊 View live results & history\n"
+                "• 📱 Mobile-friendly interface"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📅 Weekly Schedule",
+            value=(
+                "**Monday:** New theme announced\n"
+                "**Monday-Friday noon:** Submission phase\n"
+                "**Friday noon-Sunday:** Voting phase\n"
+                "**Sunday evening:** Results announced"
+            ),
+            inline=False
+        )
+        
+        embed.set_footer(text="Use `[p]cw status` for detailed technical status")
         await ctx.send(embed=embed)
     
     @collabwarz.command(name="toggle")
