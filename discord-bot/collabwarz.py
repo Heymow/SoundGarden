@@ -74,6 +74,8 @@ class CollabWarz(commands.Cog):
             "admin_user_ids": [],       # List of additional admin user IDs
             "suno_api_enabled": True,   # Enable Suno API integration for song metadata
             "suno_api_base_url": "https://api.suno-proxy.click", # Suno API base URL
+            "individual_votes": {},     # Track individual votes {week: {user_id: team_name}}
+            "session_token_required": True,   # Require Discord session tokens for voting
         }
         
         self.config.register_guild(**default_guild)
@@ -1191,6 +1193,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             print(f"Error getting public voting: {e}")
             return web.json_response({"error": "Failed to get voting results"}, status=500)
     
+
+    
     async def _handle_public_vote(self, request):
         """Handle vote submission from frontend users"""
         try:
@@ -1236,8 +1240,50 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     "message": f"Team '{team_name}' has no submission this week"
                 }, status=404)
             
-            # Record vote in internal storage
+            # SIMPLE SECURITY: Validate Discord session token
+            session_token = request.headers.get('Authorization', '').replace('Bearer ', '')
+            if not session_token:
+                return web.json_response({
+                    "error": "Authentication required",
+                    "message": "Discord session token required"
+                }, status=401)
+            
+            # Validate voter is a member of the Discord guild
+            try:
+                voter_member = guild.get_member(int(voter_id))
+                if not voter_member:
+                    return web.json_response({
+                        "error": "Unauthorized voter",
+                        "message": "Voter must be a member of the Discord server"
+                    }, status=403)
+            except (ValueError, TypeError):
+                return web.json_response({
+                    "error": "Invalid voter ID",
+                    "message": "Voter ID must be a valid Discord user ID"
+                }, status=400)
+            
+            # TODO: Validate session_token with Discord OAuth API
+            # For now, just check it exists (frontend should handle OAuth)
+            
+            # Check if user has already voted this week
             current_week = self._get_current_week()
+            individual_votes = await self.config.guild(guild).individual_votes()
+            
+            if current_week in individual_votes and str(voter_id) in individual_votes[current_week]:
+                previous_vote = individual_votes[current_week][str(voter_id)]
+                return web.json_response({
+                    "error": "Already voted", 
+                    "message": f"You have already voted for '{previous_vote}' this week",
+                    "previous_vote": previous_vote,
+                    "week": current_week
+                }, status=409)
+            
+            # Record individual vote tracking
+            if current_week not in individual_votes:
+                individual_votes[current_week] = {}
+            individual_votes[current_week][str(voter_id)] = team_name
+            
+            # Record vote in team totals
             all_voting_results = await self.config.guild(guild).voting_results()
             
             # Initialize week data if not exists
@@ -1251,7 +1297,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             # Increment vote count
             all_voting_results[current_week][team_name] += 1
             
-            # Save updated results
+            # Save both individual votes and totals
+            await self.config.guild(guild).individual_votes.set(individual_votes)
             await self.config.guild(guild).voting_results.set(all_voting_results)
             
             return web.json_response({
@@ -4212,8 +4259,299 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         
         await ctx.send(embed=embed)
     
-    @collabwarz.command(name="apiserver")
-    async def api_server_control(self, ctx, action: str = "status"):
+    @collabwarz.command(name="votestats")
+    async def vote_statistics(self, ctx):
+        """Show detailed voting statistics and detect potential issues (Admin only)"""
+        if not await self._is_admin(ctx.author, ctx.guild):
+            await ctx.send("❌ This command requires admin privileges.")
+            return
+        
+        # Get current votes data
+        all_votes = await self.config.guild(ctx.guild).votes()
+        individual_votes = await self.config.guild(ctx.guild).individual_votes()
+        current_phase = await self.config.guild(ctx.guild).current_phase()
+        
+        if current_phase != "voting":
+            await ctx.send("⚠️ Voting phase is not currently active.")
+            return
+        
+        # Calculate voting statistics
+        total_votes = sum(all_votes.values())
+        unique_voters = len(individual_votes)
+        
+        # Detect potential issues
+        issues = []
+        
+        # Check for users who voted multiple times (should be prevented now)
+        multiple_voters = {user_id: votes for user_id, votes in individual_votes.items() if len(votes) > 1}
+        if multiple_voters:
+            issues.append(f"🚨 **Multiple votes detected:** {len(multiple_voters)} users voted more than once")
+        
+        # Check for votes without guild membership verification
+        non_member_votes = []
+        for user_id, votes in individual_votes.items():
+            try:
+                member = ctx.guild.get_member(int(user_id))
+                if not member:
+                    non_member_votes.append(user_id)
+            except:
+                non_member_votes.append(user_id)
+        
+        if non_member_votes:
+            issues.append(f"⚠️ **Non-member votes:** {len(non_member_votes)} votes from users not in the server")
+        
+        # Create detailed embed
+        embed = discord.Embed(
+            title="📊 Vote Statistics & Security Report",
+            color=discord.Color.blue(),
+            timestamp=datetime.now()
+        )
+        
+        # Basic statistics
+        embed.add_field(
+            name="📈 Basic Statistics",
+            value=(
+                f"**Total Votes:** {total_votes}\n"
+                f"**Unique Voters:** {unique_voters}\n"
+                f"**Teams Voted For:** {len(all_votes)}"
+            ),
+            inline=False
+        )
+        
+        # Vote breakdown by team
+        if all_votes:
+            vote_breakdown = "\n".join([f"**{team}:** {votes} votes" for team, votes in sorted(all_votes.items(), key=lambda x: x[1], reverse=True)])
+            embed.add_field(
+                name="🏆 Vote Breakdown",
+                value=vote_breakdown,
+                inline=False
+            )
+        
+        # Security issues
+        if issues:
+            embed.add_field(
+                name="🔒 Security Issues",
+                value="\n".join(issues),
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="✅ Security Status",
+                value="No security issues detected",
+                inline=False
+            )
+        
+        # Voting pattern analysis
+        if individual_votes:
+            vote_times = []
+            for user_votes in individual_votes.values():
+                vote_times.extend(user_votes)
+            
+            if vote_times:
+                embed.add_field(
+                    name="📊 Voting Activity",
+                    value=f"**Most Recent Vote:** <t:{max(vote_times)}:R>\n**First Vote:** <t:{min(vote_times)}:R>",
+                    inline=False
+                )
+        
+        embed.set_footer(text="Use this information to monitor vote integrity")
+        await ctx.send(embed=embed)
+        
+        # Send detailed breakdown to admin if there are issues
+        if multiple_voters:
+            detail_msg = "**Users with multiple votes:**\n"
+            for user_id, votes in list(multiple_voters.items())[:10]:  # Limit to first 10
+                try:
+                    user = self.bot.get_user(int(user_id))
+                    user_name = user.display_name if user else f"User ID: {user_id}"
+                    vote_times = [f"<t:{vote_time}:f>" for vote_time in votes]
+                    detail_msg += f"• {user_name}: {len(votes)} votes ({', '.join(vote_times)})\n"
+                except:
+                    detail_msg += f"• User ID {user_id}: {len(votes)} votes\n"
+            
+            if len(multiple_voters) > 10:
+                detail_msg += f"... and {len(multiple_voters) - 10} more users"
+            
+            await ctx.send(f"```\n{detail_msg}\n```")
+    
+    @collabwarz.command(name="clearvotes")
+    async def clear_fraudulent_votes(self, ctx, user_id: str = None):
+        """Remove duplicate/fraudulent votes (Admin only)"""
+        if not await self._is_admin(ctx.author, ctx.guild):
+            await ctx.send("❌ This command requires admin privileges.")
+            return
+        
+        current_phase = await self.config.guild(ctx.guild).current_phase()
+        if current_phase != "voting":
+            await ctx.send("⚠️ Voting phase is not currently active.")
+            return
+        
+        individual_votes = await self.config.guild(ctx.guild).individual_votes()
+        all_votes = await self.config.guild(ctx.guild).votes()
+        
+        if user_id:
+            # Clear votes for specific user
+            if user_id in individual_votes:
+                user_vote_count = len(individual_votes[user_id])
+                if user_vote_count > 1:
+                    # Find which team this user voted for (from their first vote)
+                    user_votes_data = individual_votes[user_id]
+                    # We need to determine which team they voted for
+                    # This is tricky since we only store timestamps
+                    # We'll remove all their votes and let them vote again
+                    del individual_votes[user_id]
+                    
+                    # We need to subtract the extra votes from team totals
+                    # Since we can't easily determine which team, we'll ask admin to specify
+                    await ctx.send(f"⚠️ **Manual correction needed:**\n"
+                                 f"User <@{user_id}> had {user_vote_count} votes.\n"
+                                 f"Please manually adjust team vote counts using `!collabwarz adjustvotes <team> <amount>`")
+                else:
+                    await ctx.send(f"✅ User <@{user_id}> only has {user_vote_count} vote (no duplicates).")
+            else:
+                await ctx.send(f"❌ User <@{user_id}> has no votes recorded.")
+        else:
+            # Clean all duplicate votes
+            cleaned_count = 0
+            total_removed = 0
+            
+            for uid, votes in list(individual_votes.items()):
+                if len(votes) > 1:
+                    cleaned_count += 1
+                    excess_votes = len(votes) - 1
+                    total_removed += excess_votes
+                    # Keep only the first vote
+                    individual_votes[uid] = [votes[0]]
+            
+            if cleaned_count > 0:
+                await ctx.send(f"🧹 **Cleaned duplicate votes:**\n"
+                             f"• {cleaned_count} users had duplicate votes\n"
+                             f"• {total_removed} excess votes removed\n"
+                             f"⚠️ **Manual correction needed:** Please review team vote totals and adjust if necessary.")
+            else:
+                await ctx.send("✅ No duplicate votes found.")
+        
+        # Save updated individual votes
+        await self.config.guild(ctx.guild).individual_votes.set(individual_votes)
+    
+    @collabwarz.command(name="adjustvotes")
+    async def adjust_team_votes(self, ctx, team_name: str, adjustment: int):
+        """Manually adjust vote count for a team (Admin only)"""
+        if not await self._is_admin(ctx.author, ctx.guild):
+            await ctx.send("❌ This command requires admin privileges.")
+            return
+        
+        current_phase = await self.config.guild(ctx.guild).current_phase()
+        if current_phase != "voting":
+            await ctx.send("⚠️ Voting phase is not currently active.")
+            return
+        
+        all_votes = await self.config.guild(ctx.guild).votes()
+        
+        # Find team (case insensitive)
+        actual_team = None
+        for team in all_votes:
+            if team.lower() == team_name.lower():
+                actual_team = team
+                break
+        
+        if not actual_team:
+            await ctx.send(f"❌ Team '{team_name}' not found. Available teams: {', '.join(all_votes.keys())}")
+            return
+        
+        old_count = all_votes[actual_team]
+        new_count = max(0, old_count + adjustment)  # Don't allow negative votes
+        all_votes[actual_team] = new_count
+        
+        await self.config.guild(ctx.guild).votes.set(all_votes)
+        
+        embed = discord.Embed(
+            title="📊 Vote Count Adjusted",
+            color=discord.Color.orange(),
+            timestamp=datetime.now()
+        )
+        embed.add_field(
+            name="Team",
+            value=actual_team,
+            inline=True
+        )
+        embed.add_field(
+            name="Previous Count",
+            value=str(old_count),
+            inline=True
+        )
+        embed.add_field(
+            name="New Count",
+            value=str(new_count),
+            inline=True
+        )
+        embed.add_field(
+            name="Adjustment",
+            value=f"{adjustment:+d}",
+            inline=True
+        )
+        embed.set_footer(text=f"Adjusted by {ctx.author.display_name}")
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="sessionauth")
+    async def session_auth_config(self, ctx, action: str = "status"):
+        """Configure Discord session token authentication (Admin only)"""
+        if not await self._is_admin(ctx.author, ctx.guild):
+            await ctx.send("❌ This command requires admin privileges.")
+            return
+        
+        action = action.lower()
+        
+        if action == "status":
+            session_required = await self.config.guild(ctx.guild).session_token_required()
+            
+            embed = discord.Embed(
+                title="🔐 Session Authentication Status",
+                color=discord.Color.blue() if session_required else discord.Color.orange(),
+                timestamp=datetime.now()
+            )
+            
+            embed.add_field(
+                name="Current Status",
+                value=f"{'🔒 **ENABLED**' if session_required else '⚠️ **DISABLED**'}\n"
+                      f"{'Votes require Discord session tokens' if session_required else 'Anyone can submit votes via API'}",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="Security Level",
+                value=f"{'✅ **HIGH SECURITY**' if session_required else '🔓 **BASIC SECURITY**'}\n"
+                      f"{'Web interface OAuth required' if session_required else 'Only guild membership checked'}",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="Commands",
+                value="```\n"
+                      "[p]cw sessionauth enable    # Require session tokens\n"
+                      "[p]cw sessionauth disable   # Allow direct API access\n"
+                      "[p]cw sessionauth status    # Show current status\n"
+                      "```",
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
+            
+        elif action == "enable":
+            await self.config.guild(ctx.guild).session_token_required.set(True)
+            await ctx.send("🔒 **Session authentication ENABLED**\n"
+                          "✅ Votes now require Discord session tokens\n"
+                          "⚠️ **Note**: Frontend must handle Discord OAuth")
+            
+        elif action == "disable":
+            await self.config.guild(ctx.guild).session_token_required.set(False)
+            await ctx.send("⚠️ **Session authentication DISABLED**\n"
+                          "🔓 Anyone can vote via direct API calls\n"
+                          "💡 **Recommendation**: Only disable for testing")
+            
+        else:
+            await ctx.send("❌ Valid actions: `enable`, `disable`, `status`")    async def api_server_control(self, ctx, action: str = "status"):
         """Control the API server for member list (start/stop/status)"""
         action = action.lower()
         

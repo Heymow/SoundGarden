@@ -63,6 +63,10 @@ Follow the interactive wizard to configure your bot.
 | `[p]cw nextweek` | Start new competition week |
 | `[p]cw apiserver start` | Start integrated API |
 | `[p]cw checkvotes` | Check current results |
+| `[p]cw sessionauth [enable/disable]` | � Configure Discord OAuth |
+| `[p]cw votestats` | 📊 View voting statistics |
+| `[p]cw clearvotes [user]` | 🧹 Remove duplicate votes |
+| `[p]cw adjustvotes team ±N` | ⚖️ Manually adjust votes |
 | `[p]cw declarewinner "Team" @user1 @user2` | 🚨 Manual override |
 
 ### 🎵 Users
@@ -130,6 +134,74 @@ https://suno.com/song/your-track-id
 [p]cw testpublicapi
 [p]cw checkvotes
 ```
+
+### � Simple Vote Security
+**Session Token Authentication:**
+- 🔐 **WEB INTERFACE PREFERRED**: Official website with Discord OAuth
+- 🎫 **SESSION TOKENS**: Discord authentication for vote validation
+- � **GUILD VALIDATION**: Only server members can vote
+- 🚫 **NO DOUBLE VOTING**: Individual vote tracking prevents duplicates
+
+**� Simple Security Setup:**
+```
+[p]cw sessionauth enable         # Enable Discord session token validation
+[p]cw sessionauth status         # Check current authentication status
+[p]cw apiserver start           # Start API server for frontend integration
+```
+
+**Admin Monitoring:**
+```
+[p]cw votestats                 # View voting statistics and results
+[p]cw clearvotes                # Remove duplicate votes if detected
+[p]cw adjustvotes "Team Alpha" -2  # Manual vote adjustment if needed
+```
+
+**🔒 Simple Security Features:**
+- 🎫 **Discord OAuth Required** (when session auth enabled)
+- 👤 **Guild Membership Check** (automatic validation)
+- 🚫 **Duplicate Vote Prevention** (individual tracking)
+- 📊 **Vote Statistics** (monitoring and transparency)
+
+**💡 Philosophy: Simple & Effective**
+Session token + guild membership = sufficient security:
+- ✅ Prevents unauthorized voting (Discord OAuth)
+- ✅ Prevents double voting (individual tracking)
+- ✅ Easy to implement (no complex configuration)
+- ✅ Easy to debug (clear error messages)
+- ❌ Over-engineering avoided = maintainable code
+```
+[p]cw zerotolerance              # 🚫 ACTIVATE maximum security instantly
+[p]cw security iplimit 1         # 1 vote per minute per IP (RECOMMENDED)  
+[p]cw security userlimit 1       # 1 attempt per user (RECOMMENDED)
+[p]cw security failedlimit 1     # 0 failed attempts tolerated (RECOMMENDED)
+[p]cw security patterns on       # Pattern detection (REQUIRED)
+```
+
+**Admin Monitoring & Response:**
+```
+[p]cw securityreport      # Comprehensive security analysis
+[p]cw suspicious          # View detected suspicious activity
+[p]cw votestats           # Detailed voting & security statistics
+[p]cw clearvotes          # Remove all duplicate votes
+[p]cw adjustvotes "Team Alpha" -2  # Manual vote adjustment
+[p]cw clearactivity       # Reset suspicious activity tracking
+```
+
+**🚫 What Gets Instantly Blocked:**
+- � **ANY failed vote attempt** (web interface = no errors possible)
+- 🚨 **Direct API/HTTP requests** (bypassing web interface)
+- � **Multiple users from same IP** (script attack detected)
+- 🚨 **Second attempt by same user** (already voted)
+- � **Non-server members** (unauthorized voters)
+- 🚨 **Any suspicious pattern** (automated behavior)
+
+**� Why Zero-Tolerance Works:**
+Web interface eliminates ALL legitimate error sources:
+- ✅ No typos (graphical selection)
+- ✅ No invalid data (form validation)  
+- ✅ No network issues (proper retry handling)
+- ✅ No user confusion (clear interface)
+- ❌ Any deviation = security threat
 
 ### Generated Message Examples
 

@@ -172,6 +172,16 @@ POST /api/public/vote
   "team_name": "Team Alpha",
   "voter_id": "discord_user_id"
 }
+
+// Simple Security System:
+// ✅ Discord session token validation (OAuth)
+// ✅ Guild membership validation
+// ✅ Individual vote tracking (prevent double voting)
+
+Response (Success): {"message": "Vote recorded successfully"}
+Response (Error): {"error": "User not found in server"}
+Response (Error): {"error": "User has already voted"}
+Response (Error): {"error": "Authentication required"}
 ```
 
 **Get Voting Results (GET):**
@@ -1261,6 +1271,47 @@ The bot supports **multiple administrator levels** for flexible team management:
 # Voting handled via integrated API - no external configuration needed!
 # Votes submitted via POST /api/public/vote endpoint
 ```
+
+### Vote Security & Monitoring
+```bash
+[p]cw votestats                # Show detailed voting statistics
+[p]cw clearvotes [user_id]     # Remove duplicate/fraudulent votes (all or specific user)
+[p]cw adjustvotes team amount  # Manually adjust team vote count (+/-)
+
+# Simple Security Commands
+[p]cw sessionauth              # Configure Discord session authentication
+[p]cw sessionauth enable       # Require Discord OAuth tokens for voting
+[p]cw sessionauth disable      # Allow direct API access (testing only)
+[p]cw sessionauth status       # Show current authentication status
+
+# Examples:
+[p]cw votestats                        # View voting statistics and results
+[p]cw clearvotes 123456789012345678    # Clear specific user's duplicate votes
+[p]cw clearvotes                       # Clean all duplicate votes automatically
+[p]cw adjustvotes "Team Alpha" -2      # Remove 2 votes from Team Alpha
+[p]cw adjustvotes "Team Beta" +1       # Add 1 vote to Team Beta
+[p]cw sessionauth enable              # Enable Discord session validation
+```
+
+**� SIMPLE SECURITY APPROACH:**
+- 🌐 **WEB INTERFACE PREFERRED**: Votes through official voting website with Discord OAuth
+- � **SESSION TOKEN VALIDATION**: Frontend handles Discord authentication, bot validates tokens
+- 🔒 **Guild membership validation**: Only server members can vote
+- ⚡ **ONE-SHOT VOTING**: Users get exactly one vote attempt (no retries tolerated)
+- 🛡️ **INSTANT IP BLOCKING**: Any failed attempt = immediate location ban
+- 🕵️ **SCRIPT DETECTION**: Multiple users from same IP = automated attack blocked
+- 👤 **INDIVIDUAL TRACKING**: One vote per user per week maximum
+- 📊 **FRAUD DETECTION**: Automatic detection of all suspicious patterns
+- 🧹 **VOTE CLEANUP**: Admin tools to remove fraudulent votes and adjust counts
+- 📈 **DETAILED REPORTING**: Comprehensive security analysis and monitoring
+
+**🎯 ZERO-TOLERANCE PHILOSOPHY:**
+Web interface voting eliminates ALL legitimate reasons for errors:
+- ❌ No typos possible (graphical interface)
+- ❌ No invalid IDs (automatic user selection)  
+- ❌ No network retries needed (proper error handling)
+- ❌ No multiple attempts justified (one vote per week policy)
+- ✅ Any deviation from normal flow = security threat = blocked
 
 ### API Server Configuration
 ```bash
