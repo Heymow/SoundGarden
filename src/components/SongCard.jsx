@@ -1,8 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 
 export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn }) {
-  const [isPlaying, setIsPlaying] = useState(false);
-
   const handleImageClick = () => {
     window.open(song.sunoUrl, '_blank');
   };

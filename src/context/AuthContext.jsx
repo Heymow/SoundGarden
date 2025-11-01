@@ -19,7 +19,7 @@ export const AuthProvider = ({ children }) => {
   const loginWithDiscord = () => {
     // Mock Discord login - in production, this would redirect to Discord OAuth
     const mockUser = {
-      id: 'user_' + Math.random().toString(36).substr(2, 9),
+      id: 'user_' + Math.random().toString(36).substring(2, 11),
       username: 'TestUser#1234',
       avatar: 'https://cdn.discordapp.com/embed/avatars/0.png'
     };
