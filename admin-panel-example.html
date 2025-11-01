@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Enhanced Admin Vote Audit with Song Metadata</title>
+    <style>
+        .admin-panel { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .audit-card { background: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 8px; border: 1px solid #dee2e6; }
+        .song-card { background: white; padding: 15px; margin: 10px 0; border-radius: 6px; border-left: 4px solid #007bff; }
+        .vote-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .vote-table th, .vote-table td { padding: 12px; text-align: left; border-bottom: 1px solid #dee2e6; }
+        .vote-table th { background: #f1f3f4; font-weight: bold; }
+        .audio-player { margin: 10px 0; }
+        .song-info { display: flex; align-items: center; gap: 15px; }
+        .song-cover { width: 60px; height: 60px; border-radius: 4px; object-fit: cover; }
+        .action-button { background: #007bff; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        .success { color: #28a745; padding: 10px; background: #d4edda; border-radius: 4px; margin: 10px 0; }
+        .error { color: #721c24; padding: 10px; background: #f8d7da; border-radius: 4px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="admin-panel">
+        <h1>🎵 Vote Audit with Song Metadata</h1>
+        
+        <div class="audit-card">
+            <h2>🔍 Audit Votes</h2>
+            <input type="text" id="weekToAudit" placeholder="Week (e.g., 2024-01-15)..." style="width: 300px; padding: 8px;">
+            <button class="action-button" onclick="auditVotesWithMetadata()">📊 Load Detailed Audit</button>
+            
+            <div id="auditResults"></div>
+        </div>
+        
+        <div id="actionResults"></div>
+    </div>
+
+    <script>
+        // Enhanced vote audit with song metadata
+        async function auditVotesWithMetadata() {
+            const week = document.getElementById('weekToAudit').value.trim();
+            if (!week) {
+                showResult('❌ Please enter a week identifier first', 'error');
+                return;
+            }
+            
+            // Get admin token from localStorage (set during setup)
+            const adminToken = localStorage.getItem('discordAdminToken');
+            
+            try {
+                const response = await fetch(`/api/admin/votes/${encodeURIComponent(week)}/details`, {
+                    headers: {
+                        'Authorization': `Bearer ${adminToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                displayEnhancedAudit(data);
+                showResult('✅ Vote audit loaded with song metadata', 'success');
+                
+            } catch (error) {
+                showResult('❌ Failed to load vote audit: ' + error.message, 'error');
+            }
+        }
+        
+        function displayEnhancedAudit(data) {
+            let auditHtml = `
+                <div class="audit-card">
+                    <h3>📊 Week ${data.week} Vote Audit</h3>
+                    <p><strong>Theme:</strong> ${data.theme}</p>
+                    <p><strong>Total Votes:</strong> ${data.total_votes}</p>
+                </div>
+            `;
+            
+            // Display submissions with song metadata
+            auditHtml += '<div class="audit-card"><h3>🎵 Submissions</h3>';
+            
+            for (const [teamName, submission] of Object.entries(data.submissions)) {
+                auditHtml += `<div class="song-card">`;
+                
+                if (submission.song_metadata) {
+                    const meta = submission.song_metadata;
+                    auditHtml += `
+                        <div class="song-info">
+                            ${meta.image_url ? `<img src="${meta.image_url}" alt="Cover" class="song-cover">` : ''}
+                            <div>
+                                <h4>${teamName}: "${meta.title}"</h4>
+                                <p>By: <a href="${meta.author_profile_url}" target="_blank">${submission.submitted_by}</a></p>
+                                <p>Duration: ${meta.duration}s | Tags: ${meta.tags.join(', ')}</p>
+                                ${meta.audio_url ? `
+                                    <audio controls class="audio-player">
+                                        <source src="${meta.audio_url}" type="audio/mpeg">
+                                        Your browser does not support the audio element.
+                                    </audio>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    auditHtml += `
+                        <h4>${teamName}</h4>
+                        <p>URL: <a href="${submission.url}" target="_blank">${submission.url}</a></p>
+                        <p>By: ${submission.submitted_by}</p>
+                        <p><em>Song metadata not available</em></p>
+                    `;
+                }
+                
+                auditHtml += `<p><small>Submitted: ${submission.submitted_at}</small></p></div>`;
+            }
+            
+            auditHtml += '</div>';
+            
+            // Display vote details table
+            auditHtml += `
+                <div class="audit-card">
+                    <h3>🗳️ Vote Details</h3>
+                    <table class="vote-table">
+                        <thead>
+                            <tr>
+                                <th>Voter</th>
+                                <th>Voted For</th>
+                                <th>Song Title</th>
+                                <th>Vote Time</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            data.vote_details.forEach(vote => {
+                const votedSubmission = data.submissions[vote.voted_for];
+                const songTitle = votedSubmission?.song_metadata?.title || 'Unknown Title';
+                
+                auditHtml += `
+                    <tr>
+                        <td>${vote.username}</td>
+                        <td>${vote.voted_for}</td>
+                        <td>"${songTitle}"</td>
+                        <td>${vote.voted_at}</td>
+                        <td>
+                            <button class="action-button" style="background: #dc3545;" 
+                                    onclick="removeVote('${data.week}', '${vote.user_id}', '${vote.username}')">
+                                🗑️ Remove Vote
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            auditHtml += '</tbody></table></div>';
+            
+            document.getElementById('auditResults').innerHTML = auditHtml;
+        }
+        
+        async function removeVote(week, userId, username) {
+            if (!confirm(`Remove vote from ${username} for week ${week}?`)) {
+                return;
+            }
+            
+            const adminToken = localStorage.getItem('discordAdminToken');
+            
+            try {
+                const response = await fetch(`/api/admin/votes/${week}/${userId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${adminToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                showResult('✅ ' + result.message, 'success');
+                
+                // Refresh the audit after removal
+                auditVotesWithMetadata();
+                
+            } catch (error) {
+                showResult('❌ Failed to remove vote: ' + error.message, 'error');
+            }
+        }
+        
+        function showResult(message, type) {
+            const resultsDiv = document.getElementById('actionResults');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            resultsDiv.innerHTML = `
+                <div class="${type}">
+                    ${timestamp}: ${message}
+                </div>
+            ` + resultsDiv.innerHTML;
+        }
+        
+        // Auto-focus on week input
+        document.getElementById('weekToAudit').focus();
+    </script>
+</body>
+</html>

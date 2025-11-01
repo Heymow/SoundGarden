@@ -660,7 +660,15 @@ Get detailed voting information for audit purposes
         "TeamAlpha": {
             "url": "https://suno.com/song/abc123",
             "submitted_by": "alice",
-            "submitted_at": "2024-01-18T14:30:00"
+            "submitted_at": "2024-01-18T14:30:00",
+            "song_metadata": {
+                "title": "Neon Nights",
+                "audio_url": "https://cdn1.suno.ai/audio123.mp3",
+                "image_url": "https://cdn2.suno.ai/image123.jpeg",
+                "author_profile_url": "https://suno.com/@alice",
+                "duration": 180,
+                "tags": ["synthwave", "electronic", "80s"]
+            }
         }
     },
     "timestamp": "2024-01-15T10:30:00.000Z"

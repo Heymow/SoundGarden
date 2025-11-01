@@ -1086,14 +1086,37 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     "voted_at": voted_at
                 })
             
-            # Get submission details for context
+            # Get submission details with Suno metadata for admin context
             submission_details = {}
             for team, submission in submissions.items():
-                submission_details[team] = {
-                    "url": submission.get('url', ''),
+                song_url = submission.get('url', '')
+                
+                # Create base submission info
+                submission_info = {
+                    "url": song_url,
                     "submitted_by": submission.get('submitted_by', 'Unknown'),
-                    "submitted_at": submission.get('timestamp', 'Unknown')
+                    "submitted_at": submission.get('timestamp', 'Unknown'),
+                    "song_metadata": None
                 }
+                
+                # Fetch Suno metadata if available
+                if song_url and 'suno.com' in song_url.lower():
+                    try:
+                        song_metadata = await self._fetch_suno_metadata(song_url)
+                        if song_metadata:
+                            submission_info["song_metadata"] = {
+                                "title": song_metadata.get('title', 'Unknown Title'),
+                                "audio_url": song_metadata.get('audio_url'),
+                                "image_url": song_metadata.get('image_url'),
+                                "author_profile_url": song_metadata.get('author_profile_url'),
+                                "duration": song_metadata.get('duration'),
+                                "tags": song_metadata.get('tags', [])
+                            }
+                    except Exception as e:
+                        print(f"Failed to fetch Suno metadata for admin vote details: {e}")
+                        # Continue without metadata
+                
+                submission_details[team] = submission_info
             
             return web.json_response({
                 "week": week,
