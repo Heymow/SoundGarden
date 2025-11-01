@@ -6,15 +6,15 @@ import SongCard from "../components/SongCard";
 import SubmitModal from "../components/SubmitModal";
 import { currentChallenge, previousChallenge } from "../data/mockData";
 
-export default function Current() {
-  const { user } = useAuth();
+export default function Current({ onPlaySong }) {
+  const { user, loginWithDiscord } = useAuth();
   const [songs, setSongs] = useState(currentChallenge.songs);
   const [votedSongId, setVotedSongId] = useState(null);
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
 
   const handleVote = (songId) => {
     if (!user) {
-      alert('Please login with Discord to vote!');
+      loginWithDiscord();
       return;
     }
     
@@ -50,6 +50,7 @@ export default function Current() {
       <WinnerBanner 
         winner={previousChallenge.winner} 
         theme={previousChallenge.theme}
+        onPlay={onPlaySong}
       />
 
       <PhaseInfo
@@ -65,7 +66,7 @@ export default function Current() {
             className="btn-submit"
             onClick={() => {
               if (!user) {
-                alert('Please login with Discord to submit a song!');
+                loginWithDiscord();
                 return;
               }
               setIsSubmitModalOpen(true);

@@ -1,7 +1,7 @@
 import React from "react";
 import { challengeHistory } from "../data/mockData";
 
-export default function History() {
+export default function History({ onPlaySong }) {
   return (
     <section className="page history-page">
       <h2>Challenge History</h2>
@@ -32,6 +32,18 @@ export default function History() {
                   {challenge.winner.votes} votes · {challenge.totalSubmissions} submissions
                 </div>
               </div>
+              <button 
+                className="history-play-btn"
+                onClick={() => onPlaySong && onPlaySong({
+                  ...challenge.winner,
+                  id: challenge.id,
+                  imageUrl: challenge.winner.imageUrl || 'https://via.placeholder.com/50',
+                  audioUrl: challenge.winner.audioUrl || 'https://cdn.suno.com/audio/mock.mp3'
+                })}
+                aria-label={`Play ${challenge.winner.title}`}
+              >
+                ▶
+              </button>
             </div>
           </div>
         ))}

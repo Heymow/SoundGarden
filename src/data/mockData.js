@@ -91,7 +91,10 @@ export const challengeHistory = [
     winner: {
       title: 'City of Shadows',
       participants: ['Grace', 'Henry'],
-      votes: 45
+      votes: 45,
+      imageUrl: 'https://cdn.suno.com/image/winner.jpg',
+      audioUrl: 'https://cdn.suno.com/audio/winner.mp3',
+      sunoUrl: 'https://suno.com/song/winner-mock-id'
     },
     totalSubmissions: 8
   },
@@ -104,7 +107,10 @@ export const challengeHistory = [
     winner: {
       title: 'Underwater Melody',
       participants: ['Ivy', 'Jack'],
-      votes: 38
+      votes: 38,
+      imageUrl: 'https://cdn.suno.com/image/ocean.jpg',
+      audioUrl: 'https://cdn.suno.com/audio/ocean.mp3',
+      sunoUrl: 'https://suno.com/song/ocean-mock-id'
     },
     totalSubmissions: 12
   },
@@ -117,7 +123,10 @@ export const challengeHistory = [
     winner: {
       title: 'Neon Nights',
       participants: ['Kate', 'Liam'],
-      votes: 41
+      votes: 41,
+      imageUrl: 'https://cdn.suno.com/image/neon.jpg',
+      audioUrl: 'https://cdn.suno.com/audio/neon.mp3',
+      sunoUrl: 'https://suno.com/song/neon-mock-id'
     },
     totalSubmissions: 10
   },
@@ -130,7 +139,10 @@ export const challengeHistory = [
     winner: {
       title: 'Whispers of the Woods',
       participants: ['Mia', 'Noah'],
-      votes: 36
+      votes: 36,
+      imageUrl: 'https://cdn.suno.com/image/forest.jpg',
+      audioUrl: 'https://cdn.suno.com/audio/forest.mp3',
+      sunoUrl: 'https://suno.com/song/forest-mock-id'
     },
     totalSubmissions: 9
   }
