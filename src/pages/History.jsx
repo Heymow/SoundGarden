@@ -1,19 +1,41 @@
 import React from "react";
+import { challengeHistory } from "../data/mockData";
 
 export default function History() {
   return (
     <section className="page history-page">
-      <h2>History</h2>
-      <p>Past collabs, winners, and archived sessions.</p>
+      <h2>Challenge History</h2>
+      <p className="history-intro">
+        Browse through past Collab Warz challenges and see who won each week!
+      </p>
 
-      <ul className="history-list">
-        <li>
-          <strong>Collab X</strong> — Winner: Team Alpha — Date: 2025-09-12
-        </li>
-        <li>
-          <strong>Collab Y</strong> — Winner: Team Beta — Date: 2025-08-04
-        </li>
-      </ul>
+      <div className="history-grid">
+        {challengeHistory.map(challenge => (
+          <div key={challenge.id} className="history-card">
+            <div className="history-card-header">
+              <h3>Week {challenge.weekNumber} - {challenge.year}</h3>
+              <span className="history-date">{new Date(challenge.endDate).toLocaleDateString()}</span>
+            </div>
+            
+            <div className="history-theme">
+              <strong>Theme:</strong> {challenge.theme}
+            </div>
+            
+            <div className="history-winner">
+              <div className="winner-icon">🏆</div>
+              <div className="winner-details">
+                <div className="winner-song">{challenge.winner.title}</div>
+                <div className="winner-team">
+                  {challenge.winner.participants.join(' & ')}
+                </div>
+                <div className="winner-stats">
+                  {challenge.winner.votes} votes · {challenge.totalSubmissions} submissions
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
