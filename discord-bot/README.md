@@ -5,16 +5,23 @@
 2. [Installation & Configuration](#installation--configuration)
 3. [Automatic Operation](#automatic-operation)
 4. [Automatic Voting System](#automatic-voting-system)
-5. [Members API Server](#members-api-server)
-6. [Frontend Integration](#frontend-integration)
+5. [API System](#api-system)
+   - [Public Frontend API](#public-frontend-api)
+   - [Admin Panel API](#admin-panel-api)
+   - [Members Directory API](#members-directory-api)
+6. [Frontend Development Guide](#frontend-development-guide)
 7. [Admin Commands](#admin-commands)
-8. [Confirmation System](#confirmation-system)
-9. [AI Theme Generation](#ai-theme-generation)
-10. [Week Management](#week-management)
-11. [Testing & Debugging](#testing--debugging)
-12. [Troubleshooting](#troubleshooting)
+8. [Competition Phase Management](#competition-phase-management)
+9. [Message Moderation System](#message-moderation-system)
+10. [Confirmation System](#confirmation-system)
+11. [AI Theme Generation](#ai-theme-generation)
+12. [Week Management](#week-management)
+13. [Testing & Debugging](#testing--debugging)
+14. [Troubleshooting](#troubleshooting)
 
 ---
+
+> 📚 **Complete Documentation**: This README contains all documentation including API guides, frontend examples, and implementation details previously in separate files (`PUBLIC_API.md`, `ADMIN_API.md`, `FRONTEND_CONFIG.md`).
 
 ## Overview
 
@@ -228,6 +235,673 @@ For emergencies only:
 
 ---
 
+## API System
+
+The Collab Warz bot provides a comprehensive REST API ecosystem enabling both **public user frontends** and **secure admin panels**. This allows complete separation between Discord functionality and web interfaces while maintaining real-time synchronization.
+
+### Quick Setup
+```bash
+[p]cw apiserver start                    # Start the API server
+[p]cw apiconfig cors https://yoursite.com # Configure CORS
+[p]cw admintoken generate               # Generate admin token (sent via DM)
+[p]cw testpublicapi                    # Test all endpoints
+```
+
+## Public Frontend API
+
+### Overview
+Provides comprehensive competition data access for building user frontends **without authentication required**.
+
+### Available Data
+- 📊 **Competition Status**: Current phase, theme, timeline, team count
+- 🎵 **Live Submissions**: Real-time submission list with member details
+- 🗳️ **Voting Results**: Live vote counts during voting phases
+- 📚 **Competition History**: Paginated historical data and winners
+- 🏆 **Leaderboard**: Member statistics, win rates, all-time rankings
+- 👥 **Member Directory**: Guild member list for team formation
+
+### API Endpoints
+
+#### GET `/api/public/status`
+Get current competition status and timeline
+
+**Response:**
+```json
+{
+    "competition": {
+        "phase": "submission",
+        "theme": "Synthwave Dreams", 
+        "week_cancelled": false,
+        "team_count": 12,
+        "week_start": "2025-10-28T00:00:00",
+        "week_end": "2025-11-03T20:00:00",
+        "voting_deadline": "2025-11-03T20:00:00"
+    },
+    "voting": {
+        "results": {"Team Alpha": 127, "Team Beta": 89},
+        "total_votes": 216
+    },
+    "next_events": {
+        "event": "voting_results",
+        "time": "2025-11-03T20:00:00", 
+        "description": "Voting results and winner announcement"
+    },
+    "guild_info": {
+        "name": "SoundGarden",
+        "member_count": 150
+    }
+}
+```
+
+#### GET `/api/public/submissions`
+Get current week submissions with member details
+
+**Response:**
+```json
+{
+    "competition": {
+        "theme": "Synthwave Dreams",
+        "phase": "submission",
+        "week": "2025-W44"
+    },
+    "submissions": [
+        {
+            "team_name": "Digital Dreams",
+            "track_url": "https://suno.com/song/abc123",
+            "members": [
+                {
+                    "id": "123456789",
+                    "username": "alice", 
+                    "display_name": "Alice Producer",
+                    "avatar_url": "https://cdn.discordapp.com/avatars/..."
+                }
+            ],
+            "submitted_at": "2025-11-01T14:22:00",
+            "vote_count": 45
+        }
+    ],
+    "count": 12
+}
+```
+
+#### GET `/api/public/voting`
+Get live voting results (available during voting phase)
+
+**Response:**
+```json
+{
+    "voting_available": true,
+    "phase": "voting",
+    "results": [
+        {
+            "team_name": "Digital Dreams",
+            "votes": 127,
+            "track_url": "https://suno.com/song/abc123", 
+            "members": [/* member details */],
+            "submitted_at": "2025-11-01T14:22:00"
+        }
+    ],
+    "total_votes": 423,
+    "voting_closed": false,
+    "week": "2025-W44"
+}
+```
+
+#### GET `/api/public/history?page=1&per_page=10`
+Get competition history with pagination
+
+**Response:**
+```json
+{
+    "history": {
+        "2025-W44": {
+            "theme": "Ambient Soundscapes",
+            "start_date": "2025-10-28T00:00:00",
+            "end_date": "2025-11-03T20:00:00",
+            "winner": {
+                "team_name": "Ethereal Echoes",
+                "members": ["Alice Producer", "Bob Beats"],
+                "votes": 156,
+                "track_url": "https://suno.com/song/def456"
+            },
+            "total_teams": 15,
+            "total_votes": 423,
+            "was_faceoff": false
+        }
+    },
+    "pagination": {
+        "page": 1, "per_page": 10, "total": 45, "pages": 5
+    }
+}
+```
+
+#### GET `/api/public/leaderboard` 
+Get member statistics and all-time rankings
+
+**Response:**
+```json
+{
+    "leaderboard": [
+        {
+            "member_name": "Alice Producer",
+            "wins": 8,
+            "participations": 15, 
+            "win_rate": 53.33,
+            "average_votes": 156.25,
+            "member_info": {
+                "id": "123456789",
+                "display_name": "Alice Producer",
+                "avatar_url": "https://cdn.discordapp.com/avatars/..."
+            }
+        }
+    ],
+    "statistics": {
+        "total_competitions": 45,
+        "total_participants": 89,
+        "average_teams_per_week": 12.4
+    }
+}
+```
+
+## Admin Panel API
+
+### Overview
+Secure administrative API for building admin panels with **Bearer token authentication**.
+
+### Security Features
+- 🔐 **Bearer Token Authentication** - Secure 32-byte random tokens
+- 📧 **DM Token Delivery** - Tokens sent privately via Discord
+- 🔄 **Token Management** - Generate, revoke, check status anytime
+- 🛡️ **CORS Protection** - Configurable allowed origins
+- 👤 **Admin-Only Access** - All endpoints require valid token
+
+### Authentication Setup
+```bash
+# Generate secure admin token (sent via DM)
+[p]cw admintoken generate
+
+# Check token status  
+[p]cw admintoken status
+
+# Revoke access
+[p]cw admintoken revoke
+```
+
+**Usage in requests:**
+```javascript
+headers: {
+    'Authorization': 'Bearer YOUR_TOKEN_HERE'
+}
+```
+
+### Admin Endpoints
+
+#### GET `/api/admin/config`
+Get current bot configuration
+
+**Response:**
+```json
+{
+    "guild": {"id": "123456789", "name": "SoundGarden"},
+    "config": {
+        "current_theme": "Synthwave Dreams",
+        "current_phase": "submission", 
+        "automation_enabled": true,
+        "auto_delete_messages": true,
+        "api_server_enabled": true,
+        "cors_origins": ["https://yoursite.com"]
+    }
+}
+```
+
+#### POST `/api/admin/config`
+Update bot configuration
+
+**Request:**
+```json
+{
+    "updates": {
+        "current_theme": "New Theme",
+        "auto_delete_messages": false,
+        "everyone_ping": true
+    }
+}
+```
+
+#### POST `/api/admin/actions`
+Execute administrative actions
+
+**Available Actions:**
+```json
+{"action": "set_phase", "params": {"phase": "voting"}}
+{"action": "set_theme", "params": {"theme": "New Theme"}}
+{"action": "start_new_week", "params": {"theme": "Fresh Start"}}
+{"action": "cancel_week", "params": {"reason": "Technical issues"}}
+{"action": "clear_submissions", "params": {}}
+{"action": "toggle_automation", "params": {}}
+```
+
+## Members Directory API
+
+### Overview
+Provides Discord guild member list for team formation and validation.
+
+#### GET `/api/members`
+Get guild member directory (optional authentication)
+
+**Response:**
+```json
+{
+    "guild": {
+        "id": "123456789",
+        "name": "SoundGarden", 
+        "member_count": 150
+    },
+    "members": [
+        {
+            "id": "987654321",
+            "username": "alice",
+            "display_name": "Alice Producer", 
+            "avatar_url": "https://cdn.discordapp.com/avatars/...",
+            "joined_at": "2024-01-15T10:30:00"
+        }
+    ]
+}
+```
+
+## Frontend Development Guide
+
+### React Hooks Examples
+
+#### Competition Status Hook
+```javascript
+import { useState, useEffect } from 'react';
+
+const useCompetitionStatus = () => {
+    const [status, setStatus] = useState(null);
+    const [loading, setLoading] = useState(true);
+    
+    const fetchStatus = async () => {
+        try {
+            const response = await fetch('/api/public/status');
+            const data = await response.json();
+            setStatus(data);
+        } catch (error) {
+            console.error('Status fetch failed:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchStatus();
+        const interval = setInterval(fetchStatus, 30000); // Poll every 30s
+        return () => clearInterval(interval);
+    }, []);
+
+    return { status, loading, refetch: fetchStatus };
+};
+
+// Usage
+const CompetitionBanner = () => {
+    const { status, loading } = useCompetitionStatus();
+    
+    if (loading) return <div>Loading...</div>;
+    if (!status) return null;
+
+    const { competition, next_events } = status;
+    
+    return (
+        <div className="competition-banner">
+            <h2>🎵 {competition.theme}</h2>
+            <p>Phase: <strong>{competition.phase}</strong></p>
+            <p>Teams: <strong>{competition.team_count}</strong></p>
+            {next_events && (
+                <p>Next: <strong>{next_events.description}</strong></p>
+            )}
+        </div>
+    );
+};
+```
+
+#### Submissions Hook
+```javascript
+const useSubmissions = () => {
+    const [submissions, setSubmissions] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchSubmissions = async () => {
+            try {
+                const response = await fetch('/api/public/submissions');
+                const data = await response.json();
+                setSubmissions(data.submissions || []);
+            } catch (error) {
+                console.error('Submissions fetch failed:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchSubmissions();
+    }, []);
+
+    return { submissions, loading };
+};
+
+// Usage
+const SubmissionsList = () => {
+    const { submissions, loading } = useSubmissions();
+
+    if (loading) return <div>Loading submissions...</div>;
+
+    return (
+        <div className="submissions-grid">
+            {submissions.map((submission, index) => (
+                <div key={index} className="submission-card">
+                    <h3>{submission.team_name}</h3>
+                    
+                    <div className="members">
+                        {submission.members.map(member => (
+                            <div key={member.id} className="member">
+                                <img 
+                                    src={member.avatar_url}
+                                    alt={member.display_name}
+                                    className="avatar"
+                                />
+                                <span>{member.display_name}</span>
+                            </div>
+                        ))}
+                    </div>
+                    
+                    <a href={submission.track_url} target="_blank" rel="noopener noreferrer">
+                        🎧 Listen on Suno
+                    </a>
+                    
+                    {submission.vote_count && (
+                        <div className="votes">❤️ {submission.vote_count} votes</div>
+                    )}
+                </div>
+            ))}
+        </div>
+    );
+};
+```
+
+#### Admin Panel Hook
+```javascript
+const useAdminAPI = (token) => {
+    const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+    };
+
+    const executeAction = async (action, params = {}) => {
+        const response = await fetch('/api/admin/actions', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ action, params })
+        });
+        return await response.json();
+    };
+
+    const updateConfig = async (updates) => {
+        const response = await fetch('/api/admin/config', {
+            method: 'POST',
+            headers, 
+            body: JSON.stringify({ updates })
+        });
+        return await response.json();
+    };
+
+    return { executeAction, updateConfig };
+};
+
+// Usage
+const AdminPanel = ({ token }) => {
+    const api = useAdminAPI(token);
+
+    const handlePhaseChange = async (newPhase) => {
+        try {
+            await api.executeAction('set_phase', { phase: newPhase });
+            alert(`Phase changed to ${newPhase}`);
+        } catch (error) {
+            alert(`Error: ${error.message}`);
+        }
+    };
+
+    return (
+        <div className="admin-panel">
+            <button onClick={() => handlePhaseChange('voting')}>
+                Start Voting
+            </button>
+            <button onClick={() => handlePhaseChange('paused')}>
+                Pause Competition
+            </button>
+        </div>
+    );
+};
+```
+
+### Environment Configuration
+```bash
+# .env file
+REACT_APP_BOT_API_URL=http://localhost:8080/api/public
+REACT_APP_MEMBERS_API_URL=http://localhost:8080/api/members
+REACT_APP_ADMIN_API_URL=http://localhost:8080/api/admin
+REACT_APP_ADMIN_TOKEN=your-admin-token-here
+
+# Polling intervals (milliseconds)
+REACT_APP_STATUS_POLL_INTERVAL=30000
+REACT_APP_VOTING_POLL_INTERVAL=15000
+```
+
+### Error Handling
+```javascript
+const handleAPIError = async (response) => {
+    if (!response.ok) {
+        const error = await response.json();
+        
+        switch (response.status) {
+            case 401:
+                // Redirect to login
+                window.location.href = '/login';
+                break;
+            case 403:
+                alert('Access denied. Check your token.');
+                break;
+            case 500:
+                alert('Server error. Please try again.');
+                break;
+            default:
+                alert(error.message || 'Unknown error occurred');
+        }
+        
+        throw new Error(error.message);
+    }
+    
+    return response.json();
+};
+```
+
+---
+
+## Message Moderation System
+
+### Overview
+The bot automatically moderates the submission channel to ensure clean, organized competition participation.
+
+### Automatic Actions
+
+#### ✅ **Valid Submissions**
+- **Thumbs up reaction** (👍) added to message
+- **Confirmation message** with team registration details
+- **Message preserved** in channel
+
+#### ❌ **Invalid Submissions** 
+- **Message deleted** (if auto-delete enabled)
+- **Error explanation** with specific guidance
+- **Resubmission instructions** provided
+
+#### 🚫 **Non-Submissions**
+- **Off-topic messages deleted** during submission phase  
+- **Explanation provided** about channel purpose
+- **Direction to appropriate channels**
+
+#### ⏰ **Wrong Phase Messages**
+- **Messages deleted** when submissions are closed
+- **Phase information** provided (voting/inactive)
+- **Clear timeline** for next submission window
+
+### Admin Exemptions
+**Admins bypass all restrictions:**
+- ✅ Can post any message anytime
+- ✅ Messages never deleted
+- ✅ No moderation applied
+
+### Configuration
+```bash
+[p]cw autodeletemsgs          # Toggle message deletion on/off
+[p]cw toggle                  # Enable/disable bot automation
+```
+
+**Default**: Auto-deletion enabled for clean channel management
+
+### Benefits
+- **Clean submission channel**: Only valid submissions remain
+- **Clear feedback**: Users get immediate guidance  
+- **Reduced admin work**: Automatic moderation and cleanup
+
+---
+
+## Competition Phase Management
+
+### Normal Competition Phases
+
+#### 📝 **Submission Phase**
+- Users can submit their collaborations
+- Valid song URLs accepted and processed
+- Team formation and registration available
+- All submission rules enforced
+
+#### 🗳️ **Voting Phase**  
+- Submissions closed, voting open on frontend
+- Late submissions may be accepted but not eligible for voting
+- Users directed to website for vote casting
+- Results processing begins
+
+#### 💤 **Inactive Phase**
+- No competition currently running (default state)
+- All submissions blocked
+- Users informed about next competition start
+- Configuration and setup can be performed
+
+### Competition Interruption Phases
+
+#### ⏸️ **Paused Phase**
+**When to use:** Technical issues, temporary admin absence, need to make adjustments
+- Competition temporarily halted
+- All progress and submissions preserved  
+- Can resume at any time with `[p]cw resume`
+- Clear communication about temporary nature
+
+#### ❌ **Cancelled Phase**  
+**When to use:** Major problems, unfair advantage discovered, insufficient participation
+- Current week completely cancelled
+- All submissions for the week are void
+- No voting or winner announcement
+- Fresh start available with `[p]cw nextweek`
+
+#### 🏁 **Ended Phase**
+**When to use:** Time constraints, early conclusion desired, manual intervention needed  
+- Week manually concluded by admin
+- Results finalized in current state
+- No more submissions or voting accepted
+- Can proceed to winner announcement or new week
+
+### What Happens During "Wrong Phase"
+
+When users try to submit outside the submission phase, their messages are automatically deleted with specific feedback:
+
+#### 🗳️ **During Voting Phase**
+```
+❌ Message deleted: Submissions are closed!
+🗳️ Voting is currently in progress
+⏰ New submissions open Monday
+🌐 Cast your vote at: [website]
+```
+
+#### ❌ **During Cancelled Phase**  
+```
+❌ Message deleted: Week cancelled!  
+🚫 This week's competition has been cancelled by admins
+📅 New competition starts next Monday
+💬 Check announcements for details
+```
+
+#### ⏸️ **During Paused Phase**
+```
+❌ Message deleted: Competition paused!
+⏸️ The competition is temporarily paused  
+⏰ Will resume soon - stay tuned!
+💬 Check announcements for updates
+```
+
+#### 🏁 **During Ended Phase**
+```
+❌ Message deleted: Week ended!
+🏁 This week's competition has concluded
+🏆 Results will be announced soon
+📅 New week starts Monday
+```
+
+#### 💤 **During Inactive Phase**
+```
+❌ Message deleted: No competition running!
+💤 No active competition at the moment
+📅 Competitions run Monday-Sunday  
+🔔 Follow announcements for next start
+```
+
+### Interruption Management Commands
+
+```bash
+[p]cw pause [reason]           # Pause competition temporarily
+[p]cw resume                   # Resume paused competition
+[p]cw cancelweek [reason]      # Cancel current week completely  
+[p]cw endweek [message]        # Manually end current week
+[p]cw setphase <phase>         # Set specific phase manually
+```
+
+### Phase Transition Examples
+
+**Temporary Technical Issue:**
+```bash
+[p]cw pause Server maintenance in progress
+# ... fix issues ...
+[p]cw resume
+```
+
+**Unfair Advantage Discovered:**  
+```bash
+[p]cw cancelweek Collaboration rules violated - restarting fair competition
+[p]cw nextweek
+```
+
+**Early Week Conclusion:**
+```bash  
+[p]cw endweek Amazing participation this week! Moving to voting early
+[p]cw setphase voting
+```
+
+### Admin Communication
+
+Each phase change includes:
+- 🎯 **Clear status announcement** with appropriate emoji
+- 📋 **Specific reason** (if provided)  
+- ⏭️ **Next steps information** for users
+- 📅 **Timeline expectations** when applicable
+
 ## Members API Server
 
 ### Overview
@@ -440,14 +1114,22 @@ async function fetchMembers() {
 [p]cw checkvotes               # Check current voting results
 ```
 
-### Members API Server
+### API Server Configuration
 ```bash
 [p]cw apiserver start/stop/status # Control API server
 [p]cw apiconfig port 8080        # Configure server port
 [p]cw apiconfig host 0.0.0.0     # Configure server host  
 [p]cw apiconfig token secret     # Set authentication token
 [p]cw apiconfig cors origins     # Set CORS allowed origins
-[p]cw testapi                   # Test server and show sample data
+[p]cw testapi                   # Test members API and show sample data
+[p]cw testpublicapi             # Test public API endpoints
+```
+
+### Admin Web Panel
+```bash
+[p]cw admintoken generate        # Generate secure admin token (sent via DM)
+[p]cw admintoken status          # Check current token status
+[p]cw admintoken revoke          # Revoke admin access
 ```
 
 ### URL Validation Testing
@@ -840,185 +1522,6 @@ Invalid submissions receive automatic error messages:
 - **Preferred method**: Users should use the website form for submissions
 - **Discord fallback**: Discord submissions with proper format are accepted
 - **Hybrid counting**: Bot counts both registered teams and raw message detection
-
----
-
-## Automatic Message Moderation
-
-### Overview
-The bot automatically moderates the submission channel to ensure clean, organized competition participation.
-
-### Automatic Actions
-
-#### ✅ **Valid Submissions**
-- **Thumbs up reaction** (👍) added to message
-- **Confirmation message** with team registration details
-- **Message preserved** in channel
-
-#### ❌ **Invalid Submissions** 
-- **Message deleted** (if auto-delete enabled)
-- **Error explanation** with specific guidance
-- **Resubmission instructions** provided
-
-#### 🚫 **Non-Submissions**
-- **Off-topic messages deleted** during submission phase  
-- **Explanation provided** about channel purpose
-- **Direction to appropriate channels**
-
-#### ⏰ **Wrong Phase Messages**
-- **Messages deleted** when submissions are closed
-- **Phase information** provided (voting/inactive)
-- **Clear timeline** for next submission window
-
-### Admin Exemptions
-**Admins bypass all restrictions:**
-- ✅ Can post any message anytime
-- ✅ Messages never deleted
-- ✅ No moderation applied
-
-### Configuration
-```bash
-[p]cw autodeletemsgs          # Toggle message deletion on/off
-[p]cw toggle                  # Enable/disable bot automation
-```
-
-**Default**: Auto-deletion enabled for clean channel management
-
-### Benefits
-- **Clean submission channel**: Only valid submissions remain
-- **Clear feedback**: Users get immediate guidance  
-- **Reduced admin work**: Automatic moderation and cleanup
-
----
-
-## Competition Phase Management
-
-### Normal Competition Phases
-
-#### 📝 **Submission Phase**
-- Users can submit their collaborations
-- Valid song URLs accepted and processed
-- Team formation and registration available
-- All submission rules enforced
-
-#### 🗳️ **Voting Phase**  
-- Submissions closed, voting open on frontend
-- Late submissions may be accepted but not eligible for voting
-- Users directed to website for vote casting
-- Results processing begins
-
-#### 💤 **Inactive Phase**
-- No competition currently running (default state)
-- All submissions blocked
-- Users informed about next competition start
-- Configuration and setup can be performed
-
-### Competition Interruption Phases
-
-#### ⏸️ **Paused Phase**
-**When to use:** Technical issues, temporary admin absence, need to make adjustments
-- Competition temporarily halted
-- All progress and submissions preserved  
-- Can resume at any time with `[p]cw resume`
-- Clear communication about temporary nature
-
-#### ❌ **Cancelled Phase**  
-**When to use:** Major problems, unfair advantage discovered, insufficient participation
-- Current week completely cancelled
-- All submissions for the week are void
-- No voting or winner announcement
-- Fresh start available with `[p]cw nextweek`
-
-#### 🏁 **Ended Phase**
-**When to use:** Time constraints, early conclusion desired, manual intervention needed  
-- Week manually concluded by admin
-- Results finalized in current state
-- No more submissions or voting accepted
-- Can proceed to winner announcement or new week
-
-### What Happens During "Wrong Phase"
-
-When users try to submit outside the submission phase, their messages are automatically deleted with specific feedback:
-
-#### 🗳️ **During Voting Phase**
-```
-❌ Message deleted: Submissions are closed!
-🗳️ Voting is currently in progress
-⏰ New submissions open Monday
-🌐 Cast your vote at: [website]
-```
-
-#### ❌ **During Cancelled Phase**  
-```
-❌ Message deleted: Week cancelled!  
-🚫 This week's competition has been cancelled by admins
-📅 New competition starts next Monday
-💬 Check announcements for details
-```
-
-#### ⏸️ **During Paused Phase**
-```
-❌ Message deleted: Competition paused!
-⏸️ The competition is temporarily paused  
-⏰ Will resume soon - stay tuned!
-💬 Check announcements for updates
-```
-
-#### 🏁 **During Ended Phase**
-```
-❌ Message deleted: Week ended!
-🏁 This week's competition has concluded
-🏆 Results will be announced soon
-📅 New week starts Monday
-```
-
-#### 💤 **During Inactive Phase**
-```
-❌ Message deleted: No competition running!
-💤 No active competition at the moment
-📅 Competitions run Monday-Sunday  
-🔔 Follow announcements for next start
-```
-
-### Interruption Management Commands
-
-```bash
-[p]cw pause [reason]           # Pause competition temporarily
-[p]cw resume                   # Resume paused competition
-[p]cw cancelweek [reason]      # Cancel current week completely  
-[p]cw endweek [message]        # Manually end current week
-[p]cw setphase <phase>         # Set specific phase manually
-```
-
-### Phase Transition Examples
-
-**Temporary Technical Issue:**
-```bash
-[p]cw pause Server maintenance in progress
-# ... fix issues ...
-[p]cw resume
-```
-
-**Unfair Advantage Discovered:**  
-```bash
-[p]cw cancelweek Collaboration rules violated - restarting fair competition
-[p]cw nextweek
-```
-
-**Early Week Conclusion:**
-```bash  
-[p]cw endweek Amazing participation this week! Moving to voting early
-[p]cw setphase voting
-```
-
-### Admin Communication
-
-Each phase change includes:
-- 🎯 **Clear status announcement** with appropriate emoji
-- 📋 **Specific reason** (if provided)  
-- ⏭️ **Next steps information** for users
-- 📅 **Timeline expectations** when applicable
-- **Better organization**: Focused competition environment
 
 ---
 

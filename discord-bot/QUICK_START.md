@@ -20,8 +20,9 @@ Follow the interactive wizard to configure your bot.
 
 ### 4. Minimal Configuration
 ```
-[p]cw setapi https://api.openai.com/v1 YOUR_API_KEY
-[p]cw setchannel CHANNEL_ID
+[p]cw setchannel #competition-channel
+[p]cw settheme "Your First Theme"
+[p]cw setphase submission
 [p]cw status
 ```
 
@@ -53,8 +54,13 @@ Follow the interactive wizard to configure your bot.
 | Command | Description |
 |---------|-------------|
 | `[p]cw status` | Complete bot status |
-| `[p]cw scheduler on/off` | Schedule control |
-| `[p]cw generatetheme` | New AI theme |
+| `[p]cw toggle` | Enable/disable automation |
+| `[p]cw settheme "New Theme"` | Set competition theme |
+| `[p]cw generatetheme` | Generate AI theme for next week |
+| `[p]cw setphase submission/voting` | Change phase manually |
+| `[p]cw pause [reason]` | Pause competition temporarily |
+| `[p]cw resume` | Resume paused competition |
+| `[p]cw nextweek` | Start new competition week |
 | `[p]cw setfrontendapi [url] [key]` | Configure voting API |
 | `[p]cw checkvotes` | Check current results |
 | `[p]cw declarewinner "Team" @user1 @user2` | 🚨 Manual override |
@@ -64,7 +70,7 @@ Follow the interactive wizard to configure your bot.
 |---------|-------------|
 | `[p]cw theme` | Current theme |
 | `[p]cw deadline` | Next deadline |
-| `[p]cw history` | Theme history |
+| `[p]cw history` | Competition history |
 | `[p]cw teams stats @user` | User statistics |
 
 ---
@@ -73,15 +79,15 @@ Follow the interactive wizard to configure your bot.
 
 ### Activation
 ```
-[p]cw scheduler on
+[p]cw toggle
 ```
 
 ### How it Works
-- **Friday 12:00 PM**: Voting phase starts
+- **Monday 9:00 AM**: New week starts with new theme
+- **Friday 12:00 PM**: Voting phase starts automatically
 - **Sunday 8:00 PM**: Winner determination from votes
-- **Sunday 9:00 PM**: Next theme generation
-- **Monday 9:00 AM**: New week starts (or Tuesday if face-off active)
-- **Auto-cancel**: If < 2 teams participating
+- **Auto-cancel**: If insufficient teams participating
+- **Message moderation**: Automatic cleanup of invalid submissions
 
 ### Face-off System
 - **Tie Detection**: Automatic 24-hour face-off
@@ -96,13 +102,16 @@ Follow the interactive wizard to configure your bot.
 ```
 Team name: My Amazing Team
 @partner here's our track!
-[SoundCloud/YouTube link]
+https://suno.com/song/your-track-id
 ```
 
-### Validation
-- Team name with "Team name:"
-- Partner mention (@)
-- Both members in same team
+### Validation & Restrictions
+- **Suno.com URLs ONLY**: Other platforms automatically rejected
+- Team name with "Team name:" prefix
+- Partner mention (@) required
+- Both members must be in Discord server
+- **Automatic moderation**: Invalid messages deleted with feedback
+- **Admin exemptions**: Admins can post anything anytime
 
 ---
 
@@ -154,6 +163,28 @@ Team name: My Amazing Team
 
 ---
 
+## API Server & Frontend Integration
+
+### API Setup
+```
+[p]cw apiserver start           # Start API server
+[p]cw apiconfig cors https://yoursite.com  # Configure CORS
+[p]cw testpublicapi            # Test all endpoints
+```
+
+### Admin Panel Setup
+```
+[p]cw admintoken generate       # Generate secure token (sent via DM)
+[p]cw admintoken status        # Check token status
+```
+
+### Available APIs
+- **Public API**: Competition data, submissions, voting results, history, leaderboard
+- **Admin API**: Secure management, configuration updates, remote actions
+- **Members API**: Guild member directory for team formation
+
+---
+
 ## Team Management
 
 ### Team Search
@@ -173,20 +204,27 @@ Team name: My Amazing Team
 
 ## Quick Troubleshooting
 
-### ❌ Themes not generating
-**Cause**: API not configured
+### ❌ Themes not generating  
+**Cause**: AI API not configured
 **Solution**: 
 ```
-[p]cw setapi https://api.openai.com/v1 YOUR_KEY
+[p]cw setai https://api.openai.com/v1 YOUR_KEY
 [p]cw generatetheme
 ```
 
-### ❌ Scheduler inactive
-**Cause**: No channel configured
+### ❌ Automation inactive
+**Cause**: No channel or automation disabled
 **Solution**:
 ```
-[p]cw setchannel CHANNEL_ID
-[p]cw scheduler on
+[p]cw setchannel #competition-channel
+[p]cw toggle
+```
+
+### ❌ Messages not being moderated
+**Cause**: Auto-delete disabled
+**Solution**:
+```
+[p]cw autodeletemsgs
 ```
 
 ### ❌ Rep not distributed
@@ -197,34 +235,55 @@ Team name: My Amazing Team
 ```
 
 ### ❌ Teams not validated
-**Cause**: Incorrect Discord format
-**Solution**: Use exact format:
+**Cause**: Invalid submission format or non-Suno URL
+**Solution**: Use exact format with Suno URL:
 ```
 Team name: Team Name
 @partner our submission
+https://suno.com/song/track-id
+```
+
+### ❌ API endpoints not working
+**Cause**: API server not started
+**Solution**:
+```
+[p]cw apiserver start
+[p]cw testpublicapi
 ```
 
 ---
 
 ## Advanced Configuration
 
+### AI Theme Generation
+```
+[p]cw setai https://api.openai.com/v1 YOUR_API_KEY
+[p]cw generatetheme         # Generate theme for next week
+[p]cw confirmtheme         # Confirm pending AI theme
+[p]cw denytheme           # Reject AI theme
+```
+
 ### Alternative AI Models
 ```
-[p]cw setapi https://api.anthropic.com/v1 CLAUDE_KEY
-[p]cw setmodel claude-3-haiku-20240307
+[p]cw setai https://api.anthropic.com/v1 CLAUDE_KEY claude-3-haiku
+[p]cw aimodel gpt-4
+[p]cw aitemp 0.8
+[p]cw aitokens 150
 ```
 
 ### Competition Settings
 ```
-[p]cw minteams 3              # Minimum 3 teams
-[p]cw togglevalidation        # Disable Discord validation
-[p]cw toggleping             # Disable @everyone
+[p]cw everyone               # Toggle @everyone pings
+[p]cw autodeletemsgs        # Toggle message auto-deletion
+[p]cw confirmation          # Enable admin confirmations
 ```
 
-### Custom Schedules
+### Phase Management
 ```
-[p]cw setschedule friday 18:00    # End Friday 6 PM
-[p]cw setschedule sunday 12:00    # Theme Sunday 12 PM
+[p]cw pause Technical issues detected
+[p]cw resume
+[p]cw cancelweek Competition rules violated
+[p]cw endweek Great participation this week
 ```
 
 ---
@@ -233,14 +292,15 @@ Team name: Team Name
 
 ### 📁 Important Files
 - `collabwarz.py` - Main bot code
-- `README.md` - Complete documentation  
-- `config_example.json` - Example configuration
-- `test_yagpdb_rewards.py` - System tests
+- `README.md` - **Complete documentation with ALL API guides**
+- `info.json` - Cog metadata
+- `requirements.txt` - Python dependencies
 
 ### 🔗 Useful Links
 - [Red-DiscordBot Docs](https://docs.discord.red/)
 - [YAGPDB Commands](https://docs.yagpdb.xyz/)
 - [OpenAI API](https://platform.openai.com/docs)
+- [Suno.com](https://suno.com/) - Required platform for submissions
 
 ### 📞 Help
 1. Check `[p]cw status` for diagnostics
@@ -251,16 +311,32 @@ Team name: Team Name
 
 ## ✅ Deployment Checklist
 
+### Basic Setup
 - [ ] Red-DiscordBot installed and working
 - [ ] Python dependencies installed (`aiohttp`)
-- [ ] Cog `collabwarz.py` loaded
-- [ ] AI API configured and tested
-- [ ] Competition channel configured
-- [ ] YAGPDB installed with rep system
-- [ ] Admin channel configured for YAGPDB
-- [ ] Correct bot permissions
-- [ ] Complete test with `[p]cw status`
-- [ ] Scheduler activated
-- [ ] First theme generated
+- [ ] Cog `collabwarz.py` loaded successfully
+- [ ] Competition channel configured with `[p]cw setchannel`
+- [ ] Initial theme set with `[p]cw settheme`
+- [ ] Correct bot permissions (Manage Messages, Add Reactions)
 
-🎉 **Your Collab Warz bot is operational!**
+### Optional Features
+- [ ] AI API configured for theme generation (`[p]cw setai`)
+- [ ] Frontend API configured for voting (`[p]cw setfrontendapi`)
+- [ ] API server started for web integrations (`[p]cw apiserver start`)
+- [ ] Admin token generated for web panel (`[p]cw admintoken generate`)
+- [ ] YAGPDB integration for rep rewards
+- [ ] Admin confirmations enabled (`[p]cw confirmation`)
+
+### Final Tests
+- [ ] Complete status check: `[p]cw status`
+- [ ] Automation enabled: `[p]cw toggle`
+- [ ] Test submission format validation
+- [ ] Test message moderation system
+- [ ] API endpoints working: `[p]cw testpublicapi`
+
+🎉 **Your Collab Warz bot is ready for competitions!**
+
+### Next Steps
+1. **For Users**: Share submission format and Suno.com requirement
+2. **For Developers**: Use README.md for complete API documentation
+3. **For Admins**: Configure frontend voting system integration

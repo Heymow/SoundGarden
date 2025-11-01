@@ -284,6 +284,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         now = datetime.now()
         return f"{now.year}-W{now.isocalendar()[1]}"
     
+    def _get_current_week(self) -> str:
+        """Get current week identifier (alias for _get_current_week_key for consistency)"""
+        return self._get_current_week_key()
+    
     async def _is_team_already_submitted(self, guild, team_name: str, user_id: int, partner_id: int) -> dict:
         """Check if team or members already submitted this week"""
         week_key = self._get_current_week_key()
@@ -375,6 +379,23 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             # Define API routes
             app.router.add_get('/api/members', self._handle_members_request)
             app.router.add_options('/api/members', self._handle_options_request)
+            
+            # Public API routes (for frontend users)
+            app.router.add_get('/api/public/status', self._handle_public_status)
+            app.router.add_get('/api/public/submissions', self._handle_public_submissions)
+            app.router.add_get('/api/public/history', self._handle_public_history)
+            app.router.add_get('/api/public/voting', self._handle_public_voting)
+            app.router.add_get('/api/public/leaderboard', self._handle_public_leaderboard)
+            app.router.add_options('/api/public/{path:.*}', self._handle_options_request)
+            
+            # Admin API routes
+            app.router.add_get('/api/admin/config', self._handle_admin_config_get)
+            app.router.add_post('/api/admin/config', self._handle_admin_config_post)
+            app.router.add_get('/api/admin/status', self._handle_admin_status)
+            app.router.add_get('/api/admin/submissions', self._handle_admin_submissions)
+            app.router.add_get('/api/admin/history', self._handle_admin_history)
+            app.router.add_post('/api/admin/actions', self._handle_admin_actions)
+            app.router.add_options('/api/admin/{path:.*}', self._handle_options_request)
             
             return app
             
@@ -469,6 +490,728 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         except Exception as e:
             print(f"Error getting guild members: {e}")
             return []
+    
+    async def _validate_admin_auth(self, request):
+        """Validate admin authentication for API requests"""
+        try:
+            # Find the guild for this request
+            guild = None
+            for g in self.bot.guilds:
+                api_enabled = await self.config.guild(g).api_server_enabled()
+                if api_enabled:
+                    guild = g
+                    break
+            
+            if not guild:
+                return None, web.json_response({"error": "API not enabled"}, status=503)
+            
+            # Check authentication (required for admin endpoints)
+            auth_token = await self.config.guild(guild).api_access_token()
+            if not auth_token:
+                return None, web.json_response({"error": "Admin API requires authentication"}, status=401)
+            
+            auth_header = request.headers.get('Authorization', '')
+            if not auth_header.startswith('Bearer '):
+                return None, web.json_response({"error": "Missing authorization header"}, status=401)
+            
+            provided_token = auth_header[7:]  # Remove 'Bearer ' prefix
+            if provided_token != auth_token:
+                return None, web.json_response({"error": "Invalid token"}, status=403)
+            
+            return guild, None
+            
+        except Exception as e:
+            print(f"Error validating admin auth: {e}")
+            return None, web.json_response({"error": "Authentication error"}, status=500)
+    
+    async def _handle_admin_config_get(self, request):
+        """Get current bot configuration for admin panel"""
+        guild, error_response = await self._validate_admin_auth(request)
+        if error_response:
+            return error_response
+        
+        try:
+            config = await self.config.guild(guild).all()
+            
+            # Sanitize sensitive data
+            safe_config = config.copy()
+            if 'api_access_token' in safe_config:
+                safe_config['api_access_token'] = "***HIDDEN***" if safe_config['api_access_token'] else None
+            if 'frontend_api_key' in safe_config:
+                safe_config['frontend_api_key'] = "***HIDDEN***" if safe_config['frontend_api_key'] else None
+            
+            return web.json_response({
+                "guild": {
+                    "id": str(guild.id),
+                    "name": guild.name,
+                    "member_count": guild.member_count
+                },
+                "config": safe_config,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting admin config: {e}")
+            return web.json_response({"error": "Failed to get configuration"}, status=500)
+    
+    async def _handle_admin_config_post(self, request):
+        """Update bot configuration from admin panel"""
+        guild, error_response = await self._validate_admin_auth(request)
+        if error_response:
+            return error_response
+        
+        try:
+            data = await request.json()
+            updates = data.get('updates', {})
+            
+            # Define allowed configuration updates
+            allowed_updates = {
+                'current_theme': str,
+                'current_phase': str,
+                'automation_enabled': bool,
+                'everyone_ping': bool,
+                'auto_delete_messages': bool,
+                'api_server_enabled': bool,
+                'api_port': int,
+                'cors_origins': list,
+                'frontend_api_url': str,
+                'ai_api_url': str,
+                'ai_model': str
+            }
+            
+            applied_updates = {}
+            
+            for key, value in updates.items():
+                if key in allowed_updates:
+                    expected_type = allowed_updates[key]
+                    
+                    # Type validation
+                    if expected_type == bool and isinstance(value, bool):
+                        await self.config.guild(guild).set_raw(key, value=value)
+                        applied_updates[key] = value
+                    elif expected_type == str and isinstance(value, str):
+                        await self.config.guild(guild).set_raw(key, value=value)
+                        applied_updates[key] = value
+                    elif expected_type == int and isinstance(value, int):
+                        await self.config.guild(guild).set_raw(key, value=value)
+                        applied_updates[key] = value
+                    elif expected_type == list and isinstance(value, list):
+                        await self.config.guild(guild).set_raw(key, value=value)
+                        applied_updates[key] = value
+            
+            return web.json_response({
+                "success": True,
+                "applied_updates": applied_updates,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error updating admin config: {e}")
+            return web.json_response({"error": "Failed to update configuration"}, status=500)
+    
+    async def _handle_admin_status(self, request):
+        """Get current competition status for admin panel"""
+        guild, error_response = await self._validate_admin_auth(request)
+        if error_response:
+            return error_response
+        
+        try:
+            current_phase = await self.config.guild(guild).current_phase()
+            current_theme = await self.config.guild(guild).current_theme()
+            automation_enabled = await self.config.guild(guild).automation_enabled()
+            week_cancelled = await self.config.guild(guild).week_cancelled()
+            
+            # Get submission stats
+            submissions = await self.config.guild(guild).submissions()
+            team_count = len(submissions)
+            
+            # Get voting results if available
+            voting_results = None
+            try:
+                frontend_api_url = await self.config.guild(guild).frontend_api_url()
+                if frontend_api_url:
+                    # Try to fetch current voting results
+                    current_week = self._get_current_week()
+                    voting_results = await self._fetch_voting_results(frontend_api_url, current_week, guild)
+            except:
+                pass
+            
+            status = {
+                "phase": current_phase,
+                "theme": current_theme,
+                "automation_enabled": automation_enabled,
+                "week_cancelled": week_cancelled,
+                "team_count": team_count,
+                "voting_results": voting_results,
+                "next_phase_change": self._get_next_phase_time(),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            return web.json_response(status)
+            
+        except Exception as e:
+            print(f"Error getting admin status: {e}")
+            return web.json_response({"error": "Failed to get status"}, status=500)
+    
+    async def _handle_admin_submissions(self, request):
+        """Get current submissions for admin panel"""
+        guild, error_response = await self._validate_admin_auth(request)
+        if error_response:
+            return error_response
+        
+        try:
+            submissions = await self.config.guild(guild).submissions()
+            
+            # Enrich submissions with member data
+            enriched_submissions = []
+            for team_name, submission in submissions.items():
+                members_info = []
+                
+                for member_id in submission.get('members', []):
+                    member = guild.get_member(int(member_id))
+                    if member:
+                        members_info.append({
+                            "id": str(member.id),
+                            "username": member.name,
+                            "display_name": member.display_name,
+                            "avatar_url": str(member.display_avatar.url) if member.display_avatar else None
+                        })
+                
+                enriched_submission = {
+                    "team_name": team_name,
+                    "track_url": submission.get('track_url'),
+                    "members": members_info,
+                    "submitted_at": submission.get('submitted_at'),
+                    "message_id": submission.get('message_id')
+                }
+                
+                enriched_submissions.append(enriched_submission)
+            
+            # Sort by submission time
+            enriched_submissions.sort(key=lambda x: x.get('submitted_at', ''), reverse=True)
+            
+            return web.json_response({
+                "submissions": enriched_submissions,
+                "count": len(enriched_submissions),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting admin submissions: {e}")
+            return web.json_response({"error": "Failed to get submissions"}, status=500)
+    
+    async def _handle_admin_history(self, request):
+        """Get competition history for admin panel"""
+        guild, error_response = await self._validate_admin_auth(request)
+        if error_response:
+            return error_response
+        
+        try:
+            history = await self.config.guild(guild).competition_history()
+            
+            # Get pagination parameters
+            page = int(request.query.get('page', 1))
+            per_page = int(request.query.get('per_page', 20))
+            
+            # Sort by date (most recent first)
+            sorted_history = sorted(history.items(), key=lambda x: x[1].get('end_date', ''), reverse=True)
+            
+            # Paginate
+            start_idx = (page - 1) * per_page
+            end_idx = start_idx + per_page
+            paginated_history = sorted_history[start_idx:end_idx]
+            
+            return web.json_response({
+                "history": dict(paginated_history),
+                "pagination": {
+                    "page": page,
+                    "per_page": per_page,
+                    "total": len(sorted_history),
+                    "pages": (len(sorted_history) + per_page - 1) // per_page
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting admin history: {e}")
+            return web.json_response({"error": "Failed to get history"}, status=500)
+    
+    async def _handle_admin_actions(self, request):
+        """Handle admin actions from the web panel"""
+        guild, error_response = await self._validate_admin_auth(request)
+        if error_response:
+            return error_response
+        
+        try:
+            data = await request.json()
+            action = data.get('action')
+            params = data.get('params', {})
+            
+            result = {"success": False, "message": "Unknown action"}
+            
+            if action == "set_phase":
+                phase = params.get('phase')
+                if phase in ['submission', 'voting', 'paused', 'cancelled', 'ended', 'inactive']:
+                    await self.config.guild(guild).current_phase.set(phase)
+                    result = {"success": True, "message": f"Phase set to {phase}"}
+                else:
+                    result = {"success": False, "message": "Invalid phase"}
+            
+            elif action == "set_theme":
+                theme = params.get('theme', '').strip()
+                if theme:
+                    await self.config.guild(guild).current_theme.set(theme)
+                    result = {"success": True, "message": f"Theme set to: {theme}"}
+                else:
+                    result = {"success": False, "message": "Theme cannot be empty"}
+            
+            elif action == "start_new_week":
+                theme = params.get('theme', '').strip()
+                if theme:
+                    await self.config.guild(guild).current_theme.set(theme)
+                    await self.config.guild(guild).current_phase.set('submission')
+                    await self.config.guild(guild).week_cancelled.set(False)
+                    await self.config.guild(guild).submissions.clear()
+                    result = {"success": True, "message": f"New week started with theme: {theme}"}
+                else:
+                    result = {"success": False, "message": "Theme required for new week"}
+            
+            elif action == "cancel_week":
+                reason = params.get('reason', 'Admin cancelled')
+                await self.config.guild(guild).current_phase.set('cancelled')
+                await self.config.guild(guild).week_cancelled.set(True)
+                result = {"success": True, "message": f"Week cancelled: {reason}"}
+            
+            elif action == "clear_submissions":
+                await self.config.guild(guild).submissions.clear()
+                result = {"success": True, "message": "All submissions cleared"}
+            
+            elif action == "toggle_automation":
+                current = await self.config.guild(guild).automation_enabled()
+                await self.config.guild(guild).automation_enabled.set(not current)
+                status = "enabled" if not current else "disabled"
+                result = {"success": True, "message": f"Automation {status}"}
+            
+            else:
+                result = {"success": False, "message": f"Unknown action: {action}"}
+            
+            result["timestamp"] = datetime.utcnow().isoformat()
+            return web.json_response(result)
+            
+        except Exception as e:
+            print(f"Error handling admin action: {e}")
+            return web.json_response({"error": "Failed to execute action"}, status=500)
+    
+    def _get_next_phase_time(self):
+        """Calculate when the next automated phase change will occur"""
+        try:
+            now = datetime.now()
+            
+            # Monday 00:00 - New week starts (submission phase)
+            days_until_monday = (7 - now.weekday()) % 7
+            if days_until_monday == 0 and now.hour >= 0:
+                days_until_monday = 7
+            next_monday = (now + timedelta(days=days_until_monday)).replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            # Sunday 20:00 - Voting results
+            days_until_sunday = (6 - now.weekday()) % 7
+            if days_until_sunday == 0 and now.hour >= 20:
+                days_until_sunday = 7
+            next_sunday_voting = (now + timedelta(days=days_until_sunday)).replace(hour=20, minute=0, second=0, microsecond=0)
+            
+            # Return the next upcoming event
+            if next_sunday_voting < next_monday:
+                return {
+                    "event": "voting_results",
+                    "time": next_sunday_voting.isoformat(),
+                    "description": "Voting results and winner announcement"
+                }
+            else:
+                return {
+                    "event": "new_week",
+                    "time": next_monday.isoformat(),
+                    "description": "New competition week starts"
+                }
+                
+        except Exception as e:
+            print(f"Error calculating next phase time: {e}")
+            return None
+    
+    async def _handle_public_status(self, request):
+        """Get current competition status for frontend users"""
+        try:
+            # Find the guild for this request (no auth required for public endpoints)
+            guild = None
+            for g in self.bot.guilds:
+                api_enabled = await self.config.guild(g).api_server_enabled()
+                if api_enabled:
+                    guild = g
+                    break
+            
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            current_phase = await self.config.guild(guild).current_phase()
+            current_theme = await self.config.guild(guild).current_theme()
+            week_cancelled = await self.config.guild(guild).week_cancelled()
+            
+            # Get submission stats
+            submissions = await self.config.guild(guild).submissions()
+            team_count = len(submissions)
+            
+            # Calculate competition timeline
+            now = datetime.now()
+            week_start = now - timedelta(days=now.weekday())  # Monday
+            week_end = week_start + timedelta(days=6, hours=20)  # Sunday 20:00
+            
+            # Get voting results if available
+            voting_results = None
+            try:
+                frontend_api_url = await self.config.guild(guild).frontend_api_url()
+                if frontend_api_url and current_phase == "voting":
+                    current_week = self._get_current_week()
+                    voting_results = await self._fetch_voting_results(frontend_api_url, current_week, guild)
+            except:
+                pass
+            
+            status = {
+                "competition": {
+                    "phase": current_phase,
+                    "theme": current_theme,
+                    "week_cancelled": week_cancelled,
+                    "team_count": team_count,
+                    "week_start": week_start.isoformat(),
+                    "week_end": week_end.isoformat(),
+                    "voting_deadline": week_end.isoformat()
+                },
+                "voting": voting_results,
+                "next_events": self._get_next_phase_time(),
+                "guild_info": {
+                    "name": guild.name,
+                    "member_count": guild.member_count
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            return web.json_response(status)
+            
+        except Exception as e:
+            print(f"Error getting public status: {e}")
+            return web.json_response({"error": "Failed to get status"}, status=500)
+    
+    async def _handle_public_submissions(self, request):
+        """Get current week submissions for frontend users"""
+        try:
+            guild = None
+            for g in self.bot.guilds:
+                api_enabled = await self.config.guild(g).api_server_enabled()
+                if api_enabled:
+                    guild = g
+                    break
+            
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            submissions = await self.config.guild(guild).submissions()
+            current_theme = await self.config.guild(guild).current_theme()
+            current_phase = await self.config.guild(guild).current_phase()
+            
+            # Enrich submissions with member data and voting info
+            enriched_submissions = []
+            for team_name, submission in submissions.items():
+                members_info = []
+                
+                for member_id in submission.get('members', []):
+                    member = guild.get_member(int(member_id))
+                    if member:
+                        members_info.append({
+                            "id": str(member.id),
+                            "username": member.name,
+                            "display_name": member.display_name,
+                            "avatar_url": str(member.display_avatar.url) if member.display_avatar else None
+                        })
+                
+                # Get vote count if available
+                vote_count = None
+                try:
+                    frontend_api_url = await self.config.guild(guild).frontend_api_url()
+                    if frontend_api_url:
+                        current_week = self._get_current_week()
+                        voting_results = await self._fetch_voting_results(frontend_api_url, current_week, guild)
+                        if voting_results and 'results' in voting_results:
+                            vote_count = voting_results['results'].get(team_name, 0)
+                except:
+                    pass
+                
+                enriched_submission = {
+                    "team_name": team_name,
+                    "track_url": submission.get('track_url'),
+                    "members": members_info,
+                    "submitted_at": submission.get('submitted_at'),
+                    "vote_count": vote_count
+                }
+                
+                enriched_submissions.append(enriched_submission)
+            
+            # Sort by submission time
+            enriched_submissions.sort(key=lambda x: x.get('submitted_at', ''), reverse=False)
+            
+            return web.json_response({
+                "competition": {
+                    "theme": current_theme,
+                    "phase": current_phase,
+                    "week": self._get_current_week()
+                },
+                "submissions": enriched_submissions,
+                "count": len(enriched_submissions),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting public submissions: {e}")
+            return web.json_response({"error": "Failed to get submissions"}, status=500)
+    
+    async def _handle_public_history(self, request):
+        """Get competition history for frontend users"""
+        try:
+            guild = None
+            for g in self.bot.guilds:
+                api_enabled = await self.config.guild(g).api_server_enabled()
+                if api_enabled:
+                    guild = g
+                    break
+            
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            history = await self.config.guild(guild).competition_history()
+            
+            # Get pagination parameters
+            page = int(request.query.get('page', 1))
+            per_page = int(request.query.get('per_page', 10))
+            
+            # Sort by date (most recent first)
+            sorted_history = sorted(history.items(), key=lambda x: x[1].get('end_date', ''), reverse=True)
+            
+            # Paginate
+            start_idx = (page - 1) * per_page
+            end_idx = start_idx + per_page
+            paginated_history = sorted_history[start_idx:end_idx]
+            
+            # Enrich history with additional stats
+            enriched_history = {}
+            for week_id, week_data in paginated_history:
+                enriched_week = week_data.copy()
+                
+                # Add calculated stats
+                if 'winner' in week_data and 'total_votes' in week_data:
+                    enriched_week['participation_rate'] = week_data.get('total_teams', 0)
+                    enriched_week['average_votes_per_team'] = (
+                        week_data['total_votes'] / week_data['total_teams'] 
+                        if week_data.get('total_teams', 0) > 0 else 0
+                    )
+                
+                enriched_history[week_id] = enriched_week
+            
+            return web.json_response({
+                "history": enriched_history,
+                "pagination": {
+                    "page": page,
+                    "per_page": per_page,
+                    "total": len(sorted_history),
+                    "pages": (len(sorted_history) + per_page - 1) // per_page
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting public history: {e}")
+            return web.json_response({"error": "Failed to get history"}, status=500)
+    
+    async def _handle_public_voting(self, request):
+        """Get current voting results for frontend users"""
+        try:
+            guild = None
+            for g in self.bot.guilds:
+                api_enabled = await self.config.guild(g).api_server_enabled()
+                if api_enabled:
+                    guild = g
+                    break
+            
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            current_phase = await self.config.guild(guild).current_phase()
+            
+            # Only show voting results during voting phase or after
+            if current_phase not in ['voting', 'ended']:
+                return web.json_response({
+                    "voting_available": False,
+                    "phase": current_phase,
+                    "message": "Voting results not available in current phase",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            
+            # Get voting results from frontend API
+            voting_results = None
+            try:
+                frontend_api_url = await self.config.guild(guild).frontend_api_url()
+                if frontend_api_url:
+                    current_week = self._get_current_week()
+                    voting_results = await self._fetch_voting_results(frontend_api_url, current_week, guild)
+            except Exception as e:
+                print(f"Error fetching voting results: {e}")
+            
+            if not voting_results:
+                return web.json_response({
+                    "voting_available": False,
+                    "phase": current_phase,
+                    "message": "Voting results not available yet",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            
+            # Enrich with submission details
+            submissions = await self.config.guild(guild).submissions()
+            enriched_results = []
+            
+            for team_name, votes in voting_results.get('results', {}).items():
+                submission = submissions.get(team_name, {})
+                
+                # Get member info
+                members_info = []
+                for member_id in submission.get('members', []):
+                    member = guild.get_member(int(member_id))
+                    if member:
+                        members_info.append({
+                            "id": str(member.id),
+                            "username": member.name,
+                            "display_name": member.display_name,
+                            "avatar_url": str(member.display_avatar.url) if member.display_avatar else None
+                        })
+                
+                enriched_results.append({
+                    "team_name": team_name,
+                    "votes": votes,
+                    "track_url": submission.get('track_url'),
+                    "members": members_info,
+                    "submitted_at": submission.get('submitted_at')
+                })
+            
+            # Sort by votes (descending)
+            enriched_results.sort(key=lambda x: x['votes'], reverse=True)
+            
+            return web.json_response({
+                "voting_available": True,
+                "phase": current_phase,
+                "results": enriched_results,
+                "total_votes": voting_results.get('total_votes', 0),
+                "voting_closed": voting_results.get('voting_closed', False),
+                "week": self._get_current_week(),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting public voting: {e}")
+            return web.json_response({"error": "Failed to get voting results"}, status=500)
+    
+    async def _handle_public_leaderboard(self, request):
+        """Get overall leaderboard and statistics for frontend users"""
+        try:
+            guild = None
+            for g in self.bot.guilds:
+                api_enabled = await self.config.guild(g).api_server_enabled()
+                if api_enabled:
+                    guild = g
+                    break
+            
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            history = await self.config.guild(guild).competition_history()
+            
+            # Calculate member statistics
+            member_stats = {}
+            total_competitions = 0
+            total_participants = set()
+            
+            for week_id, week_data in history.items():
+                if 'winner' not in week_data:
+                    continue
+                    
+                total_competitions += 1
+                
+                # Track winner stats
+                winner = week_data['winner']
+                if 'members' in winner:
+                    for member_name in winner['members']:
+                        if member_name not in member_stats:
+                            member_stats[member_name] = {
+                                'wins': 0,
+                                'participations': 0,
+                                'total_votes': 0,
+                                'member_name': member_name
+                            }
+                        member_stats[member_name]['wins'] += 1
+                        member_stats[member_name]['total_votes'] += winner.get('votes', 0)
+                        total_participants.add(member_name)
+                
+                # Track all participants (from submissions if available)
+                if 'all_submissions' in week_data:
+                    for submission in week_data['all_submissions']:
+                        if 'members' in submission:
+                            for member_name in submission['members']:
+                                total_participants.add(member_name)
+                                if member_name not in member_stats:
+                                    member_stats[member_name] = {
+                                        'wins': 0,
+                                        'participations': 0,
+                                        'total_votes': 0,
+                                        'member_name': member_name
+                                    }
+                                member_stats[member_name]['participations'] += 1
+            
+            # Calculate win rates and sort
+            leaderboard = []
+            for member_name, stats in member_stats.items():
+                stats['win_rate'] = (stats['wins'] / stats['participations'] * 100) if stats['participations'] > 0 else 0
+                stats['average_votes'] = (stats['total_votes'] / stats['wins']) if stats['wins'] > 0 else 0
+                
+                # Try to get current Discord member info
+                member_info = None
+                for member in guild.members:
+                    if member.display_name == member_name or member.name == member_name:
+                        member_info = {
+                            "id": str(member.id),
+                            "username": member.name,
+                            "display_name": member.display_name,
+                            "avatar_url": str(member.display_avatar.url) if member.display_avatar else None
+                        }
+                        break
+                
+                stats['member_info'] = member_info
+                leaderboard.append(stats)
+            
+            # Sort by wins, then by win rate
+            leaderboard.sort(key=lambda x: (x['wins'], x['win_rate']), reverse=True)
+            
+            # Get recent activity (last 5 competitions)
+            recent_competitions = sorted(history.items(), key=lambda x: x[1].get('end_date', ''), reverse=True)[:5]
+            
+            return web.json_response({
+                "leaderboard": leaderboard[:50],  # Top 50
+                "statistics": {
+                    "total_competitions": total_competitions,
+                    "total_participants": len(total_participants),
+                    "average_teams_per_week": sum(w.get('total_teams', 0) for w in history.values()) / len(history) if history else 0,
+                    "average_votes_per_week": sum(w.get('total_votes', 0) for w in history.values()) / len(history) if history else 0
+                },
+                "recent_competitions": dict(recent_competitions),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting public leaderboard: {e}")
+            return web.json_response({"error": "Failed to get leaderboard"}, status=500)
     
     async def _start_api_server_task(self, guild):
         """Start the API server as a background task"""
@@ -3465,6 +4208,239 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 value=f"Failed to get member data: {str(e)}",
                 inline=False
             )
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="admintoken")
+    async def generate_admin_token(self, ctx, action: str = "generate"):
+        """Generate or revoke admin token for web panel access"""
+        
+        if action.lower() == "generate":
+            # Generate a secure random token
+            import secrets
+            token = secrets.token_urlsafe(32)
+            
+            await self.config.guild(ctx.guild).api_access_token.set(token)
+            
+            # Send token in DM for security
+            try:
+                embed = discord.Embed(
+                    title="🔐 Admin Token Generated",
+                    description="Your admin token has been generated and sent to your DMs.",
+                    color=discord.Color.green()
+                )
+                
+                embed.add_field(
+                    name="⚠️ Security Note",
+                    value=(
+                        "• Token sent via DM for security\n"
+                        "• Keep this token secret\n" 
+                        "• Use in Authorization header: `Bearer <token>`\n"
+                        "• Revoke with `[p]cw admintoken revoke`"
+                    ),
+                    inline=False
+                )
+                
+                # Send public confirmation
+                await ctx.send(embed=embed)
+                
+                # Send token privately
+                dm_embed = discord.Embed(
+                    title="🔐 Admin API Token",
+                    description=f"**Server**: {ctx.guild.name}",
+                    color=discord.Color.blue()
+                )
+                
+                dm_embed.add_field(
+                    name="Token",
+                    value=f"```{token}```",
+                    inline=False
+                )
+                
+                dm_embed.add_field(
+                    name="Usage",
+                    value=(
+                        "Use this token in your web panel configuration.\n"
+                        "Include in requests: `Authorization: Bearer <token>`"
+                    ),
+                    inline=False
+                )
+                
+                dm_embed.add_field(
+                    name="API Endpoints",
+                    value=(
+                        "• `GET /api/admin/config` - Get configuration\n"
+                        "• `POST /api/admin/config` - Update settings\n"
+                        "• `GET /api/admin/status` - Competition status\n"
+                        "• `GET /api/admin/submissions` - Current submissions\n"
+                        "• `GET /api/admin/history` - Competition history\n"
+                        "• `POST /api/admin/actions` - Execute admin actions"
+                    ),
+                    inline=False
+                )
+                
+                await ctx.author.send(embed=dm_embed)
+                
+            except discord.Forbidden:
+                # Fallback if DM fails
+                embed.add_field(
+                    name="❌ DM Failed", 
+                    value=f"Token: `{token}`\n**Delete this message after copying!**", 
+                    inline=False
+                )
+                await ctx.send(embed=embed, delete_after=60)
+        
+        elif action.lower() == "revoke":
+            await self.config.guild(ctx.guild).api_access_token.set(None)
+            
+            embed = discord.Embed(
+                title="🚫 Admin Token Revoked",
+                description="The admin API token has been revoked. All admin API access is now disabled.",
+                color=discord.Color.red()
+            )
+            
+            embed.add_field(
+                name="Effect",
+                value=(
+                    "• Web panel access blocked\n"
+                    "• Admin API endpoints disabled\n"
+                    "• Generate new token to restore access"
+                ),
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
+        
+        elif action.lower() == "status":
+            token = await self.config.guild(ctx.guild).api_access_token()
+            
+            embed = discord.Embed(
+                title="🔐 Admin Token Status",
+                color=discord.Color.blue() if token else discord.Color.red()
+            )
+            
+            if token:
+                embed.add_field(
+                    name="Status",
+                    value="✅ Token active",
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="Token Preview", 
+                    value=f"`{token[:8]}...{token[-8:]}`",
+                    inline=True
+                )
+            else:
+                embed.add_field(
+                    name="Status",
+                    value="❌ No token set",
+                    inline=False
+                )
+                
+                embed.add_field(
+                    name="Generate Token",
+                    value="`[p]cw admintoken generate`",
+                    inline=False
+                )
+            
+            await ctx.send(embed=embed)
+        
+        else:
+            await ctx.send("❌ Invalid action. Use: `generate`, `revoke`, or `status`")
+    
+    @collabwarz.command(name="testpublicapi")
+    async def test_public_api(self, ctx):
+        """Test public API endpoints and show sample responses"""
+        api_enabled = await self.config.guild(ctx.guild).api_server_enabled()
+        
+        if not api_enabled:
+            await ctx.send("❌ API server is not running. Use `[p]cw apiserver start` first.")
+            return
+        
+        port = await self.config.guild(ctx.guild).api_server_port()
+        host = await self.config.guild(ctx.guild).api_server_host()
+        
+        embed = discord.Embed(
+            title="🌐 Public API Test Results",
+            color=discord.Color.green()
+        )
+        
+        base_url = f"http://{host}:{port}/api/public"
+        
+        embed.add_field(
+            name="🔗 Available Endpoints",
+            value=(
+                f"• `{base_url}/status` - Competition status\n"
+                f"• `{base_url}/submissions` - Current submissions\n" 
+                f"• `{base_url}/voting` - Voting results\n"
+                f"• `{base_url}/history` - Competition history\n"
+                f"• `{base_url}/leaderboard` - Member statistics\n"
+                f"• `{base_url.replace('/public', '')}/members` - Member directory"
+            ),
+            inline=False
+        )
+        
+        # Get current data samples
+        try:
+            # Status sample
+            current_phase = await self.config.guild(ctx.guild).current_phase()
+            current_theme = await self.config.guild(ctx.guild).current_theme()
+            submissions = await self.config.guild(ctx.guild).submissions()
+            
+            embed.add_field(
+                name="📊 Current Status Sample",
+                value=(
+                    f"Phase: `{current_phase}`\n"
+                    f"Theme: `{current_theme}`\n"
+                    f"Teams: `{len(submissions)}`"
+                ),
+                inline=True
+            )
+            
+            # History sample  
+            history = await self.config.guild(ctx.guild).competition_history()
+            embed.add_field(
+                name="📚 History Sample",
+                value=f"Total competitions: `{len(history)}`",
+                inline=True
+            )
+            
+            # Member sample
+            members_data = await self._get_guild_members_for_api(ctx.guild)
+            embed.add_field(
+                name="👥 Members Sample", 
+                value=f"Total members: `{len(members_data)}`",
+                inline=True
+            )
+            
+        except Exception as e:
+            embed.color = discord.Color.orange()
+            embed.add_field(
+                name="⚠️ Warning",
+                value=f"Could not fetch sample data: {str(e)}",
+                inline=False
+            )
+        
+        embed.add_field(
+            name="💡 Frontend Integration",
+            value=(
+                "**No authentication required** for public endpoints!\n\n"
+                "**React Example:**\n"
+                f"```javascript\n"
+                f"fetch('{base_url}/status')\n"
+                f"  .then(res => res.json())\n"
+                f"  .then(data => console.log(data));\n"
+                f"```"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📖 Documentation",
+            value="See `PUBLIC_API.md` for complete documentation with React hooks and components.",
+            inline=False
+        )
         
         await ctx.send(embed=embed)
     
