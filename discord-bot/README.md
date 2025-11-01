@@ -503,22 +503,36 @@ Secure administrative API for building admin panels with **Bearer token authenti
 
 ### Security Features
 - 🔐 **Bearer Token Authentication** - Secure 32-byte random tokens
-- 📧 **DM Token Delivery** - Tokens sent privately via Discord
+- � **Discord Admin Validation** - Only configured Discord admins can generate/use tokens
+- �📧 **DM Token Delivery** - Tokens sent privately via Discord
 - 🔄 **Token Management** - Generate, revoke, check status anytime
 - 🛡️ **CORS Protection** - Configurable allowed origins
-- 👤 **Admin-Only Access** - All endpoints require valid token
+- � **Admin Tracking** - Tokens tied to specific Discord admin users
+- ⚠️ **Auto-Validation** - Revoked admin status automatically blocks API access
 
 ### Authentication Setup
 ```bash
-# Generate secure admin token (sent via DM)
+# Set up Discord admin first (required)
+[p]cw setadmin @YourDiscordUser
+
+# Generate secure admin token (sent via DM) - Only configured admins can do this
 [p]cw admintoken generate
 
-# Check token status  
+# Check token status and ownership
 [p]cw admintoken status
 
 # Revoke access
 [p]cw admintoken revoke
 ```
+
+### Enhanced Security Model
+1. **Discord Admin Configuration Required**: Only users configured via `[p]cw setadmin` or `[p]cw addadmin` can generate admin tokens
+2. **JWT Token Generation**: Self-contained JSON Web Tokens with embedded expiration and user data
+3. **Cryptographic Signatures**: HMAC-SHA256 signatures prevent token tampering
+4. **Token Ownership Tracking**: Each token contains user ID and guild validation
+5. **Automatic Validation**: If a user loses admin status, their token becomes invalid immediately
+6. **Zero Storage Security**: No sensitive token data stored - only metadata for audit trails
+7. **Expiration Handling**: Built-in 1-year expiration with timestamp validation
 
 **Usage in requests:**
 ```javascript
@@ -572,6 +586,111 @@ Execute administrative actions
 {"action": "cancel_week", "params": {"reason": "Technical issues"}}
 {"action": "clear_submissions", "params": {}}
 {"action": "toggle_automation", "params": {}}
+```
+
+### Admin Moderation Endpoints
+
+#### DELETE `/api/admin/submissions/{team_name}`
+Remove a submission from a specific team
+
+**Parameters:**
+- `team_name`: The team name whose submission to remove
+
+**Response:**
+```json
+{
+    "success": true,
+    "message": "Submission from TeamName removed",
+    "timestamp": "2024-01-15T10:30:00.000Z"
+}
+```
+
+#### DELETE `/api/admin/votes/{week}/{user_id}`
+Remove a vote from a user for a specific week
+
+**Parameters:**
+- `week`: Week identifier (e.g., "2024-01-15")
+- `user_id`: Discord user ID
+
+**Response:**
+```json
+{
+    "success": true,
+    "message": "Vote from user 123456789 for week 2024-01-15 removed",
+    "timestamp": "2024-01-15T10:30:00.000Z"
+}
+```
+
+#### DELETE `/api/admin/weeks/{week}`
+Remove an entire week record from competition history
+
+**Parameters:**
+- `week`: Week identifier to completely remove
+
+**Response:**
+```json
+{
+    "success": true,
+    "message": "Week 2024-01-15 record completely removed",
+    "timestamp": "2024-01-15T10:30:00.000Z"
+}
+```
+
+#### GET `/api/admin/votes/{week}/details`
+Get detailed voting information for audit purposes
+
+**Parameters:**
+- `week`: Week identifier to examine
+
+**Response:**
+```json
+{
+    "week": "2024-01-15",
+    "theme": "Synthwave Dreams",
+    "total_votes": 25,
+    "vote_details": [
+        {
+            "user_id": "123456789",
+            "username": "alice",
+            "voted_for": "TeamAlpha",
+            "voted_at": "2024-01-21T18:45:00"
+        }
+    ],
+    "submissions": {
+        "TeamAlpha": {
+            "url": "https://suno.com/song/abc123",
+            "submitted_by": "alice",
+            "submitted_at": "2024-01-18T14:30:00"
+        }
+    },
+    "timestamp": "2024-01-15T10:30:00.000Z"
+}
+```
+
+### Admin Usage Examples
+
+**Remove problematic submission:**
+```bash
+curl -X DELETE "http://localhost:8080/api/admin/submissions/TeamSpam" \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN"
+```
+
+**Audit votes for specific week:**
+```bash
+curl "http://localhost:8080/api/admin/votes/2024-01-15/details" \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN"
+```
+
+**Remove duplicate vote:**
+```bash
+curl -X DELETE "http://localhost:8080/api/admin/votes/2024-01-15/123456789" \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN"
+```
+
+**Clean up corrupted week:**
+```bash
+curl -X DELETE "http://localhost:8080/api/admin/weeks/2024-01-08" \
+  -H "Authorization: Bearer YOUR_ADMIN_TOKEN"
 ```
 
 ## Members Directory API

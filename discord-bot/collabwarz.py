@@ -68,7 +68,9 @@ class CollabWarz(commands.Cog):
             "api_server_enabled": False, # Enable built-in API server for member list
             "api_server_port": 8080,    # Port for the API server
             "api_server_host": "0.0.0.0", # Host for the API server
-            "api_access_token": None,   # Token for API authentication
+            "api_access_token": None,   # Token for API authentication (deprecated)
+            "api_access_token_data": None,  # Enhanced token data: {token: str, user_id: int, generated_at: str}
+            "jwt_signing_key": None,    # JWT signing key for secure token generation
             "cors_origins": ["*"],      # CORS allowed origins
             "auto_delete_messages": True, # Automatically delete invalid messages
             "admin_user_ids": [],       # List of additional admin user IDs
@@ -461,6 +463,13 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             app.router.add_get('/api/admin/submissions', self._handle_admin_submissions)
             app.router.add_get('/api/admin/history', self._handle_admin_history)
             app.router.add_post('/api/admin/actions', self._handle_admin_actions)
+            
+            # Admin moderation endpoints
+            app.router.add_delete('/api/admin/submissions/{team_name}', self._handle_admin_remove_submission)
+            app.router.add_delete('/api/admin/votes/{week}/{user_id}', self._handle_admin_remove_vote)
+            app.router.add_delete('/api/admin/weeks/{week}', self._handle_admin_remove_week)
+            app.router.add_get('/api/admin/votes/{week}/details', self._handle_admin_vote_details)
+            
             app.router.add_options('/api/admin/{path:.*}', self._handle_options_request)
             
             return app
@@ -572,17 +581,92 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 return None, web.json_response({"error": "API not enabled"}, status=503)
             
             # Check authentication (required for admin endpoints)
-            auth_token = await self.config.guild(guild).api_access_token()
-            if not auth_token:
-                return None, web.json_response({"error": "Admin API requires authentication"}, status=401)
+            token_data = await self.config.guild(guild).api_access_token_data()
+            token_user_id = None
+            token_valid = False
             
             auth_header = request.headers.get('Authorization', '')
             if not auth_header.startswith('Bearer '):
                 return None, web.json_response({"error": "Missing authorization header"}, status=401)
             
             provided_token = auth_header[7:]  # Remove 'Bearer ' prefix
-            if provided_token != auth_token:
+            
+            # Try JWT validation first (most secure)
+            signing_key = await self.config.guild(guild).jwt_signing_key()
+            if signing_key and '.' in provided_token:
+                try:
+                    import json
+                    import base64
+                    import hashlib
+                    from datetime import datetime
+                    
+                    # Parse JWT token
+                    parts = provided_token.split('.')
+                    if len(parts) == 3:
+                        header_b64, payload_b64, signature = parts
+                        
+                        # Verify signature
+                        message = f"{header_b64}.{payload_b64}"
+                        expected_sig = hashlib.new('sha256', (message + signing_key).encode()).hexdigest()
+                        
+                        if signature == expected_sig:
+                            # Decode payload
+                            payload_json = base64.urlsafe_b64decode(payload_b64 + '=' * (-len(payload_b64) % 4)).decode()
+                            payload = json.loads(payload_json)
+                            
+                            # Check expiration
+                            expires_at = datetime.fromisoformat(payload['expires_at'].replace('Z', '+00:00'))
+                            if datetime.utcnow() < expires_at:
+                                token_valid = True
+                                token_user_id = payload.get('user_id')
+                                print(f"JWT token validated for user {token_user_id} in guild {guild.id}")
+                            else:
+                                print(f"JWT token expired for guild {guild.id}")
+                        else:
+                            print(f"JWT signature validation failed for guild {guild.id}")
+                except Exception as e:
+                    print(f"JWT validation error: {e}")
+            
+            # Fallback to legacy token formats if JWT failed
+            if not token_valid:
+                if token_data and token_data.get('token_hash'):
+                    # Legacy hashed token format
+                    import hashlib
+                    stored_hash = token_data['token_hash']
+                    salt = bytes.fromhex(token_data['salt'])
+                    token_user_id = token_data.get('user_id')
+                    
+                    # Hash the provided token with stored salt
+                    provided_hash = hashlib.pbkdf2_hmac('sha256', provided_token.encode('utf-8'), salt, 100000)
+                    
+                    if provided_hash.hex() == stored_hash:
+                        token_valid = True
+                        print(f"Warning: Using legacy hashed token for guild {guild.id}")
+                
+                elif token_data and token_data.get('token'):
+                    # Legacy enhanced token format (unhashed)
+                    if provided_token == token_data['token']:
+                        token_valid = True
+                        token_user_id = token_data.get('user_id')
+                        print(f"Warning: Using legacy unhashed token for guild {guild.id}")
+                
+                else:
+                    # Backward compatibility: check old token format
+                    old_token = await self.config.guild(guild).api_access_token()
+                    if old_token and provided_token == old_token:
+                        token_valid = True
+                        print(f"Warning: Using legacy admin token without user association for guild {guild.id}")
+            
+            if not token_valid:
                 return None, web.json_response({"error": "Invalid token"}, status=403)
+            
+            # Validate that the token belongs to a configured Discord admin (only for new tokens)
+            if token_user_id:
+                primary_admin_id = await self.config.guild(guild).admin_user_id()
+                admin_ids = await self.config.guild(guild).admin_user_ids()
+                
+                if token_user_id != primary_admin_id and token_user_id not in admin_ids:
+                    return None, web.json_response({"error": "Token user no longer configured as admin"}, status=403)
             
             return guild, None
             
@@ -860,6 +944,169 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         except Exception as e:
             print(f"Error handling admin action: {e}")
             return web.json_response({"error": "Failed to execute action"}, status=500)
+    
+    async def _handle_admin_remove_submission(self, request):
+        """Remove a submission from a team"""
+        guild, error_response = await self._validate_admin_auth(request)
+        if error_response:
+            return error_response
+        
+        try:
+            team_name = request.match_info.get('team_name')
+            if not team_name:
+                return web.json_response({"error": "Team name required"}, status=400)
+            
+            submissions = await self.config.guild(guild).submissions()
+            if team_name in submissions:
+                del submissions[team_name]
+                await self.config.guild(guild).submissions.set(submissions)
+                return web.json_response({
+                    "success": True, 
+                    "message": f"Submission from {team_name} removed",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            else:
+                return web.json_response({"error": f"No submission found for team {team_name}"}, status=404)
+                
+        except Exception as e:
+            print(f"Error removing submission: {e}")
+            return web.json_response({"error": "Failed to remove submission"}, status=500)
+    
+    async def _handle_admin_remove_vote(self, request):
+        """Remove a vote from a user for a specific week"""
+        guild, error_response = await self._validate_admin_auth(request)
+        if error_response:
+            return error_response
+        
+        try:
+            week = request.match_info.get('week')
+            user_id = request.match_info.get('user_id')
+            
+            if not week or not user_id:
+                return web.json_response({"error": "Week and user_id required"}, status=400)
+            
+            try:
+                user_id = int(user_id)
+            except ValueError:
+                return web.json_response({"error": "Invalid user_id format"}, status=400)
+            
+            history = await self.config.guild(guild).competition_history()
+            week_data = history.get(week)
+            
+            if not week_data:
+                return web.json_response({"error": f"No data found for week {week}"}, status=404)
+            
+            votes = week_data.get('votes', {})
+            user_id_str = str(user_id)
+            
+            if user_id_str in votes:
+                del votes[user_id_str]
+                week_data['votes'] = votes
+                history[week] = week_data
+                await self.config.guild(guild).competition_history.set(history)
+                
+                return web.json_response({
+                    "success": True,
+                    "message": f"Vote from user {user_id} for week {week} removed",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            else:
+                return web.json_response({"error": f"No vote found from user {user_id} for week {week}"}, status=404)
+                
+        except Exception as e:
+            print(f"Error removing vote: {e}")
+            return web.json_response({"error": "Failed to remove vote"}, status=500)
+    
+    async def _handle_admin_remove_week(self, request):
+        """Remove an entire week record from competition history"""
+        guild, error_response = await self._validate_admin_auth(request)
+        if error_response:
+            return error_response
+        
+        try:
+            week = request.match_info.get('week')
+            if not week:
+                return web.json_response({"error": "Week identifier required"}, status=400)
+            
+            history = await self.config.guild(guild).competition_history()
+            
+            if week in history:
+                del history[week]
+                await self.config.guild(guild).competition_history.set(history)
+                
+                return web.json_response({
+                    "success": True,
+                    "message": f"Week {week} record completely removed",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            else:
+                return web.json_response({"error": f"No record found for week {week}"}, status=404)
+                
+        except Exception as e:
+            print(f"Error removing week record: {e}")
+            return web.json_response({"error": "Failed to remove week record"}, status=500)
+    
+    async def _handle_admin_vote_details(self, request):
+        """Get detailed voting information for a specific week"""
+        guild, error_response = await self._validate_admin_auth(request)
+        if error_response:
+            return error_response
+        
+        try:
+            week = request.match_info.get('week')
+            if not week:
+                return web.json_response({"error": "Week identifier required"}, status=400)
+            
+            history = await self.config.guild(guild).competition_history()
+            week_data = history.get(week)
+            
+            if not week_data:
+                return web.json_response({"error": f"No data found for week {week}"}, status=404)
+            
+            votes = week_data.get('votes', {})
+            submissions = week_data.get('submissions', {})
+            
+            # Build detailed vote information
+            vote_details = []
+            
+            for user_id, vote_data in votes.items():
+                try:
+                    user = self.bot.get_user(int(user_id))
+                    username = user.display_name if user else f"Unknown User ({user_id})"
+                except:
+                    username = f"Unknown User ({user_id})"
+                
+                voted_for = vote_data.get('voted_for', 'Unknown')
+                voted_at = vote_data.get('timestamp', 'Unknown')
+                
+                vote_details.append({
+                    "user_id": user_id,
+                    "username": username,
+                    "voted_for": voted_for,
+                    "voted_at": voted_at
+                })
+            
+            # Get submission details for context
+            submission_details = {}
+            for team, submission in submissions.items():
+                submission_details[team] = {
+                    "url": submission.get('url', ''),
+                    "submitted_by": submission.get('submitted_by', 'Unknown'),
+                    "submitted_at": submission.get('timestamp', 'Unknown')
+                }
+            
+            return web.json_response({
+                "week": week,
+                "theme": week_data.get('theme', 'Unknown'),
+                "total_votes": len(votes),
+                "vote_details": vote_details,
+                "submissions": submission_details,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting vote details: {e}")
+            return web.json_response({"error": "Failed to get vote details"}, status=500)
     
     def _get_next_phase_time(self):
         """Calculate when the next automated phase change will occur"""
@@ -5016,11 +5263,59 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         """Generate or revoke admin token for web panel access"""
         
         if action.lower() == "generate":
-            # Generate a secure random token
-            import secrets
-            token = secrets.token_urlsafe(32)
+            # Verify user is configured as an admin
+            primary_admin_id = await self.config.guild(ctx.guild).admin_user_id()
+            admin_ids = await self.config.guild(ctx.guild).admin_user_ids()
             
-            await self.config.guild(ctx.guild).api_access_token.set(token)
+            if ctx.author.id != primary_admin_id and ctx.author.id not in admin_ids:
+                await ctx.send("❌ Only configured Discord admins can generate admin tokens. Use `[p]cw setadmin` or `[p]cw addadmin` first.")
+                return
+            
+            # Generate JWT-based secure token
+            import secrets
+            import hashlib
+            import json
+            import base64
+            from datetime import datetime, timedelta
+            
+            # Generate a secure signing key for this guild (if not exists)
+            signing_key = await self.config.guild(ctx.guild).jwt_signing_key()
+            if not signing_key:
+                signing_key = secrets.token_urlsafe(64)  # 512-bit key
+                await self.config.guild(ctx.guild).jwt_signing_key.set(signing_key)
+            
+            # Create JWT payload with expiration and user info
+            payload = {
+                "user_id": ctx.author.id,
+                "username": ctx.author.display_name,
+                "guild_id": ctx.guild.id,
+                "issued_at": datetime.utcnow().isoformat(),
+                "expires_at": (datetime.utcnow() + timedelta(days=365)).isoformat(),  # 1 year expiry
+                "token_version": 2  # Version for future revocation
+            }
+            
+            # Create simple JWT (Header.Payload.Signature)
+            header = {"typ": "JWT", "alg": "HS256"}
+            header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
+            payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+            
+            # Create signature using HMAC-SHA256
+            message = f"{header_b64}.{payload_b64}"
+            signature = hashlib.new('sha256', (message + signing_key).encode()).hexdigest()
+            jwt_token = f"{header_b64}.{payload_b64}.{signature}"
+            
+            # Store token metadata (no raw token stored)
+            token_data = {
+                "user_id": ctx.author.id,
+                "generated_at": datetime.utcnow().isoformat(),
+                "generated_by": ctx.author.display_name,
+                "token_version": 2,
+                "expires_at": payload["expires_at"]
+            }
+            
+            await self.config.guild(ctx.guild).api_access_token_data.set(token_data)
+            # Keep old field for backward compatibility during transition
+            await self.config.guild(ctx.guild).api_access_token.set(jwt_token)
             
             # Send token in DM for security
             try:
@@ -5052,8 +5347,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 )
                 
                 dm_embed.add_field(
-                    name="Token",
-                    value=f"```{token}```",
+                    name="JWT Token",
+                    value=f"```{jwt_token}```",
                     inline=False
                 )
                 
@@ -5085,13 +5380,14 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 # Fallback if DM fails
                 embed.add_field(
                     name="❌ DM Failed", 
-                    value=f"Token: `{token}`\n**Delete this message after copying!**", 
+                    value=f"JWT Token: `{jwt_token[:50]}...`\n**Delete this message after copying!**", 
                     inline=False
                 )
                 await ctx.send(embed=embed, delete_after=60)
         
         elif action.lower() == "revoke":
             await self.config.guild(ctx.guild).api_access_token.set(None)
+            await self.config.guild(ctx.guild).api_access_token_data.set(None)
             
             embed = discord.Embed(
                 title="🚫 Admin Token Revoked",
@@ -5112,25 +5408,69 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             await ctx.send(embed=embed)
         
         elif action.lower() == "status":
-            token = await self.config.guild(ctx.guild).api_access_token()
+            token_data = await self.config.guild(ctx.guild).api_access_token_data()
             
             embed = discord.Embed(
                 title="🔐 Admin Token Status",
-                color=discord.Color.blue() if token else discord.Color.red()
+                color=discord.Color.blue() if token_data else discord.Color.red()
             )
             
-            if token:
+            if token_data and token_data.get('user_id'):
+                token_user_id = token_data.get('user_id')
+                generated_at = token_data.get('generated_at', 'Unknown')
+                generated_by = token_data.get('generated_by', 'Unknown')
+                token_version = token_data.get('token_version', 1)
+                is_jwt = token_version >= 2
+                is_hashed = bool(token_data.get('token_hash'))
+                
+                # Verify token user is still admin
+                primary_admin_id = await self.config.guild(ctx.guild).admin_user_id()
+                admin_ids = await self.config.guild(ctx.guild).admin_user_ids()
+                is_valid_admin = token_user_id == primary_admin_id or token_user_id in admin_ids
+                
+                if is_jwt:
+                    status_text = "✅ JWT Token active (secure)"
+                elif is_hashed:
+                    status_text = "⚠️ Token active (legacy hashed)"
+                else:
+                    status_text = "⚠️ Token active (legacy unhashed)"
+                    
+                if not is_valid_admin:
+                    status_text = "⚠️ Token active (user no longer admin)"
+                
                 embed.add_field(
                     name="Status",
-                    value="✅ Token active",
+                    value=status_text,
                     inline=True
                 )
                 
                 embed.add_field(
-                    name="Token Preview", 
-                    value=f"`{token[:8]}...{token[-8:]}`",
+                    name="Generated By",
+                    value=f"{generated_by} (<@{token_user_id}>)",
                     inline=True
                 )
+                
+                embed.add_field(
+                    name="Generated At",
+                    value=generated_at[:19].replace('T', ' ') + ' UTC',
+                    inline=True
+                )
+                
+                # Security warnings
+                warnings = []
+                if not is_valid_admin:
+                    warnings.append("Token was generated by a user who is no longer configured as an admin.")
+                if not is_jwt and not is_hashed:
+                    warnings.append("Token is stored in legacy unhashed format (security risk).")
+                elif not is_jwt:
+                    warnings.append("Token uses legacy format. Consider upgrading to JWT tokens.")
+                
+                if warnings:
+                    embed.add_field(
+                        name="⚠️ Security Warnings",
+                        value="\n".join(f"• {warning}" for warning in warnings) + "\n\n**Recommendation:** Revoke and regenerate token.",
+                        inline=False
+                    )
             else:
                 embed.add_field(
                     name="Status",

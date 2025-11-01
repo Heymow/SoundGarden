@@ -253,8 +253,9 @@ Web interface eliminates ALL legitimate error sources:
 
 ### Admin Panel Setup
 ```
-[p]cw admintoken generate       # Generate secure token (sent via DM)
-[p]cw admintoken status        # Check token status
+[p]cw setadmin @YourUser       # Configure Discord admin (required first)
+[p]cw admintoken generate      # Generate secure token (sent via DM) - Admin only
+[p]cw admintoken status        # Check token status & ownership
 ```
 
 ### Available APIs
@@ -263,6 +264,9 @@ Web interface eliminates ALL legitimate error sources:
   - 🎧 **Audio Playback**: Direct streaming URLs for frontend players
   - 👤 **Artist Integration**: Suno handles and profile links
 - **Admin API**: Secure management, configuration updates, remote actions
+  - 🛡️ **Moderation Tools**: Remove submissions, votes, entire weeks
+  - 🔍 **Audit Capabilities**: Detailed vote inspection and user tracking
+  - ⚙️ **Remote Control**: Phase management, theme updates, automation
 - **Members API**: Guild member directory for team formation
 
 ---
@@ -339,6 +343,22 @@ https://suno.com/song/track-id
 ```
 [p]cw apiserver start
 [p]cw testpublicapi
+```
+
+### ❌ Admin token generation fails
+**Cause**: User not configured as Discord admin
+**Solution**:
+```
+[p]cw setadmin @YourUser
+[p]cw admintoken generate
+```
+
+### ❌ Admin API returns "Token user no longer configured as admin"
+**Cause**: Admin token belongs to user who lost admin permissions
+**Solution**: Generate new token with current admin:
+```
+[p]cw admintoken revoke
+[p]cw admintoken generate
 ```
 
 ---
