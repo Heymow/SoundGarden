@@ -1,10 +1,11 @@
+```markdown
 # SoundGarden's Collab Warz — Frontend
 
-A small React frontend using the same visual language as your other site.  
-This app provides two main tabs: "Current" and "History", and uses a simple tab router.
+This frontend uses the same design language as the provided react-dashboard reference and provides two main tabs: "Current" and "History".
 
-To run:
+To run locally:
 1. npm install
 2. npm run dev
 
-This is a starter scaffold — extend it with your API calls and components as needed.
+Files provided are a minimal Vite + React app. Integrate into your existing SoundGarden repo as needed, or use this as a standalone frontend.
+```

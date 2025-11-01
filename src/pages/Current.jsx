@@ -6,7 +6,6 @@ export default function Current() {
       <h2>Current</h2>
       <p>Show active collabs, live sessions, or the current challenge here.</p>
 
-      {/* Placeholder card list — replace with real data */}
       <div className="cards">
         <div className="card">
           <h3>Collab A</h3>

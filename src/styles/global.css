@@ -1,5 +1,5 @@
 :root{
-  /* Keep design tokens similar to your other site for consistency */
+  /* Design tokens adapted from react-dashboard */
   --bg:#0f1724;
   --card:#0b1220;
   --muted:#9aa4b2;
