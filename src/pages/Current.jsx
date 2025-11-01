@@ -1,21 +1,104 @@
-import React from "react";
+import React, { useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import WinnerBanner from "../components/WinnerBanner";
+import PhaseInfo from "../components/PhaseInfo";
+import SongCard from "../components/SongCard";
+import SubmitModal from "../components/SubmitModal";
+import { currentChallenge, previousChallenge } from "../data/mockData";
 
 export default function Current() {
+  const { user } = useAuth();
+  const [songs, setSongs] = useState(currentChallenge.songs);
+  const [votedSongId, setVotedSongId] = useState(null);
+  const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
+
+  const handleVote = (songId) => {
+    if (!user) {
+      alert('Please login with Discord to vote!');
+      return;
+    }
+    
+    // Update vote count
+    setSongs(songs.map(song => 
+      song.id === songId 
+        ? { ...song, votes: song.votes + 1 }
+        : song
+    ));
+    setVotedSongId(songId);
+  };
+
+  const handleSubmit = (formData) => {
+    const newSong = {
+      id: 's' + (songs.length + 1),
+      title: formData.title,
+      participants: [formData.participant1, formData.participant2],
+      sunoAccounts: [formData.sunoAccount1, formData.sunoAccount2],
+      sunoUrl: formData.sunoUrl,
+      imageUrl: 'https://via.placeholder.com/200',
+      audioUrl: '',
+      submittedAt: new Date().toISOString(),
+      votes: 0
+    };
+    
+    setSongs([...songs, newSong]);
+    setIsSubmitModalOpen(false);
+    alert('Song submitted successfully!');
+  };
+
   return (
     <section className="page current-page">
-      <h2>Current</h2>
-      <p>Show active collabs, live sessions, or the current challenge here.</p>
+      <WinnerBanner 
+        winner={previousChallenge.winner} 
+        theme={previousChallenge.theme}
+      />
 
-      <div className="cards">
-        <div className="card">
-          <h3>Collab A</h3>
-          <p>Participants: Alice, Bob</p>
+      <PhaseInfo
+        phase={currentChallenge.phase}
+        theme={currentChallenge.theme}
+        submissionDeadline={currentChallenge.submissionDeadline}
+        votingDeadline={currentChallenge.votingDeadline}
+      />
+
+      {currentChallenge.phase === 'submission' && (
+        <div className="action-bar">
+          <button 
+            className="btn-submit"
+            onClick={() => {
+              if (!user) {
+                alert('Please login with Discord to submit a song!');
+                return;
+              }
+              setIsSubmitModalOpen(true);
+            }}
+          >
+            ➕ Submit Your Song
+          </button>
         </div>
-        <div className="card">
-          <h3>Collab B</h3>
-          <p>Participants: Carol, Dave</p>
+      )}
+
+      <div className="songs-section">
+        <h3 className="section-title">
+          {currentChallenge.phase === 'submission' ? 'Submitted Songs' : 'Vote for Your Favorite'}
+        </h3>
+        <div className="songs-grid">
+          {songs.map(song => (
+            <SongCard
+              key={song.id}
+              song={song}
+              phase={currentChallenge.phase}
+              onVote={handleVote}
+              hasVoted={votedSongId === song.id}
+              isLoggedIn={!!user}
+            />
+          ))}
         </div>
       </div>
+
+      <SubmitModal
+        isOpen={isSubmitModalOpen}
+        onClose={() => setIsSubmitModalOpen(false)}
+        onSubmit={handleSubmit}
+      />
     </section>
   );
 }
