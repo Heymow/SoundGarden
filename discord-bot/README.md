@@ -324,7 +324,20 @@ Get current week submissions with member details
                 }
             ],
             "submitted_at": "2025-11-01T14:22:00",
-            "vote_count": 45
+            "vote_count": 45,
+            "suno_metadata": {
+                "id": "2619926b-bbb6-449d-9072-bded6177f3a0",
+                "title": "Neon Waves",
+                "audio_url": "https://example.com/audio.mp3",
+                "image_url": "https://example.com/image.jpg", 
+                "duration": 244.84,
+                "author_name": "John Doe",
+                "author_handle": "johndoe",
+                "author_avatar": "https://example.com/avatar.jpg",
+                "play_count": 1000,
+                "upvote_count": 100,
+                "tags": "synthwave, electronic, ambient"
+            }
         }
     ],
     "count": 12
@@ -752,6 +765,82 @@ const handleAPIError = async (response) => {
     
     return response.json();
 };
+```
+
+---
+
+## 🎵 Suno.com Integration
+
+### Overview
+The bot automatically enriches submissions with **song metadata** from Suno.com, providing rich information for the frontend including titles, artwork, audio URLs, and author details.
+
+### Features
+- ✅ **Automatic ID extraction** from Suno.com URLs
+- ✅ **Rich metadata** including title, duration, artwork, author info
+- ✅ **Graceful fallback** if API unavailable or disabled
+- ✅ **Configurable** per-guild integration
+
+### Configuration
+```bash
+[p]cw sunoconfig enable           # Enable Suno integration
+[p]cw sunoconfig disable          # Disable integration  
+[p]cw sunoconfig url <api-url>    # Change API base URL
+[p]cw testsuno <suno-url>         # Test with specific song
+```
+
+### Metadata Provided
+The following data is automatically fetched and included in API responses:
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `title` | Song title | "Neon Waves" |
+| `audio_url` | Direct MP3 link | "https://example.com/audio.mp3" |
+| `image_url` | Cover artwork | "https://example.com/image.jpg" |
+| `duration` | Song length (seconds) | 244.84 |
+| `author_name` | Creator's display name | "John Doe" |
+| `author_handle` | Creator's username | "johndoe" |
+| `author_avatar` | Creator's profile picture | "https://example.com/avatar.jpg" |
+| `play_count` | Total plays on Suno | 1000 |
+| `upvote_count` | Likes/upvotes | 100 |
+| `tags` | Musical genre tags | "synthwave, electronic" |
+
+### Frontend Integration
+Metadata is included in all submission endpoints:
+
+```javascript
+// Available in GET /api/public/submissions and /api/public/voting
+const submission = {
+    "team_name": "Digital Dreams",
+    "track_url": "https://suno.com/song/abc123",
+    "suno_metadata": {
+        "title": "Neon Waves",
+        "audio_url": "https://example.com/audio.mp3",
+        "image_url": "https://example.com/image.jpg",
+        "duration": 244.84,
+        "author_name": "John Doe",
+        "author_handle": "johndoe",
+        "author_avatar": "https://example.com/avatar.jpg"
+        // ... additional fields
+    }
+};
+
+// Use in your React components
+const SongCard = ({ submission }) => (
+    <div className="song-card">
+        <img src={submission.suno_metadata?.image_url} alt="Cover" />
+        <h3>{submission.suno_metadata?.title || 'Unknown Track'}</h3>
+        <p>by {submission.suno_metadata?.author_name}</p>
+        <audio src={submission.suno_metadata?.audio_url} controls />
+    </div>
+);
+```
+
+### API Configuration
+Default Suno API endpoint: `https://api.suno-proxy.click`
+
+For custom deployments, update the base URL:
+```bash
+[p]cw sunoconfig url https://your-suno-proxy.com
 ```
 
 ---

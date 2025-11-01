@@ -72,6 +72,8 @@ class CollabWarz(commands.Cog):
             "cors_origins": ["*"],      # CORS allowed origins
             "auto_delete_messages": True, # Automatically delete invalid messages
             "admin_user_ids": [],       # List of additional admin user IDs
+            "suno_api_enabled": True,   # Enable Suno API integration for song metadata
+            "suno_api_base_url": "https://api.suno-proxy.click", # Suno API base URL
         }
         
         self.config.register_guild(**default_guild)
@@ -286,6 +288,68 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     def _get_current_week(self) -> str:
         """Get current week identifier (alias for _get_current_week_key for consistency)"""
         return self._get_current_week_key()
+    
+    def _extract_suno_song_id(self, url: str) -> str:
+        """Extract Suno song ID from URL
+        
+        Args:
+            url: Suno URL (e.g., https://suno.com/song/2619926b-bbb6-449d-9072-bded6177f3a0)
+            
+        Returns:
+            Song ID string, or None if not found
+        """
+        import re
+        # Match UUID pattern in Suno URLs
+        pattern = r'suno\.com/song/([a-fA-F0-9-]{36})'
+        match = re.search(pattern, url)
+        return match.group(1) if match else None
+    
+    async def _fetch_suno_metadata(self, song_id: str, guild: discord.Guild) -> dict:
+        """Fetch song metadata from Suno API
+        
+        Args:
+            song_id: Suno song ID
+            guild: Discord guild for configuration
+            
+        Returns:
+            Dictionary with song metadata or empty dict if failed
+        """
+        suno_enabled = await self.config.guild(guild).suno_api_enabled()
+        if not suno_enabled:
+            return {}
+        
+        base_url = await self.config.guild(guild).suno_api_base_url()
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{base_url}/song/{song_id}",
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        # Extract relevant fields for frontend
+                        return {
+                            "id": data.get("id"),
+                            "title": data.get("title"),
+                            "audio_url": data.get("audio_url"),
+                            "image_url": data.get("image_url"),
+                            "duration": data.get("metadata", {}).get("duration"),
+                            "author_name": data.get("display_name"),
+                            "author_handle": data.get("handle"),
+                            "author_avatar": data.get("avatar_image_url"),
+                            "play_count": data.get("play_count"),
+                            "upvote_count": data.get("upvote_count"),
+                            "tags": data.get("metadata", {}).get("tags"),
+                            "created_at": data.get("created_at")
+                        }
+                    else:
+                        print(f"Suno API error: HTTP {response.status}")
+                        return {}
+        except Exception as e:
+            print(f"Error fetching Suno metadata for {song_id}: {e}")
+            return {}
     
     async def _is_team_already_submitted(self, guild, team_name: str, user_id: int, partner_id: int) -> dict:
         """Check if team or members already submitted this week"""
@@ -935,12 +999,21 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 weekly_votes = all_voting_results.get(current_week, {})
                 vote_count = weekly_votes.get(team_name, 0)
                 
+                # Get Suno metadata if available
+                suno_metadata = {}
+                track_url = submission.get('track_url')
+                if track_url:
+                    song_id = self._extract_suno_song_id(track_url)
+                    if song_id:
+                        suno_metadata = await self._fetch_suno_metadata(song_id, guild)
+                
                 enriched_submission = {
                     "team_name": team_name,
-                    "track_url": submission.get('track_url'),
+                    "track_url": track_url,
                     "members": members_info,
                     "submitted_at": submission.get('submitted_at'),
-                    "vote_count": vote_count
+                    "vote_count": vote_count,
+                    "suno_metadata": suno_metadata
                 }
                 
                 enriched_submissions.append(enriched_submission)
@@ -1084,12 +1157,21 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                             "avatar_url": str(member.display_avatar.url) if member.display_avatar else None
                         })
                 
+                # Get Suno metadata if available
+                suno_metadata = {}
+                track_url = submission.get('track_url')
+                if track_url:
+                    song_id = self._extract_suno_song_id(track_url)
+                    if song_id:
+                        suno_metadata = await self._fetch_suno_metadata(song_id, guild)
+                
                 enriched_results.append({
                     "team_name": team_name,
                     "votes": votes,
-                    "track_url": submission.get('track_url'),
+                    "track_url": track_url,
                     "members": members_info,
-                    "submitted_at": submission.get('submitted_at')
+                    "submitted_at": submission.get('submitted_at'),
+                    "suno_metadata": suno_metadata
                 })
             
             # Sort by votes (descending)
@@ -2640,6 +2722,18 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "`[p]cw announce type` - Manual announcement\n"
                 "`[p]cw forcepost type [theme]` - Emergency post\n"
                 "`[p]cw schedule` - View weekly schedule"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🎵 Song Metadata & API",
+            value=(
+                "`[p]cw apiserver start/stop/status` - Control integrated API server\n"
+                "`[p]cw testpublicapi` - Test all public API endpoints\n"
+                "`[p]cw sunoconfig enable/disable` - Toggle Suno metadata integration\n"
+                "`[p]cw testsuno <url>` - Test Suno API with song URL\n"
+                "🎧 **Automatic song metadata from Suno.com**"
             ),
             inline=False
         )
@@ -4286,6 +4380,117 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 
         else:
             await ctx.send("❌ Invalid setting. Use: `port`, `host`, `token`, or `cors`")
+    
+    @collabwarz.command(name="sunoconfig")
+    async def suno_config(self, ctx, setting: str = None, *, value: str = None):
+        """Configure Suno API integration"""
+        if setting is None:
+            # Show current configuration
+            suno_enabled = await self.config.guild(ctx.guild).suno_api_enabled()
+            base_url = await self.config.guild(ctx.guild).suno_api_base_url()
+            
+            embed = discord.Embed(
+                title="🎵 Suno API Configuration",
+                color=discord.Color.blue()
+            )
+            
+            embed.add_field(
+                name="Status",
+                value="✅ Enabled" if suno_enabled else "❌ Disabled",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="Base URL",
+                value=base_url,
+                inline=True
+            )
+            
+            embed.add_field(
+                name="Available Commands",
+                value=(
+                    "`[p]cw sunoconfig enable/disable`\n"
+                    "`[p]cw sunoconfig url https://api.suno-proxy.click`\n"
+                    "`[p]cw testsuno https://suno.com/song/abc123`"
+                ),
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
+            return
+        
+        setting = setting.lower()
+        
+        if setting in ["enable", "on"]:
+            await self.config.guild(ctx.guild).suno_api_enabled.set(True)
+            await ctx.send("✅ Suno API integration enabled")
+            
+        elif setting in ["disable", "off"]:
+            await self.config.guild(ctx.guild).suno_api_enabled.set(False)
+            await ctx.send("❌ Suno API integration disabled")
+            
+        elif setting == "url":
+            if value:
+                if not value.startswith(('http://', 'https://')):
+                    await ctx.send("❌ URL must start with http:// or https://")
+                    return
+                await self.config.guild(ctx.guild).suno_api_base_url.set(value.rstrip('/'))
+                await ctx.send(f"✅ Suno API base URL set to: `{value}`")
+            else:
+                await ctx.send("❌ Please provide a URL")
+        else:
+            await ctx.send("❌ Invalid setting. Use: `enable`, `disable`, or `url`")
+    
+    @collabwarz.command(name="testsuno")
+    async def test_suno(self, ctx, suno_url: str):
+        """Test Suno API integration with a song URL"""
+        song_id = self._extract_suno_song_id(suno_url)
+        
+        if not song_id:
+            await ctx.send("❌ Invalid Suno URL. Expected format: https://suno.com/song/[song-id]")
+            return
+        
+        embed = discord.Embed(
+            title="🧪 Testing Suno API",
+            description=f"Song ID: `{song_id}`",
+            color=discord.Color.yellow()
+        )
+        
+        test_msg = await ctx.send(embed=embed)
+        
+        try:
+            metadata = await self._fetch_suno_metadata(song_id, ctx.guild)
+            
+            if metadata:
+                embed.color = discord.Color.green()
+                embed.title = "✅ Suno API Test Successful"
+                
+                if metadata.get('title'):
+                    embed.add_field(name="Title", value=metadata['title'], inline=True)
+                if metadata.get('author_name'):
+                    embed.add_field(name="Author", value=f"{metadata['author_name']} (@{metadata.get('author_handle', 'unknown')})", inline=True)
+                if metadata.get('duration'):
+                    embed.add_field(name="Duration", value=f"{metadata['duration']:.1f}s", inline=True)
+                if metadata.get('play_count'):
+                    embed.add_field(name="Plays", value=str(metadata['play_count']), inline=True)
+                if metadata.get('upvote_count'):
+                    embed.add_field(name="Upvotes", value=str(metadata['upvote_count']), inline=True)
+                if metadata.get('tags'):
+                    embed.add_field(name="Tags", value=metadata['tags'], inline=False)
+                
+                if metadata.get('image_url'):
+                    embed.set_thumbnail(url=metadata['image_url'])
+            else:
+                embed.color = discord.Color.red()
+                embed.title = "❌ Suno API Test Failed"
+                embed.add_field(name="Error", value="No metadata returned or API disabled", inline=False)
+                
+        except Exception as e:
+            embed.color = discord.Color.red()
+            embed.title = "❌ Suno API Test Error"
+            embed.add_field(name="Error", value=str(e), inline=False)
+        
+        await test_msg.edit(embed=embed)
     
     @collabwarz.command(name="testapi")
     async def test_api(self, ctx):
