@@ -1,7 +1,9 @@
-// Mock authentication context
+// Discord OAuth authentication context
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext();
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -13,18 +15,36 @@ export const AuthProvider = ({ children }) => {
     if (storedUser) {
       setUser(JSON.parse(storedUser));
     }
+    
+    // Check if returning from Discord OAuth
+    const urlParams = new URLSearchParams(window.location.search);
+    const authStatus = urlParams.get('auth');
+    const userData = urlParams.get('user');
+    const error = urlParams.get('error');
+    
+    if (authStatus === 'success' && userData) {
+      try {
+        const user = JSON.parse(decodeURIComponent(userData));
+        setUser(user);
+        localStorage.setItem('soundgarden_user', JSON.stringify(user));
+        // Clean up URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } catch (e) {
+        console.error('Failed to parse user data:', e);
+      }
+    } else if (error) {
+      console.error('Auth error:', error);
+      alert('Failed to login with Discord. Please try again.');
+      // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+    
     setLoading(false);
   }, []);
 
   const loginWithDiscord = () => {
-    // Mock Discord login - in production, this would redirect to Discord OAuth
-    const mockUser = {
-      id: 'user_' + Math.random().toString(36).substring(2, 11),
-      username: 'TestUser#1234',
-      avatar: 'https://cdn.discordapp.com/embed/avatars/0.png'
-    };
-    setUser(mockUser);
-    localStorage.setItem('soundgarden_user', JSON.stringify(mockUser));
+    // Redirect to backend OAuth endpoint
+    window.location.href = `${API_URL}/auth/discord`;
   };
 
   const logout = () => {

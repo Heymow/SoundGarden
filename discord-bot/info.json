@@ -1,0 +1,9 @@
+{
+  "author": ["SoundGarden"],
+  "description": "Automated announcements for SoundGarden's Collab Warz music competition with AI-powered message generation",
+  "install_msg": "Thanks for installing CollabWarz! Use `[p]cw status` to get started. Set your announcement channel with `[p]cw setchannel #channel-name`",
+  "short": "Collab Warz competition announcements",
+  "tags": ["music", "competition", "announcements", "automation", "ai"],
+  "type": "COG",
+  "end_user_data_statement": "This cog does not store any end user data."
+}
