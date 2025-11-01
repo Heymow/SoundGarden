@@ -4620,7 +4620,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             name="⚠️ Consider First",
             value=(
                 "• Check `[p]cw checkvotes` for actual voting results\n"
-                "• Verify frontend API is working with `[p]cw testfrontend`\n"
+                "• Verify integrated API is working with `[p]cw testpublicapi`\n"
                 "• Ensure this isn't overriding legitimate voting results"
             ),
             inline=False

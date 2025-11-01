@@ -61,7 +61,7 @@ Follow the interactive wizard to configure your bot.
 | `[p]cw pause [reason]` | Pause competition temporarily |
 | `[p]cw resume` | Resume paused competition |
 | `[p]cw nextweek` | Start new competition week |
-| `[p]cw setfrontendapi [url] [key]` | Configure voting API |
+| `[p]cw apiserver start` | Start integrated API |
 | `[p]cw checkvotes` | Check current results |
 | `[p]cw declarewinner "Team" @user1 @user2` | 🚨 Manual override |
 
@@ -124,10 +124,10 @@ https://suno.com/song/your-track-id
 4. **Face-off End**: Final winner or random selection if still tied
 5. **Automatic Rep**: YAGPDB rewards distributed to winners
 
-### Frontend API Integration
+### Integrated API System
 ```
-[p]cw setfrontendapi https://yoursite.com optional-api-key
-[p]cw testfrontend
+[p]cw apiserver start
+[p]cw testpublicapi
 [p]cw checkvotes
 ```
 
@@ -343,8 +343,7 @@ https://suno.com/song/track-id
 
 ### Optional Features
 - [ ] AI API configured for theme generation (`[p]cw setai`)
-- [ ] Frontend API configured for voting (`[p]cw setfrontendapi`)
-- [ ] API server started for web integrations (`[p]cw apiserver start`)
+- [ ] Integrated API server started (`[p]cw apiserver start`)
 - [ ] Admin token generated for web panel (`[p]cw admintoken generate`)
 - [ ] YAGPDB integration for rep rewards
 - [ ] Admin confirmations enabled (`[p]cw confirmation`)

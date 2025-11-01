@@ -144,7 +144,7 @@ If you **restart the bot** or **manually change** the phase:
 Winners are **automatically determined** based on votes from your frontend website, eliminating manual admin decisions and ensuring complete transparency.
 
 ### How It Works
-1. **Sunday 8:00 PM**: Bot fetches voting results from your frontend API
+1. **Sunday 8:00 PM**: Bot checks internal voting results from integrated API
 2. **Clear Winner**: Immediate announcement with vote counts and rep rewards
 3. **Tie Detected**: Automatic 24-hour face-off between tied teams
 4. **Face-off End**: Final winner determined, or random selection if still tied
@@ -152,36 +152,43 @@ Winners are **automatically determined** based on votes from your frontend websi
 
 ### Frontend Integration
 ```bash
-# Configure your website API
-[p]cw setfrontendapi https://yoursite.com optional-api-key
+# Start integrated API server
+[p]cw apiserver start
 
-# Test the connection
-[p]cw testfrontend
+# Test all endpoints
+[p]cw testpublicapi
 
 # Check current voting results
 [p]cw checkvotes
 ```
 
-### API Requirements
-Your frontend must provide these endpoints:
+### Integrated API Architecture
+Your frontend connects directly to the bot's built-in API:
 
-**Normal Voting Results:**
-```
-GET /api/voting/results/{week}
-Response: {
-  "results": {
-    "Team Alpha": 127,
-    "Team Beta": 89,
-    "Team Gamma": 76
-  },
-  "total_votes": 292,
-  "voting_closed": true
+**Vote Submission (POST):**
+```javascript
+POST /api/public/vote
+{
+  "team_name": "Team Alpha",
+  "voter_id": "discord_user_id"
 }
 ```
 
-**Face-off Results:**
-```
-GET /api/voting/results/{week}_faceoff
+**Get Voting Results (GET):**
+```javascript
+GET /api/public/voting
+Response: {
+  "results": [
+    {
+      "team_name": "Team Alpha",
+      "votes": 127,
+      "track_url": "https://suno.com/...",
+      "members": [...]
+    }
+  ],
+  "total_votes": 292,
+  "week": "2025-W44"
+}
 ```
 
 ### Face-off System
@@ -2007,18 +2014,16 @@ app.listen(3000, () => {
 
 #### 3. Discord Bot Configuration
 ```bash
-# Configure the bot to use your voting API
-[p]cw setfrontendapi http://your-server:3000/api/voting/results your-bot-api-key
-
-# Configure Members API for frontend
+# Configure integrated API server
 [p]cw apiconfig port 8080
-[p]cw apiconfig token your-secret-token
 [p]cw apiconfig cors http://your-website.com
 [p]cw apiserver start
 
+# Generate admin token for management
+[p]cw admintoken generate
+
 # Test the integration
-[p]cw testfrontend
-[p]cw testapi
+[p]cw testpublicapi
 ```
 
 #### 4. Complete Automation Result
@@ -2033,7 +2038,7 @@ app.listen(3000, () => {
    └── Discord messages also accepted (fallback)
 
 🗳️ **Friday 12:00 PM** - Voting Starts  
-   ├── Bot fetches results from your API
+   ├── Bot uses internal voting storage
    ├── Determines winners automatically
    └── Posts voting announcement
 
@@ -2110,16 +2115,13 @@ https://suno.com/invalid/url/format
 [p]cw setadmin @yourusername  
 [p]cw toggle  # Enable automation
 
-# Voting system
-[p]cw setfrontendapi https://your-api.com/voting/results your-secure-key
-[p]cw testfrontend  # Verify connection
-
-# Members API  
+# Integrated API server (voting + members + admin)
 [p]cw apiconfig port 8080
 [p]cw apiconfig host 0.0.0.0
-[p]cw apiconfig token $(openssl rand -hex 32)  # Generate secure token
 [p]cw apiconfig cors https://your-website.com
 [p]cw apiserver start
+[p]cw admintoken generate  # Get admin token via DM
+[p]cw testpublicapi       # Verify all endpoints
 
 # Optional: AI themes
 [p]cw setai https://api.openai.com/v1/chat/completions sk-proj-... gpt-4
