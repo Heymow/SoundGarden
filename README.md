@@ -1,4 +1,3 @@
-```markdown
 # SoundGarden's Collab Warz — Frontend & Backend
 
 This is the web application and Discord bot for SoundGarden's Collab Warz music collaboration competition.
@@ -129,4 +128,3 @@ This is part of the SoundGarden ecosystem. Contact the SoundGarden team for cont
 ## License
 
 © SoundGarden · Collab Warz
-```
