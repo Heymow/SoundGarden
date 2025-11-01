@@ -1,0 +1,13 @@
+# Red-DiscordBot Collab Warz Cog Requirements
+
+# These are already included with Red-DiscordBot:
+# - discord.py
+# - aiohttp
+# - asyncio
+
+# No additional dependencies required!
+# The cog uses only built-in Red-DiscordBot libraries.
+
+# Optional: If you want to test locally without Red-DiscordBot
+# discord.py>=2.0.0
+# aiohttp>=3.8.0
