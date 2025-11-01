@@ -244,6 +244,13 @@ Web interface eliminates ALL legitimate error sources:
 [p]cw testpublicapi            # Test all endpoints
 ```
 
+### Suno Integration Setup
+```
+[p]cw sunoconfig enable         # Enable song metadata fetching
+[p]cw testsuno https://suno.com/song/abc123  # Test metadata extraction
+[p]cw sunoconfig status         # Check integration status
+```
+
 ### Admin Panel Setup
 ```
 [p]cw admintoken generate       # Generate secure token (sent via DM)
@@ -252,6 +259,9 @@ Web interface eliminates ALL legitimate error sources:
 
 ### Available APIs
 - **Public API**: Competition data, submissions, voting results, history, leaderboard
+  - 🎵 **Song Metadata**: Titles, audio URLs, cover art, Suno profiles
+  - 🎧 **Audio Playback**: Direct streaming URLs for frontend players
+  - 👤 **Artist Integration**: Suno handles and profile links
 - **Admin API**: Secure management, configuration updates, remote actions
 - **Members API**: Guild member directory for team formation
 
@@ -313,6 +323,14 @@ Web interface eliminates ALL legitimate error sources:
 Team name: Team Name
 @partner our submission
 https://suno.com/song/track-id
+```
+
+### ❌ Song metadata not appearing
+**Cause**: Suno integration disabled or API issues
+**Solution**:
+```
+[p]cw sunoconfig enable
+[p]cw testsuno https://suno.com/song/abc123
 ```
 
 ### ❌ API endpoints not working

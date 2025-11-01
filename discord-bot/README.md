@@ -192,8 +192,18 @@ Response: {
     {
       "team_name": "Team Alpha",
       "votes": 127,
-      "track_url": "https://suno.com/...",
-      "members": [...]
+      "track_url": "https://suno.com/song/abc123",
+      "members": [...],
+      "song": {
+        "title": "Starlight Journey",
+        "audio_url": "https://cdn.suno.ai/abc123.mp3",
+        "image_url": "https://cdn.suno.ai/abc123_cover.jpg",
+        "duration": 185,
+        "author_name": "CoolArtist",
+        "author_handle": "coolartist",
+        "author_profile_url": "https://suno.com/@coolartist",
+        "suno_url": "https://suno.com/song/abc123"
+      }
     }
   ],
   "total_votes": 292,
@@ -401,7 +411,7 @@ Submit a vote for a team (during voting phase)
 ```
 
 #### GET `/api/public/history?page=1&per_page=10`
-Get competition history with pagination
+Get competition history with pagination and song details
 
 **Response:**
 ```json
@@ -415,8 +425,27 @@ Get competition history with pagination
                 "team_name": "Ethereal Echoes",
                 "members": ["Alice Producer", "Bob Beats"],
                 "votes": 156,
-                "track_url": "https://suno.com/song/def456"
+                "track_url": "https://suno.com/song/def456",
+                "song": {
+                    "title": "Celestial Drift",
+                    "audio_url": "https://cdn.suno.ai/def456.mp3",
+                    "image_url": "https://cdn.suno.ai/def456_cover.jpg",
+                    "duration": 201,
+                    "author_name": "EtherealEchoes",
+                    "author_handle": "ethereal_echoes",
+                    "author_profile_url": "https://suno.com/@ethereal_echoes",
+                    "suno_url": "https://suno.com/song/def456"
+                }
             },
+            "all_submissions": [
+                {
+                    "team_name": "Ethereal Echoes",
+                    "song": { /* Same song object structure */ },
+                    "members": [...],
+                    "votes": 156
+                }
+                // ... other submissions
+            ],
             "total_teams": 15,
             "total_votes": 423,
             "was_faceoff": false
@@ -429,7 +458,7 @@ Get competition history with pagination
 ```
 
 #### GET `/api/public/leaderboard` 
-Get member statistics and all-time rankings
+Get member statistics and all-time rankings with Suno profile integration
 
 **Response:**
 ```json
@@ -441,6 +470,17 @@ Get member statistics and all-time rankings
             "participations": 15, 
             "win_rate": 53.33,
             "average_votes": 156.25,
+            "suno_handle": "alicebeats",
+            "suno_profile_url": "https://suno.com/@alicebeats",
+            "all_suno_handles": ["alicebeats", "alice_music"],
+            "winning_songs": [
+                {
+                    "week": "2024-W45",
+                    "title": "Epic Journey", 
+                    "suno_url": "https://suno.com/song/xyz123",
+                    "votes": 127
+                }
+            ],
             "member_info": {
                 "id": "123456789",
                 "display_name": "Alice Producer",
@@ -815,32 +855,36 @@ The following data is automatically fetched and included in API responses:
 | `tags` | Musical genre tags | "synthwave, electronic" |
 
 ### Frontend Integration
-Metadata is included in all submission endpoints:
+**Clean Song Object**: All endpoints now include a `song` object for easy frontend integration:
 
 ```javascript
-// Available in GET /api/public/submissions and /api/public/voting
+// Available in ALL endpoints: /api/public/submissions, /api/public/voting, /api/public/history
 const submission = {
     "team_name": "Digital Dreams",
     "track_url": "https://suno.com/song/abc123",
-    "suno_metadata": {
+    "song": {
         "title": "Neon Waves",
-        "audio_url": "https://example.com/audio.mp3",
-        "image_url": "https://example.com/image.jpg",
+        "audio_url": "https://cdn.suno.ai/abc123.mp3",
+        "image_url": "https://cdn.suno.ai/abc123_cover.jpg",
         "duration": 244.84,
         "author_name": "John Doe",
         "author_handle": "johndoe",
-        "author_avatar": "https://example.com/avatar.jpg"
-        // ... additional fields
-    }
+        "author_profile_url": "https://suno.com/@johndoe",
+        "suno_url": "https://suno.com/song/abc123"
+    },
+    "suno_metadata": { /* Raw API data - for backward compatibility */ }
 };
 
 // Use in your React components
 const SongCard = ({ submission }) => (
     <div className="song-card">
-        <img src={submission.suno_metadata?.image_url} alt="Cover" />
-        <h3>{submission.suno_metadata?.title || 'Unknown Track'}</h3>
-        <p>by {submission.suno_metadata?.author_name}</p>
-        <audio src={submission.suno_metadata?.audio_url} controls />
+        <img src={submission.song?.image_url} alt="Cover" />
+        <h3>{submission.song?.title || 'Unknown Track'}</h3>
+        <p>by <a href={submission.song?.author_profile_url} target="_blank">
+            {submission.song?.author_name}
+        </a></p>
+        <audio src={submission.song?.audio_url} controls />
+        <a href={submission.song?.suno_url} target="_blank">View on Suno</a>
     </div>
 );
 ```
@@ -1101,6 +1145,35 @@ docker run -p 8080:8080 your-bot-image
 ```
 
 ---
+
+## Song Metadata & Audio Integration
+
+### 🎵 Enhanced API Responses
+All endpoints now include comprehensive song metadata for rich frontend experiences:
+
+**Key Features:**
+- 🎧 **Direct Audio Playback** - `audio_url` for embedded players
+- 🖼️ **Cover Art Display** - `image_url` for visual elements  
+- 👤 **Artist Profiles** - Suno profile links and handles
+- 📊 **Leaderboard Integration** - Artist info in rankings
+- 🎵 **Song Titles** - Proper track names everywhere
+
+**Available in ALL endpoints:**
+- `/api/public/submissions` - Current week songs
+- `/api/public/voting` - Real-time voting with audio
+- `/api/public/history` - Historical competitions with playback
+- `/api/public/leaderboard` - Artist profiles and winning songs
+
+```javascript
+// Every submission now includes a clean song object
+const song = submission.song; // Clean, frontend-ready format
+const metadata = submission.suno_metadata; // Raw API data (backward compatibility)
+
+// Build audio players, galleries, artist pages etc.
+<audio src={song.audio_url} controls />
+<img src={song.image_url} alt={song.title} />
+<a href={song.author_profile_url}>@{song.author_handle}</a>
+```
 
 ## Frontend Integration
 
