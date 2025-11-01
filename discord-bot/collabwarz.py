@@ -65,14 +65,13 @@ class CollabWarz(commands.Cog):
             "face_off_teams": [],       # Teams in current face-off
             "face_off_deadline": None,  # When face-off voting ends
             "face_off_results": {},     # Face-off voting results {team_name: vote_count}
-            "frontend_api_url": None,   # URL to fetch voting results from frontend
-            "frontend_api_key": None,   # API key for frontend integration
             "api_server_enabled": False, # Enable built-in API server for member list
             "api_server_port": 8080,    # Port for the API server
             "api_server_host": "0.0.0.0", # Host for the API server
             "api_access_token": None,   # Token for API authentication
             "cors_origins": ["*"],      # CORS allowed origins
             "auto_delete_messages": True, # Automatically delete invalid messages
+            "admin_user_ids": [],       # List of additional admin user IDs
         }
         
         self.config.register_guild(**default_guild)
@@ -385,6 +384,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             app.router.add_get('/api/public/submissions', self._handle_public_submissions)
             app.router.add_get('/api/public/history', self._handle_public_history)
             app.router.add_get('/api/public/voting', self._handle_public_voting)
+            app.router.add_post('/api/public/vote', self._handle_public_vote)
             app.router.add_get('/api/public/leaderboard', self._handle_public_leaderboard)
             app.router.add_options('/api/public/{path:.*}', self._handle_options_request)
             
@@ -537,8 +537,6 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             safe_config = config.copy()
             if 'api_access_token' in safe_config:
                 safe_config['api_access_token'] = "***HIDDEN***" if safe_config['api_access_token'] else None
-            if 'frontend_api_key' in safe_config:
-                safe_config['frontend_api_key'] = "***HIDDEN***" if safe_config['frontend_api_key'] else None
             
             return web.json_response({
                 "guild": {
@@ -574,7 +572,6 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 'api_server_enabled': bool,
                 'api_port': int,
                 'cors_origins': list,
-                'frontend_api_url': str,
                 'ai_api_url': str,
                 'ai_model': str
             }
@@ -626,15 +623,11 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             team_count = len(submissions)
             
             # Get voting results if available
+            # Get internal voting results
             voting_results = None
-            try:
-                frontend_api_url = await self.config.guild(guild).frontend_api_url()
-                if frontend_api_url:
-                    # Try to fetch current voting results
-                    current_week = self._get_current_week()
-                    voting_results = await self._fetch_voting_results(frontend_api_url, current_week, guild)
-            except:
-                pass
+            current_week = self._get_current_week()
+            all_voting_results = await self.config.guild(guild).voting_results()
+            voting_results = all_voting_results.get(current_week, {})
             
             status = {
                 "phase": current_phase,
@@ -865,14 +858,18 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             week_end = week_start + timedelta(days=6, hours=20)  # Sunday 20:00
             
             # Get voting results if available
+            # Get internal voting results if in voting phase
             voting_results = None
-            try:
-                frontend_api_url = await self.config.guild(guild).frontend_api_url()
-                if frontend_api_url and current_phase == "voting":
-                    current_week = self._get_current_week()
-                    voting_results = await self._fetch_voting_results(frontend_api_url, current_week, guild)
-            except:
-                pass
+            if current_phase == "voting":
+                current_week = self._get_current_week()
+                all_voting_results = await self.config.guild(guild).voting_results()
+                vote_counts = all_voting_results.get(current_week, {})
+                if vote_counts:
+                    total_votes = sum(vote_counts.values())
+                    voting_results = {
+                        "results": vote_counts,
+                        "total_votes": total_votes
+                    }
             
             status = {
                 "competition": {
@@ -931,17 +928,12 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                             "avatar_url": str(member.display_avatar.url) if member.display_avatar else None
                         })
                 
-                # Get vote count if available
+                # Get vote count from internal storage
                 vote_count = None
-                try:
-                    frontend_api_url = await self.config.guild(guild).frontend_api_url()
-                    if frontend_api_url:
-                        current_week = self._get_current_week()
-                        voting_results = await self._fetch_voting_results(frontend_api_url, current_week, guild)
-                        if voting_results and 'results' in voting_results:
-                            vote_count = voting_results['results'].get(team_name, 0)
-                except:
-                    pass
+                current_week = self._get_current_week()
+                all_voting_results = await self.config.guild(guild).voting_results()
+                weekly_votes = all_voting_results.get(current_week, {})
+                vote_count = weekly_votes.get(team_name, 0)
                 
                 enriched_submission = {
                     "team_name": team_name,
@@ -1052,15 +1044,18 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     "timestamp": datetime.utcnow().isoformat()
                 })
             
-            # Get voting results from frontend API
+            # Get voting results from internal storage
+            current_week = self._get_current_week()
+            all_voting_results = await self.config.guild(guild).voting_results()
+            vote_counts = all_voting_results.get(current_week, {})
+            
             voting_results = None
-            try:
-                frontend_api_url = await self.config.guild(guild).frontend_api_url()
-                if frontend_api_url:
-                    current_week = self._get_current_week()
-                    voting_results = await self._fetch_voting_results(frontend_api_url, current_week, guild)
-            except Exception as e:
-                print(f"Error fetching voting results: {e}")
+            if vote_counts:
+                total_votes = sum(vote_counts.values())
+                voting_results = {
+                    "results": vote_counts,
+                    "total_votes": total_votes
+                }
             
             if not voting_results:
                 return web.json_response({
@@ -1113,6 +1108,82 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         except Exception as e:
             print(f"Error getting public voting: {e}")
             return web.json_response({"error": "Failed to get voting results"}, status=500)
+    
+    async def _handle_public_vote(self, request):
+        """Handle vote submission from frontend users"""
+        try:
+            guild = None
+            for g in self.bot.guilds:
+                api_enabled = await self.config.guild(g).api_server_enabled()
+                if api_enabled:
+                    guild = g
+                    break
+            
+            if not guild:
+                return web.json_response({"error": "Guild not found"}, status=404)
+            
+            # Check if voting is active
+            current_phase = await self.config.guild(guild).current_phase()
+            if current_phase != "voting":
+                return web.json_response({
+                    "error": "Voting is not active",
+                    "phase": current_phase,
+                    "message": "Voting phase has not started or has ended"
+                }, status=400)
+            
+            # Parse request data
+            try:
+                data = await request.json()
+                team_name = data.get('team_name')
+                voter_id = data.get('voter_id')  # Discord user ID or identifier
+                
+                if not team_name or not voter_id:
+                    return web.json_response({
+                        "error": "Missing required fields",
+                        "required": ["team_name", "voter_id"]
+                    }, status=400)
+                    
+            except Exception as e:
+                return web.json_response({"error": "Invalid JSON data"}, status=400)
+            
+            # Validate team exists in current submissions
+            submissions = await self.config.guild(guild).submissions()
+            if team_name not in submissions:
+                return web.json_response({
+                    "error": "Team not found",
+                    "message": f"Team '{team_name}' has no submission this week"
+                }, status=404)
+            
+            # Record vote in internal storage
+            current_week = self._get_current_week()
+            all_voting_results = await self.config.guild(guild).voting_results()
+            
+            # Initialize week data if not exists
+            if current_week not in all_voting_results:
+                all_voting_results[current_week] = {}
+            
+            # Initialize team vote count if not exists
+            if team_name not in all_voting_results[current_week]:
+                all_voting_results[current_week][team_name] = 0
+            
+            # Increment vote count
+            all_voting_results[current_week][team_name] += 1
+            
+            # Save updated results
+            await self.config.guild(guild).voting_results.set(all_voting_results)
+            
+            return web.json_response({
+                "success": True,
+                "message": f"Vote recorded for {team_name}",
+                "team_name": team_name,
+                "new_vote_count": all_voting_results[current_week][team_name],
+                "week": current_week,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error recording vote: {e}")
+            return web.json_response({"error": "Failed to record vote"}, status=500)
     
     async def _handle_public_leaderboard(self, request):
         """Get overall leaderboard and statistics for frontend users"""
@@ -1526,9 +1597,14 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     
     async def _is_user_admin(self, guild, user) -> bool:
         """Check if user is admin or has manage messages permission"""
-        # Check if user is the configured admin
+        # Check if user is the primary configured admin
         admin_id = await self.config.guild(guild).admin_user_id()
         if admin_id == user.id:
+            return True
+        
+        # Check if user is in the additional admins list
+        admin_ids = await self.config.guild(guild).admin_user_ids()
+        if user.id in admin_ids:
             return True
         
         # Check if user has admin/manage permissions
@@ -2456,7 +2532,6 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "`[p]cw setchannel #channel` - Set announcement channel\n"
                 "`[p]cw settestchannel #channel` - Set test channel\n"
                 "`[p]cw settheme Theme` - Change theme\n"
-                "`[p]cw setadmin @user` - Set confirmation admin\n"
                 "`[p]cw everyone` - Toggle @everyone ping in announcements\n"
                 "`[p]cw timeout 30` - Set timeout for non-submission confirmations\n"
                 "`[p]cw status` - View current status"
@@ -2471,6 +2546,18 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "`[p]cw changetheme Theme` - 🎨 **Change theme only**\n"
                 "`[p]cw nextweek [theme]` - Start new week\n"
                 "`[p]cw reset` - Reset announcement cycle"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🛡️ Admin Management",
+            value=(
+                "`[p]cw setadmin @user` - Set primary admin\n"
+                "`[p]cw addadmin @user` - Add additional admin\n"
+                "`[p]cw removeadmin @user` - Remove admin\n"
+                "`[p]cw listadmins` - List all admins\n"
+                "`[p]cw adminstatus [@user]` - Check admin access"
             ),
             inline=False
         )
@@ -2524,11 +2611,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         )
         
         embed.add_field(
-            name="🗳️ Automatic Voting System",
+            name="🗳️ Integrated Voting System",
             value=(
-                "`[p]cw setfrontendapi [url] [key]` - Configure frontend API for voting\n"
-                "`[p]cw testfrontend` - Test connection to frontend\n"
                 "`[p]cw checkvotes` - Check current voting results\n"
+                "🌐 **Vote via integrated API** (`/api/public/voting`)\n"
                 "🤖 **Winners determined automatically by vote count**\n"
                 "⚔️ **24h face-off for ties, random selection if still tied**"
             ),
@@ -3189,12 +3275,188 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     
     @collabwarz.command(name="setadmin")
     async def set_admin(self, ctx, user: discord.Member = None):
-        """Set the admin user for confirmation requests"""
+        """Set the primary admin user for confirmation requests"""
         if user is None:
             user = ctx.author
         
         await self.config.guild(ctx.guild).admin_user_id.set(user.id)
-        await ctx.send(f"✅ Admin set to {user.mention} for confirmation requests")
+        await ctx.send(f"✅ Primary admin set to {user.mention} for confirmation requests")
+    
+    @collabwarz.command(name="addadmin")
+    async def add_admin(self, ctx, user: discord.Member):
+        """Add a user to the additional admins list"""
+        admin_ids = await self.config.guild(ctx.guild).admin_user_ids()
+        
+        if user.id in admin_ids:
+            await ctx.send(f"❌ {user.mention} is already an admin")
+            return
+        
+        admin_ids.append(user.id)
+        await self.config.guild(ctx.guild).admin_user_ids.set(admin_ids)
+        await ctx.send(f"✅ Added {user.mention} as an admin")
+    
+    @collabwarz.command(name="removeadmin")
+    async def remove_admin(self, ctx, user: discord.Member):
+        """Remove a user from the additional admins list"""
+        admin_ids = await self.config.guild(ctx.guild).admin_user_ids()
+        
+        if user.id not in admin_ids:
+            await ctx.send(f"❌ {user.mention} is not in the additional admins list")
+            return
+        
+        admin_ids.remove(user.id)
+        await self.config.guild(ctx.guild).admin_user_ids.set(admin_ids)
+        await ctx.send(f"✅ Removed {user.mention} from admins list")
+    
+    @collabwarz.command(name="listadmins")
+    async def list_admins(self, ctx):
+        """List all configured admins"""
+        # Get primary admin
+        primary_admin_id = await self.config.guild(ctx.guild).admin_user_id()
+        admin_ids = await self.config.guild(ctx.guild).admin_user_ids()
+        
+        embed = discord.Embed(
+            title="🛡️ Bot Administrators",
+            color=discord.Color.blue(),
+            timestamp=datetime.utcnow()
+        )
+        
+        # Primary admin
+        if primary_admin_id:
+            primary_admin = ctx.guild.get_member(primary_admin_id)
+            if primary_admin:
+                embed.add_field(
+                    name="Primary Admin",
+                    value=f"{primary_admin.mention} ({primary_admin.display_name})",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="Primary Admin",
+                    value=f"<@{primary_admin_id}> (User not found)",
+                    inline=False
+                )
+        else:
+            embed.add_field(
+                name="Primary Admin",
+                value="Not set",
+                inline=False
+            )
+        
+        # Additional admins
+        if admin_ids:
+            admin_mentions = []
+            for admin_id in admin_ids:
+                admin = ctx.guild.get_member(admin_id)
+                if admin:
+                    admin_mentions.append(f"{admin.mention} ({admin.display_name})")
+                else:
+                    admin_mentions.append(f"<@{admin_id}> (User not found)")
+            
+            embed.add_field(
+                name="Additional Admins",
+                value="\n".join(admin_mentions) if admin_mentions else "None",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="Additional Admins", 
+                value="None",
+                inline=False
+            )
+        
+        # Permission-based admins
+        permission_admins = []
+        for member in ctx.guild.members:
+            if hasattr(member, 'guild_permissions') and (
+                member.guild_permissions.administrator or 
+                member.guild_permissions.manage_messages or
+                member.guild_permissions.manage_guild
+            ):
+                if (member.id != primary_admin_id and 
+                    member.id not in admin_ids and
+                    not member.bot):
+                    permission_admins.append(f"{member.mention} ({member.display_name})")
+        
+        if permission_admins:
+            # Limit to first 10 to avoid embed limits
+            if len(permission_admins) > 10:
+                permission_admins = permission_admins[:10]
+                permission_admins.append("... and more")
+            
+            embed.add_field(
+                name="Permission-Based Admins",
+                value="\n".join(permission_admins),
+                inline=False
+            )
+        
+        embed.set_footer(text="Users with Administrator, Manage Messages, or Manage Guild permissions also have admin access")
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="adminstatus")
+    async def admin_status(self, ctx, user: discord.Member = None):
+        """Check if a user has admin access and how they got it"""
+        if user is None:
+            user = ctx.author
+        
+        is_admin = await self._is_user_admin(ctx.guild, user)
+        
+        embed = discord.Embed(
+            title=f"🛡️ Admin Status: {user.display_name}",
+            color=discord.Color.green() if is_admin else discord.Color.red(),
+            timestamp=datetime.utcnow()
+        )
+        
+        embed.add_field(
+            name="Overall Status",
+            value="✅ **HAS ADMIN ACCESS**" if is_admin else "❌ **NO ADMIN ACCESS**",
+            inline=False
+        )
+        
+        # Check each level
+        primary_admin_id = await self.config.guild(ctx.guild).admin_user_id()
+        admin_ids = await self.config.guild(ctx.guild).admin_user_ids()
+        
+        access_methods = []
+        
+        if primary_admin_id == user.id:
+            access_methods.append("🔑 **Primary Admin** (receives confirmation DMs)")
+        
+        if user.id in admin_ids:
+            access_methods.append("👥 **Additional Admin** (added via `addadmin` command)")
+        
+        if hasattr(user, 'guild_permissions'):
+            perms = []
+            if user.guild_permissions.administrator:
+                perms.append("Administrator")
+            if user.guild_permissions.manage_messages:
+                perms.append("Manage Messages")
+            if user.guild_permissions.manage_guild:
+                perms.append("Manage Guild")
+            
+            if perms:
+                access_methods.append(f"🛡️ **Discord Permissions**: {', '.join(perms)}")
+        
+        if access_methods:
+            embed.add_field(
+                name="Access Methods",
+                value="\n".join(access_methods),
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="Access Methods",
+                value="None - User does not have admin access",
+                inline=False
+            )
+        
+        embed.add_field(
+            name="Admin Capabilities",
+            value="• Execute all bot commands\n• Bypass message moderation\n• Control competition phases\n• Manage API settings\n• Access admin web panel" if is_admin else "No admin capabilities",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
     
     @collabwarz.command(name="settestchannel")
     async def set_test_channel(self, ctx, channel: discord.TextChannel):
@@ -3783,125 +4045,6 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             await ctx.send("⚠️ Rep rewards **disabled** - winners will receive 0 petals")
         else:
             await ctx.send(f"✅ Rep reward amount set to **{amount} petals** per winner")
-    
-    @collabwarz.command(name="setfrontendapi")
-    async def set_frontend_api(self, ctx, api_url: str, api_key: str = None):
-        """Set the frontend API URL and optional API key for voting results"""
-        # Validate URL format
-        if not api_url.startswith(('http://', 'https://')):
-            await ctx.send("❌ API URL must start with http:// or https://")
-            return
-        
-        # Remove trailing slash
-        api_url = api_url.rstrip('/')
-        
-        await self.config.guild(ctx.guild).frontend_api_url.set(api_url)
-        
-        if api_key:
-            await self.config.guild(ctx.guild).frontend_api_key.set(api_key)
-            key_display = api_key[:8] + "..." if len(api_key) > 8 else "***"
-        else:
-            await self.config.guild(ctx.guild).frontend_api_key.set(None)
-            key_display = "None (public API)"
-        
-        embed = discord.Embed(
-            title="🌐 Frontend API Configured",
-            description=f"Frontend API URL set to: `{api_url}`",
-            color=discord.Color.green()
-        )
-        
-        embed.add_field(
-            name="API Key",
-            value=key_display,
-            inline=True
-        )
-        
-        embed.add_field(
-            name="Expected Endpoints",
-            value=(
-                f"`{api_url}/api/voting/results/{{week}}` - Vote results\n"
-                f"`{api_url}/api/voting/results/{{week}}_faceoff` - Face-off results"
-            ),
-            inline=False
-        )
-        
-        embed.add_field(
-            name="What This Enables",
-            value=(
-                "• Automatic winner determination from votes\n"
-                "• Tie detection and face-off management\n"
-                "• Vote count display in announcements\n"
-                "• Random winner selection for persistent ties"
-            ),
-            inline=False
-        )
-        
-        embed.set_footer(text="Winners will now be determined by frontend voting results!")
-        await ctx.send(embed=embed)
-    
-    @collabwarz.command(name="testfrontend")
-    async def test_frontend(self, ctx):
-        """Test connection to frontend API"""
-        api_url = await self.config.guild(ctx.guild).frontend_api_url()
-        
-        if not api_url:
-            await ctx.send("❌ Frontend API not configured. Use `[p]cw setfrontendapi` first.")
-            return
-        
-        # Test current week results
-        week = self._get_current_week()
-        
-        embed = discord.Embed(
-            title="🧪 Frontend API Test",
-            color=discord.Color.yellow()
-        )
-        
-        try:
-            vote_counts = await self._fetch_voting_results(ctx.guild, week)
-            
-            if vote_counts:
-                # Show results
-                embed.color = discord.Color.green()
-                embed.add_field(
-                    name="✅ Connection Successful",
-                    value=f"Retrieved voting data for week {week}",
-                    inline=False
-                )
-                
-                # Show vote counts
-                vote_lines = []
-                for team, votes in sorted(vote_counts.items(), key=lambda x: x[1], reverse=True):
-                    vote_lines.append(f"• **{team}**: {votes} votes")
-                
-                if vote_lines:
-                    embed.add_field(
-                        name="Current Vote Counts",
-                        value="\n".join(vote_lines[:10]) + ("\n..." if len(vote_lines) > 10 else ""),
-                        inline=False
-                    )
-            else:
-                embed.color = discord.Color.orange()
-                embed.add_field(
-                    name="⚠️ No Data",
-                    value=f"API responded but no voting data found for week {week}",
-                    inline=False
-                )
-                
-        except Exception as e:
-            embed.color = discord.Color.red()
-            embed.add_field(
-                name="❌ Connection Failed",
-                value=f"Error: {str(e)}",
-                inline=False
-            )
-        
-        embed.add_field(
-            name="API Configuration",
-            value=f"URL: `{api_url}`\nWeek: `{week}`",
-            inline=False
-        )
-        
-        await ctx.send(embed=embed)
     
     @collabwarz.command(name="checkvotes")
     async def check_votes(self, ctx):
@@ -4990,46 +5133,6 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 8
             )
     
-    async def _fetch_voting_results(self, guild: discord.Guild, week: str = None) -> dict:
-        """Fetch voting results from frontend API
-        
-        Args:
-            guild: Discord guild
-            week: Week identifier (e.g., "2025-W44"). If None, uses current week
-            
-        Returns:
-            Dictionary with team names as keys and vote counts as values
-        """
-        if not week:
-            week = self._get_current_week()
-        
-        frontend_url = await self.config.guild(guild).frontend_api_url()
-        api_key = await self.config.guild(guild).frontend_api_key()
-        
-        if not frontend_url:
-            return {}
-        
-        try:
-            headers = {}
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{frontend_url}/api/voting/results/{week}",
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return data.get("results", {})
-                    else:
-                        print(f"Failed to fetch voting results: HTTP {response.status}")
-                        return {}
-        except Exception as e:
-            print(f"Error fetching voting results: {e}")
-            return {}
-    
     async def _determine_winners(self, guild: discord.Guild) -> tuple:
         """Determine the winner(s) based on voting results
         
@@ -5040,7 +5143,15 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             - vote_counts: Dictionary of all vote counts
         """
         week = self._get_current_week()
-        vote_counts = await self._fetch_voting_results(guild, week)
+        
+        # Check if we're in a face-off situation
+        face_off_active = await self.config.guild(guild).face_off_active()
+        if face_off_active:
+            vote_counts = await self.config.guild(guild).face_off_results()
+        else:
+            # Use internal voting results storage
+            voting_results = await self.config.guild(guild).voting_results()
+            vote_counts = voting_results.get(week, {})
         
         if not vote_counts:
             return [], False, {}
@@ -5121,16 +5232,12 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             if not face_off_teams:
                 return None
             
-            # Fetch current face-off voting results
-            week = self._get_current_week()
-            vote_counts = await self._fetch_voting_results(guild, f"{week}_faceoff")
+            # Get face-off voting results from internal storage
+            face_off_votes = await self.config.guild(guild).face_off_results()
             
-            if not vote_counts:
-                # No votes yet, or error fetching
+            if not face_off_votes:
+                # No votes yet
                 return None
-            
-            # Filter only face-off teams
-            face_off_votes = {team: vote_counts.get(team, 0) for team in face_off_teams}
             
             # Find winner
             max_votes = max(face_off_votes.values()) if face_off_votes else 0

@@ -347,6 +347,29 @@ Get live voting results (available during voting phase)
 }
 ```
 
+#### POST `/api/public/vote`
+Submit a vote for a team (during voting phase)
+
+**Request Body:**
+```json
+{
+    "team_name": "Digital Dreams",
+    "voter_id": "12345678901234567"
+}
+```
+
+**Response:**
+```json
+{
+    "success": true,
+    "message": "Vote recorded for Digital Dreams",
+    "team_name": "Digital Dreams", 
+    "new_vote_count": 128,
+    "week": "2025-W44",
+    "timestamp": "2025-11-01T15:30:00"
+}
+```
+
 #### GET `/api/public/history?page=1&per_page=10`
 Get competition history with pagination
 
@@ -1097,6 +1120,35 @@ async function fetchMembers() {
 
 ## Admin Commands
 
+### Admin Management
+The bot supports **multiple administrator levels** for flexible team management:
+
+**Admin Access Levels:**
+- **🔑 Primary Admin**: Receives confirmation DMs, manages main settings
+- **👥 Additional Admins**: Full bot control without confirmation DMs
+- **🛡️ Permission-Based**: Discord users with Administrator/Manage Messages/Manage Guild permissions
+
+```bash
+# Primary admin configuration  
+[p]cw setadmin @user            # Set primary admin (confirmation DMs)
+
+# Multiple admin management
+[p]cw addadmin @user            # Add additional admin
+[p]cw removeadmin @user         # Remove additional admin  
+[p]cw listadmins                # List all configured admins
+
+# View comprehensive admin status
+[p]cw listadmins                # Shows primary, additional, and permission-based admins
+```
+
+**Example Multi-Admin Setup:**
+```bash
+[p]cw setadmin @owner           # Owner gets confirmation DMs
+[p]cw addadmin @moderator1      # Mod can manage competitions  
+[p]cw addadmin @moderator2      # Another mod with full access
+[p]cw listadmins                # Verify setup
+```
+
 ### Basic Configuration
 ```bash
 [p]cw setchannel #channel       # Set announcement channel
@@ -1107,11 +1159,11 @@ async function fetchMembers() {
 [p]cw status                    # View current configuration
 ```
 
-### Voting System Configuration
+### Integrated Voting System
 ```bash
-[p]cw setfrontendapi [url] [key] # Configure frontend API for voting results
-[p]cw testfrontend              # Test API connection
 [p]cw checkvotes               # Check current voting results
+# Voting handled via integrated API - no external configuration needed!
+# Votes submitted via POST /api/public/vote endpoint
 ```
 
 ### API Server Configuration

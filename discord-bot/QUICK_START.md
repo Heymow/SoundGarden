@@ -317,7 +317,29 @@ https://suno.com/song/track-id
 - [ ] Cog `collabwarz.py` loaded successfully
 - [ ] Competition channel configured with `[p]cw setchannel`
 - [ ] Initial theme set with `[p]cw settheme`
+- [ ] Admin users configured (see Admin Management below)
 - [ ] Correct bot permissions (Manage Messages, Add Reactions)
+
+### Admin Management
+```bash
+# Set primary admin (for confirmations)
+[p]cw setadmin @primary_admin
+
+# Add additional admins (multiple users can be admins)
+[p]cw addadmin @admin1
+[p]cw addadmin @admin2
+
+# List all configured admins
+[p]cw listadmins
+
+# Remove an admin
+[p]cw removeadmin @admin1
+```
+
+**Admin Access Levels:**
+- **Primary Admin**: Receives confirmation DMs, set via `setadmin`
+- **Additional Admins**: Full bot control, added via `addadmin`  
+- **Permission-Based**: Users with Administrator/Manage Messages/Manage Guild permissions automatically get admin access
 
 ### Optional Features
 - [ ] AI API configured for theme generation (`[p]cw setai`)
