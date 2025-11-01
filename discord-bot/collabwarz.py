@@ -14,6 +14,8 @@ import aiohttp
 import asyncio
 import json
 from typing import Optional
+from aiohttp import web
+import re
 
 class CollabWarz(commands.Cog):
     """
@@ -33,11 +35,48 @@ class CollabWarz(commands.Cog):
             "voting_deadline": None,
             "auto_announce": True,
             "ai_api_url": "",
-            "ai_api_key": ""
+            "ai_api_key": "",
+            "ai_model": "gpt-3.5-turbo",  # Configurable AI model
+            "ai_temperature": 0.8,        # AI creativity setting
+            "ai_max_tokens": 150,         # Maximum response length
+            "last_announcement": None,  # Track last announcement to avoid duplicates
+            "last_phase_check": None,   # Track when we last checked for phase changes
+            "winner_announced": False,  # Track if winner has been announced for current week
+            "require_confirmation": True,  # Require admin confirmation before posting
+            "admin_user_id": None,      # Admin to contact for confirmation
+            "pending_announcement": None, # Store pending announcement data
+            "test_channel": None,       # Channel for test announcements
+            "confirmation_timeout": 1800, # 30 minutes timeout for confirmations (non-submission)
+            "next_week_theme": None,    # AI-generated theme for next week
+            "theme_generation_done": False, # Track if theme was generated this week
+            "pending_theme_confirmation": None, # Store pending theme confirmation
+            "use_everyone_ping": False, # Whether to include @everyone in announcements
+            "min_teams_required": 2,    # Minimum teams required to start voting
+            "submission_channel": None, # Channel where submissions are posted
+            "week_cancelled": False,    # Track if current week was cancelled
+            "validate_discord_submissions": True, # Validate Discord submissions format
+            "submitted_teams": {},      # Track teams that have submitted this week {week: [teams]}
+            "team_members": {},         # Track team compositions {week: {team_name: [user_ids]}}
+            "admin_channel": None,      # Channel for YAGPDB admin commands
+            "rep_reward_amount": 2,     # Amount of rep points to give winners
+            "weekly_winners": {},       # Track winners by week {week: {team_name, members, rep_given}}
+            "voting_results": {},       # Track voting results {week: {team_name: vote_count}}
+            "face_off_active": False,   # Track if a face-off is currently active
+            "face_off_teams": [],       # Teams in current face-off
+            "face_off_deadline": None,  # When face-off voting ends
+            "face_off_results": {},     # Face-off voting results {team_name: vote_count}
+            "frontend_api_url": None,   # URL to fetch voting results from frontend
+            "frontend_api_key": None,   # API key for frontend integration
+            "api_server_enabled": False, # Enable built-in API server for member list
+            "api_server_port": 8080,    # Port for the API server
+            "api_server_host": "0.0.0.0", # Host for the API server
+            "api_access_token": None,   # Token for API authentication
+            "cors_origins": ["*"]       # CORS allowed origins
         }
         
         self.config.register_guild(**default_guild)
         self.announcement_task = None
+        self.confirmation_messages = {}  # Track confirmation messages for reaction handling
         
     def cog_load(self):
         """Start the announcement task when cog loads"""
@@ -47,6 +86,660 @@ class CollabWarz(commands.Cog):
         """Stop the announcement task when cog unloads"""
         if self.announcement_task:
             self.announcement_task.cancel()
+    
+    def _create_discord_timestamp(self, dt: datetime, style: str = "R") -> str:
+        """Create a Discord timestamp from datetime object
+        
+        Args:
+            dt: datetime object
+            style: Discord timestamp style
+                - "t": Short time (16:20)
+                - "T": Long time (16:20:30)
+                - "d": Short date (20/04/2021)
+                - "D": Long date (20 April 2021)
+                - "f": Short date/time (20 April 2021 16:20)
+                - "F": Long date/time (Tuesday, 20 April 2021 16:20)
+                - "R": Relative time (2 months ago)
+        """
+        timestamp = int(dt.timestamp())
+        return f"<t:{timestamp}:{style}>"
+    
+    def _get_next_deadline(self, announcement_type: str) -> datetime:
+        """Get the next deadline based on announcement type"""
+        now = datetime.utcnow()
+        day = now.weekday()  # Monday is 0, Sunday is 6
+        
+        if announcement_type == "submission_start":
+            # Submissions end Friday noon
+            days_until_friday = (4 - day) % 7  # 4 = Friday
+            if days_until_friday == 0 and now.hour >= 12:  # Friday afternoon
+                days_until_friday = 7  # Next Friday
+            elif days_until_friday == 0:  # Friday before noon
+                pass  # Same day
+            else:
+                pass  # Days until Friday
+                
+            next_friday = now + timedelta(days=days_until_friday)
+            return next_friday.replace(hour=12, minute=0, second=0, microsecond=0)
+            
+        elif announcement_type == "voting_start" or announcement_type == "reminder":
+            # Voting ends Sunday night
+            days_until_sunday = (6 - day) % 7  # 6 = Sunday
+            if days_until_sunday == 0 and now.hour >= 23:  # Sunday late night
+                days_until_sunday = 7  # Next Sunday
+            elif days_until_sunday == 0:  # Sunday before 11 PM
+                pass  # Same day
+            else:
+                pass  # Days until Sunday
+                
+            next_sunday = now + timedelta(days=days_until_sunday)
+            return next_sunday.replace(hour=23, minute=59, second=59, microsecond=0)
+        
+        # Default fallback
+        return now + timedelta(days=1)
+    
+    async def _count_participating_teams(self, guild) -> int:
+        """Count the number of teams with submissions this week"""
+        try:
+            week_key = self._get_current_week_key()
+            submitted_teams = await self.config.guild(guild).submitted_teams()
+            
+            # Count registered teams for current week
+            week_teams = submitted_teams.get(week_key, [])
+            registered_count = len(week_teams)
+            
+            # Also check for unregistered submissions (fallback for website/old submissions)
+            validate_enabled = await self.config.guild(guild).validate_discord_submissions()
+            if not validate_enabled:
+                # If validation is disabled, count raw messages as before
+                return await self._count_raw_submissions(guild)
+            
+            # If validation is enabled, we might have some unregistered submissions
+            # Add them to the count but don't double-count
+            raw_count = await self._count_raw_submissions(guild)
+            
+            # Return the maximum to account for both registered and unregistered submissions
+            return max(registered_count, raw_count)
+            
+        except Exception as e:
+            print(f"Error counting teams in {guild.name}: {e}")
+            return 0
+    
+    async def _count_raw_submissions(self, guild) -> int:
+        """Count raw submissions by scanning messages (fallback method)"""
+        try:
+            submission_channel_id = await self.config.guild(guild).submission_channel()
+            if not submission_channel_id:
+                submission_channel_id = await self.config.guild(guild).announcement_channel()
+            
+            if not submission_channel_id:
+                return 0
+            
+            channel = guild.get_channel(submission_channel_id)
+            if not channel:
+                return 0
+            
+            # Get current week identifier for filtering messages
+            now = datetime.now()
+            week_start = now - timedelta(days=now.weekday())
+            
+            team_count = 0
+            async for message in channel.history(after=week_start, limit=None):
+                if message.attachments or any(url in message.content.lower() 
+                                            for url in ['soundcloud', 'youtube', 'bandcamp', 'spotify', 'drive.google']):
+                    team_count += 1
+            
+            return team_count
+            
+        except Exception as e:
+            print(f"Error counting raw submissions in {guild.name}: {e}")
+            return 0
+    
+    async def _cancel_week_and_restart(self, guild, channel, theme: str):
+        """Cancel current week due to insufficient teams and restart next Monday"""
+        try:
+            # Mark week as cancelled
+            await self.config.guild(guild).week_cancelled.set(True)
+            await self.config.guild(guild).current_phase.set("cancelled")
+            
+            # Calculate next Monday
+            now = datetime.now()
+            days_until_monday = (7 - now.weekday()) % 7
+            if days_until_monday == 0:  # If today is Monday
+                days_until_monday = 7
+            
+            next_monday = now + timedelta(days=days_until_monday)
+            next_monday_ts = self._create_discord_timestamp(next_monday.replace(hour=9, minute=0, second=0), "F")
+            
+            # Create cancellation announcement
+            cancellation_msg = f"""⚠️ **WEEK CANCELLED - INSUFFICIENT PARTICIPATION** ⚠️
+
+🎵 **Theme:** **{theme}**
+
+Unfortunately, we didn't receive enough submissions this week to proceed with voting.
+
+📅 **Competition restarts:** {next_monday_ts}
+🔄 **New theme will be announced** when we restart
+
+Thank you for your understanding! Let's make next week amazing! 🎶"""
+
+            # Check for @everyone ping setting
+            use_everyone_ping = await self.config.guild(guild).use_everyone_ping()
+            if use_everyone_ping:
+                cancellation_msg = f"@everyone\n\n{cancellation_msg}"
+            
+            # Send cancellation message
+            await channel.send(cancellation_msg)
+            
+            # Reset flags for next week
+            current_week = now.strftime("%Y-W%U")
+            await self.config.guild(guild).last_announcement.set(f"week_cancelled_{current_week}")
+            await self.config.guild(guild).winner_announced.set(False)
+            await self.config.guild(guild).theme_generation_done.set(False)
+            
+            print(f"Week cancelled in {guild.name} due to insufficient teams")
+            
+        except Exception as e:
+            print(f"Error cancelling week in {guild.name}: {e}")
+    
+    def _extract_team_info_from_message(self, message_content: str, mentions: list, guild: discord.Guild, author_id: int) -> dict:
+        """Extract team name and partner from Discord message"""
+        result = {
+            "team_name": None,
+            "partner_id": None,
+            "errors": []
+        }
+        
+        # Look for "Team name:" pattern (case insensitive)
+        team_match = re.search(r'team\s+name\s*:\s*(.+?)(?:\n|$)', message_content, re.IGNORECASE)
+        if team_match:
+            result["team_name"] = team_match.group(1).strip()
+        else:
+            result["errors"].append("❌ **Team name missing**: Please include `Team name: YourTeamName`")
+        
+        # Check for partner mention (@user)
+        if mentions:
+            # Filter out bots and the author themselves
+            valid_mentions = [user for user in mentions if not user.bot and user.id != author_id]
+            
+            if len(valid_mentions) >= 1:
+                partner = valid_mentions[0]
+                
+                # Verify partner is a member of this guild
+                guild_member = guild.get_member(partner.id)
+                if guild_member:
+                    result["partner_id"] = partner.id
+                else:
+                    result["errors"].append(f"❌ **Partner not on server**: @{partner.name} is not a member of the {guild.name} Discord server")
+            else:
+                result["errors"].append("❌ **Partner mention missing**: Please mention your collaboration partner with @username (and don't mention yourself)")
+        else:
+            result["errors"].append("❌ **Partner mention missing**: Please mention your collaboration partner with @username")
+        
+        return result
+    
+    def _get_current_week_key(self) -> str:
+        """Get current week identifier for tracking submissions"""
+        now = datetime.now()
+        return f"{now.year}-W{now.isocalendar()[1]}"
+    
+    async def _is_team_already_submitted(self, guild, team_name: str, user_id: int, partner_id: int) -> dict:
+        """Check if team or members already submitted this week"""
+        week_key = self._get_current_week_key()
+        submitted_teams = await self.config.guild(guild).submitted_teams()
+        team_members = await self.config.guild(guild).team_members()
+        
+        # Get submissions for current week
+        week_teams = submitted_teams.get(week_key, [])
+        week_members = team_members.get(week_key, {})
+        
+        result = {
+            "can_submit": True,
+            "errors": []
+        }
+        
+        # Check if exact team name already exists
+        if team_name.lower() in [t.lower() for t in week_teams]:
+            result["can_submit"] = False
+            result["errors"].append(f"❌ **Team name already used**: `{team_name}` has already submitted this week")
+        
+        # Check if either member is already in another team
+        for existing_team, members in week_members.items():
+            if user_id in members:
+                result["can_submit"] = False
+                result["errors"].append(f"❌ **You're already in a team**: You're part of team `{existing_team}` this week")
+            
+            if partner_id in members:
+                result["can_submit"] = False
+                result["errors"].append(f"❌ **Partner already in a team**: Your partner is already part of team `{existing_team}` this week")
+        
+        return result
+    
+    async def _register_team_submission(self, guild, team_name: str, user_id: int, partner_id: int):
+        """Register a successful team submission"""
+        week_key = self._get_current_week_key()
+        
+        # Update submitted teams
+        submitted_teams = await self.config.guild(guild).submitted_teams()
+        if week_key not in submitted_teams:
+            submitted_teams[week_key] = []
+        submitted_teams[week_key].append(team_name)
+        await self.config.guild(guild).submitted_teams.set(submitted_teams)
+        
+        # Update team members
+        team_members = await self.config.guild(guild).team_members()
+        if week_key not in team_members:
+            team_members[week_key] = {}
+        team_members[week_key][team_name] = [user_id, partner_id]
+        await self.config.guild(guild).team_members.set(team_members)
+    
+    async def _send_submission_error(self, channel, user, errors: list):
+        """Send submission validation error message"""
+        error_msg = f"{user.mention}, there are issues with your submission:\n\n"
+        error_msg += "\n".join(errors)
+        error_msg += "\n\n**Correct format:**\n"
+        error_msg += "```\n"
+        error_msg += "Team name: Amazing Duo\n"
+        error_msg += "@YourPartner check out our track!\n"
+        error_msg += "[attachment or music platform link]\n"
+        error_msg += "```\n"
+        error_msg += "💡 **Tip**: You can also submit via the website form!"
+        
+        await channel.send(error_msg)
+    
+    def _start_api_server(self, guild):
+        """Start the API server for this guild"""
+        try:
+            app = web.Application()
+            
+            # Add CORS middleware
+            async def cors_middleware(request, handler):
+                response = await handler(request)
+                cors_origins = await self.config.guild(guild).cors_origins()
+                
+                if "*" in cors_origins:
+                    response.headers['Access-Control-Allow-Origin'] = '*'
+                else:
+                    origin = request.headers.get('Origin')
+                    if origin and origin in cors_origins:
+                        response.headers['Access-Control-Allow-Origin'] = origin
+                
+                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+                response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+                
+                return response
+            
+            app.middlewares.append(cors_middleware)
+            
+            # Define API routes
+            app.router.add_get('/api/members', self._handle_members_request)
+            app.router.add_options('/api/members', self._handle_options_request)
+            
+            return app
+            
+        except Exception as e:
+            print(f"Error starting API server: {e}")
+            return None
+    
+    async def _handle_options_request(self, request):
+        """Handle CORS preflight requests"""
+        return web.Response(status=200)
+    
+    async def _handle_members_request(self, request):
+        """Handle API request for guild members list"""
+        try:
+            # Find the guild for this request
+            guild = None
+            for g in self.bot.guilds:
+                api_enabled = await self.config.guild(g).api_server_enabled()
+                if api_enabled:
+                    guild = g
+                    break
+            
+            if not guild:
+                return web.json_response(
+                    {"error": "API not enabled"}, 
+                    status=503
+                )
+            
+            # Check authentication
+            auth_token = await self.config.guild(guild).api_access_token()
+            if auth_token:
+                auth_header = request.headers.get('Authorization', '')
+                if not auth_header.startswith('Bearer '):
+                    return web.json_response(
+                        {"error": "Missing or invalid authorization"}, 
+                        status=401
+                    )
+                
+                provided_token = auth_header[7:]  # Remove 'Bearer ' prefix
+                if provided_token != auth_token:
+                    return web.json_response(
+                        {"error": "Invalid token"}, 
+                        status=403
+                    )
+            
+            # Get members list
+            members_data = await self._get_guild_members_for_api(guild)
+            
+            return web.json_response({
+                "guild": {
+                    "id": str(guild.id),
+                    "name": guild.name,
+                    "member_count": guild.member_count
+                },
+                "members": members_data,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error handling members request: {e}")
+            return web.json_response(
+                {"error": "Internal server error"}, 
+                status=500
+            )
+    
+    async def _get_guild_members_for_api(self, guild):
+        """Get formatted guild members data for API"""
+        try:
+            members_data = []
+            
+            for member in guild.members:
+                # Skip bots
+                if member.bot:
+                    continue
+                
+                member_data = {
+                    "id": str(member.id),
+                    "username": member.name,
+                    "display_name": member.display_name,
+                    "discriminator": member.discriminator if hasattr(member, 'discriminator') else None,
+                    "avatar_url": str(member.display_avatar.url) if member.display_avatar else None,
+                    "joined_at": member.joined_at.isoformat() if member.joined_at else None
+                }
+                
+                members_data.append(member_data)
+            
+            # Sort by display name for easier frontend usage
+            members_data.sort(key=lambda x: x["display_name"].lower())
+            
+            return members_data
+            
+        except Exception as e:
+            print(f"Error getting guild members: {e}")
+            return []
+    
+    async def _start_api_server_task(self, guild):
+        """Start the API server as a background task"""
+        try:
+            api_enabled = await self.config.guild(guild).api_server_enabled()
+            if not api_enabled:
+                return
+            
+            port = await self.config.guild(guild).api_server_port()
+            host = await self.config.guild(guild).api_server_host()
+            
+            app = self._start_api_server(guild)
+            if not app:
+                return
+            
+            runner = web.AppRunner(app)
+            await runner.setup()
+            
+            site = web.TCPSite(runner, host, port)
+            await site.start()
+            
+            print(f"API server started for {guild.name} on {host}:{port}")
+            
+            # Keep the server running
+            while api_enabled:
+                await asyncio.sleep(60)  # Check every minute
+                api_enabled = await self.config.guild(guild).api_server_enabled()
+            
+            await runner.cleanup()
+            print(f"API server stopped for {guild.name}")
+            
+        except Exception as e:
+            print(f"Error in API server task for {guild.name}: {e}")
+    
+    async def _validate_discord_submission(self, message):
+        """Validate and process Discord submission"""
+        try:
+            guild = message.guild
+            if not guild:
+                return
+            
+            # Check if validation is enabled
+            validate_enabled = await self.config.guild(guild).validate_discord_submissions()
+            if not validate_enabled:
+                return
+            
+            # Check if this is the submission channel
+            submission_channel_id = await self.config.guild(guild).submission_channel()
+            if not submission_channel_id or message.channel.id != submission_channel_id:
+                return
+            
+            # Check if message has attachment or music link (potential submission)
+            has_attachment = len(message.attachments) > 0
+            has_music_link = any(platform in message.content.lower() 
+                               for platform in ['soundcloud', 'youtube', 'bandcamp', 'spotify', 'drive.google'])
+            
+            if not (has_attachment or has_music_link):
+                return  # Not a submission, ignore
+            
+            # Extract team info from message
+            team_info = self._extract_team_info_from_message(message.content, message.mentions, guild, message.author.id)
+            
+            if team_info["errors"]:
+                await self._send_submission_error(message.channel, message.author, team_info["errors"])
+                return
+            
+            # Check if team can submit
+            team_check = await self._is_team_already_submitted(
+                guild, 
+                team_info["team_name"], 
+                message.author.id, 
+                team_info["partner_id"]
+            )
+            
+            if not team_check["can_submit"]:
+                await self._send_submission_error(message.channel, message.author, team_check["errors"])
+                return
+            
+            # Register successful submission
+            await self._register_team_submission(
+                guild, 
+                team_info["team_name"], 
+                message.author.id, 
+                team_info["partner_id"]
+            )
+            
+            # Send success confirmation
+            partner = guild.get_member(team_info["partner_id"])
+            partner_name = partner.mention if partner else "your partner"
+            
+            success_msg = f"✅ **Submission registered!**\n\n"
+            success_msg += f"**Team:** `{team_info['team_name']}`\n"
+            success_msg += f"**Members:** {message.author.mention} & {partner_name}\n"
+            success_msg += f"**Week:** {self._get_current_week_key()}\n\n"
+            success_msg += "Good luck in the competition! 🎵"
+            
+            await message.add_reaction("✅")
+            await message.channel.send(success_msg)
+            
+        except Exception as e:
+            print(f"Error validating Discord submission in {guild.name}: {e}")
+    
+    async def _get_user_rep_count(self, guild, user_id: int) -> int:
+        """Get user's current rep points using YAGPDB command"""
+        try:
+            admin_channel_id = await self.config.guild(guild).admin_channel()
+            if not admin_channel_id:
+                return 0
+            
+            admin_channel = guild.get_channel(admin_channel_id)
+            if not admin_channel:
+                return 0
+            
+            # Send YAGPDB rep check command
+            user = guild.get_member(user_id)
+            if not user:
+                return 0
+            
+            command_msg = f"-rep {user.mention}"
+            await admin_channel.send(command_msg)
+            
+            # Wait for YAGPDB response and try to parse it
+            def check(message):
+                return (message.channel.id == admin_channel_id and 
+                       message.author.bot and 
+                       user.display_name.lower() in message.content.lower() and
+                       "petals" in message.content.lower())
+            
+            try:
+                response = await self.bot.wait_for('message', timeout=10.0, check=check)
+                
+                # Try to extract number from YAGPDB response
+                import re
+                numbers = re.findall(r'\d+', response.content)
+                if numbers:
+                    return int(numbers[-1])  # Usually the last number is the total
+                    
+            except asyncio.TimeoutError:
+                print(f"Timeout waiting for YAGPDB rep response for {user.display_name}")
+                
+            return 0
+            
+        except Exception as e:
+            print(f"Error getting rep count for user {user_id}: {e}")
+            return 0
+    
+    async def _give_rep_to_user(self, guild, user_id: int, amount: int) -> bool:
+        """Give rep points to a user using YAGPDB command"""
+        try:
+            admin_channel_id = await self.config.guild(guild).admin_channel()
+            if not admin_channel_id:
+                return False
+            
+            admin_channel = guild.get_channel(admin_channel_id)
+            if not admin_channel:
+                return False
+            
+            user = guild.get_member(user_id)
+            if not user:
+                return False
+            
+            # Send YAGPDB giverep command
+            command_msg = f"-giverep {user.mention} {amount}"
+            await admin_channel.send(command_msg)
+            
+            # Wait a bit for the command to process
+            await asyncio.sleep(2)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error giving rep to user {user_id}: {e}")
+            return False
+    
+    async def _record_weekly_winner(self, guild, team_name: str, member_ids: list, week_key: str = None):
+        """Record the weekly winner and give rep rewards"""
+        try:
+            if week_key is None:
+                week_key = self._get_current_week_key()
+            
+            # Record winner
+            weekly_winners = await self.config.guild(guild).weekly_winners()
+            rep_amount = await self.config.guild(guild).rep_reward_amount()
+            
+            # Give rep to each team member
+            rep_results = {}
+            for user_id in member_ids:
+                success = await self._give_rep_to_user(guild, user_id, rep_amount)
+                rep_results[user_id] = success
+            
+            # Record the winner with rep status
+            weekly_winners[week_key] = {
+                "team_name": team_name,
+                "members": member_ids,
+                "rep_given": rep_results,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            await self.config.guild(guild).weekly_winners.set(weekly_winners)
+            
+            return rep_results
+            
+        except Exception as e:
+            print(f"Error recording weekly winner: {e}")
+            return {}
+    
+    async def _create_winner_announcement_with_rep(self, guild, team_name: str, member_ids: list, theme: str, vote_counts: dict = None, from_face_off: bool = False) -> str:
+        """Create winner announcement with rep information and voting details"""
+        try:
+            rep_amount = await self.config.guild(guild).rep_reward_amount()
+            
+            # Get member details and their rep counts
+            member_details = []
+            for user_id in member_ids:
+                user = guild.get_member(user_id)
+                if user:
+                    # Get updated rep count (after giving rewards)
+                    await asyncio.sleep(3)  # Wait for YAGPDB to process
+                    total_rep = await self._get_user_rep_count(guild, user_id)
+                    
+                    member_details.append({
+                        "user": user,
+                        "gained": rep_amount,
+                        "total": total_rep
+                    })
+            
+            # Create enhanced winner message
+            if from_face_off:
+                base_msg = f"⚔️ **FACE-OFF WINNER!** ⚔️\n\n🏆 **{team_name}** wins the 24-hour tie-breaker! 🏆\n\n"
+            else:
+                base_msg = f"🏆 **WINNER ANNOUNCEMENT!** 🏆\n\n🎉 Congratulations to the champions of **{theme}**! 🎉\n\n"
+            
+            # Add team and member info
+            if len(member_details) >= 2:
+                base_msg += f"**🎵 Winning Team:** `{team_name}`\n"
+                base_msg += f"**👥 Members:** {member_details[0]['user'].mention} & {member_details[1]['user'].mention}\n\n"
+                
+                # Add voting results if available
+                if vote_counts:
+                    base_msg += f"**📊 Final Results:**\n"
+                    # Sort teams by votes, winner first
+                    sorted_votes = sorted(vote_counts.items(), key=lambda x: x[1], reverse=True)
+                    for i, (team, votes) in enumerate(sorted_votes[:5]):  # Show top 5
+                        if team == team_name:
+                            base_msg += f"🏆 **{team}**: {votes} votes\n"
+                        else:
+                            base_msg += f"• **{team}**: {votes} votes\n"
+                    
+                    if len(sorted_votes) > 5:
+                        base_msg += f"... and {len(sorted_votes) - 5} more teams\n"
+                    base_msg += "\n"
+                
+                # Add rep rewards info
+                if rep_amount > 0:
+                    base_msg += f"**🌸 Rep Rewards:**\n"
+                    for detail in member_details:
+                        base_msg += f"• {detail['user'].mention}: +{detail['gained']} petals (Total: {detail['total']} petals)\n"
+                    base_msg += "\n"
+                
+                base_msg += "🔥 Incredible collaboration and amazing music! 🎵✨\n\n🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
+            else:
+                # Fallback if member info unavailable
+                base_msg += f"**🎵 Winning Team:** `{team_name}`\n\n"
+                base_msg += f"**🌸 Each member receives:** +{rep_amount} petals!\n\n"
+                base_msg += "🔥 Incredible collaboration and amazing music! 🎵✨\n\n🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
+            
+            return base_msg
+            
+        except Exception as e:
+            print(f"Error creating winner announcement with rep: {e}")
+            # Fallback to simple announcement
+            return f"🏆 **WINNER ANNOUNCEMENT!** 🏆\n\n🎉 Congratulations to team **{team_name}** for winning **{theme}**! 🎉\n\n🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
     
     async def announcement_loop(self):
         """Background task that checks and posts announcements"""
@@ -77,9 +770,505 @@ class CollabWarz(commands.Cog):
         
         now = datetime.utcnow()
         current_phase = await self.config.guild(guild).current_phase()
+        theme = await self.config.guild(guild).current_theme()
+        last_announcement = await self.config.guild(guild).last_announcement()
+        winner_announced = await self.config.guild(guild).winner_announced()
         
-        # Check if we need to switch phases or post reminders
-        # This is a simplified version - in production, you'd track state more carefully
+        # Calculate current phase based on day of week
+        day = now.weekday()  # 0 = Monday, 6 = Sunday
+        # Mon-Fri noon = submission, Fri noon-Sun = voting
+        if day < 4:  # Monday to Thursday
+            expected_phase = "submission"
+        elif day == 4 and now.hour < 12:  # Friday before noon
+            expected_phase = "submission"
+        else:  # Friday noon onwards to Sunday
+            expected_phase = "voting"
+        
+        # Get current week number for tracking
+        current_week = now.isocalendar()[1]
+        
+        # Check for phase transitions and send appropriate announcements
+        announcement_posted = False
+        
+        # 1. Check if we need to announce start of submission phase (Monday)
+        # Also handle restart after cancelled week
+        week_cancelled = await self.config.guild(guild).week_cancelled()
+        face_off_active = await self.config.guild(guild).face_off_active()
+        
+        # Delay start if face-off is active (start Tuesday instead of Monday)
+        should_restart = False
+        if face_off_active:
+            # Check if face-off deadline has passed
+            face_off_deadline_str = await self.config.guild(guild).face_off_deadline()
+            if face_off_deadline_str:
+                face_off_deadline = datetime.fromisoformat(face_off_deadline_str)
+                
+                if now >= face_off_deadline:
+                    # Face-off time is up, process results
+                    await self._process_voting_end(guild)
+                    
+                    # Start new week on Tuesday if face-off just ended
+                    if day == 1:  # Tuesday
+                        should_restart = True
+        else:
+            # Normal Monday start
+            should_restart = (expected_phase == "submission" and 
+                             (current_phase != "submission" or current_phase == "cancelled" or week_cancelled) and 
+                             last_announcement != f"submission_start_{current_week}" and
+                             day == 0)  # Monday only
+        
+        if should_restart:
+            # Reset cancelled week flag
+            if week_cancelled:
+                await self.config.guild(guild).week_cancelled.set(False)
+            
+            # Check if we have a pending theme for this week
+            await self._apply_next_week_theme_if_ready(guild)
+            
+            # Get the current theme (may have been updated)
+            current_theme = await self.config.guild(guild).current_theme()
+            
+            await self._post_announcement(channel, guild, "submission_start", current_theme)
+            await self.config.guild(guild).current_phase.set("submission")
+            await self.config.guild(guild).last_announcement.set(f"submission_start_{current_week}")
+            await self.config.guild(guild).winner_announced.set(False)
+            await self.config.guild(guild).theme_generation_done.set(False)  # Reset for next week
+            await self.config.guild(guild).week_cancelled.set(False)  # Reset cancelled flag
+            
+            # Note: Team registrations are automatically separated by week, no need to clear
+            announcement_posted = True
+        
+        # 2. Check if we need to announce start of voting phase (Friday noon)
+        elif (expected_phase == "voting" and 
+              current_phase != "voting" and 
+              last_announcement != f"voting_start_{current_week}"):
+            
+            # Check if we have enough teams to proceed with voting
+            team_count = await self._count_participating_teams(guild)
+            min_teams = await self.config.guild(guild).min_teams_required()
+            
+            if team_count < min_teams:
+                # Cancel the week due to insufficient participation
+                await self._cancel_week_and_restart(guild, channel, theme)
+                announcement_posted = True
+            else:
+                # Proceed with normal voting phase
+                await self._post_announcement(channel, guild, "voting_start", theme)
+                await self.config.guild(guild).current_phase.set("voting")
+                await self.config.guild(guild).last_announcement.set(f"voting_start_{current_week}")
+                announcement_posted = True
+        
+        # 3. Check for reminder announcements (1 day before deadline)
+        if not announcement_posted:
+            # Reminder for submission phase (Thursday evening)
+            if (expected_phase == "submission" and 
+                day == 3 and now.hour >= 18 and  # Thursday after 6 PM
+                last_announcement != f"submission_reminder_{current_week}"):
+                
+                await self._post_announcement(channel, guild, "reminder", theme, "Friday 12:00")
+                await self.config.guild(guild).last_announcement.set(f"submission_reminder_{current_week}")
+                announcement_posted = True
+            
+            # Reminder for voting phase (Saturday evening)
+            elif (expected_phase == "voting" and 
+                  day == 5 and now.hour >= 18 and  # Saturday after 6 PM
+                  last_announcement != f"voting_reminder_{current_week}"):
+                
+                await self._post_announcement(channel, guild, "reminder", theme, "Sunday 23:59")
+                await self.config.guild(guild).last_announcement.set(f"voting_reminder_{current_week}")
+                announcement_posted = True
+        
+        # 4. Check for winner announcement (Sunday evening after voting ends)
+        if (not announcement_posted and 
+            day == 6 and now.hour >= 20 and  # Sunday after 8 PM
+            not winner_announced and
+            last_announcement != f"winner_{current_week}"):
+            
+            # Process voting results automatically
+            await self._process_voting_end(guild)
+            await self.config.guild(guild).last_announcement.set(f"winner_{current_week}")
+            # winner_announced will be set by _process_voting_end if successful
+        
+        # 5. Check for next week theme generation (Sunday evening after winner announcement)
+        theme_generation_done = await self.config.guild(guild).theme_generation_done()
+        next_week_theme = await self.config.guild(guild).next_week_theme()
+        
+        if (not announcement_posted and
+            day == 6 and now.hour >= 21 and  # Sunday after 9 PM
+            winner_announced and
+            not theme_generation_done and
+            not next_week_theme):  # Only generate if no theme already set for next week
+            
+            await self._generate_next_week_theme(guild)
+            await self.config.guild(guild).theme_generation_done.set(True)
+    
+    async def _post_announcement(self, channel, guild, announcement_type: str, theme: str, deadline: str = None, force: bool = False):
+        """Helper method to post an announcement"""
+        try:
+            # Check if confirmation is required and not forced
+            require_confirmation = await self.config.guild(guild).require_confirmation()
+            admin_id = await self.config.guild(guild).admin_user_id()
+            
+            if require_confirmation and not force and admin_id:
+                # Store pending announcement and request confirmation
+                pending_data = {
+                    "type": announcement_type,
+                    "theme": theme,
+                    "deadline": deadline,
+                    "channel_id": channel.id,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                await self.config.guild(guild).pending_announcement.set(pending_data)
+                
+                # Send confirmation request to admin
+                admin_user = self.bot.get_user(admin_id)
+                if admin_user:
+                    await self._send_confirmation_request(admin_user, guild, announcement_type, theme, deadline)
+                    print(f"Confirmation request sent to admin for {announcement_type} in {guild.name}")
+                    return
+            
+            # Special handling for winner announcements
+            if announcement_type == "winner":
+                # For winner announcements, we need team and member information
+                # This will be handled by manual winner declaration instead
+                announcement = await self.generate_announcement(guild, announcement_type, theme, deadline)
+            else:
+                # Generate normal announcement
+                announcement = await self.generate_announcement(guild, announcement_type, theme, deadline)
+            
+            embed = discord.Embed(
+                description=announcement,
+                color=discord.Color.green()
+            )
+            embed.set_footer(text="SoundGarden's Collab Warz")
+            
+            # Check if @everyone ping is enabled
+            use_everyone_ping = await self.config.guild(guild).use_everyone_ping()
+            
+            if use_everyone_ping:
+                await channel.send("@everyone", embed=embed)
+            else:
+                await channel.send(embed=embed)
+            print(f"Posted {announcement_type} announcement in {guild.name}")
+            
+            # Clear pending announcement if it was confirmed
+            await self.config.guild(guild).pending_announcement.set(None)
+            
+        except Exception as e:
+            print(f"Error posting announcement in {guild.name}: {e}")
+    
+    async def _send_confirmation_request(self, admin_user, guild, announcement_type: str, theme: str, deadline: str = None):
+        """Send a confirmation request to the admin via DM"""
+        try:
+            # Generate preview of the announcement
+            preview = await self.generate_announcement(guild, announcement_type, theme, deadline)
+            
+            embed = discord.Embed(
+                title="🤖 Collab Warz - Confirmation Required",
+                description=f"**Server:** {guild.name}\n**Type:** {announcement_type.replace('_', ' ').title()}",
+                color=discord.Color.blue()
+            )
+            
+            embed.add_field(
+                name="📝 Proposed Announcement",
+                value=preview[:1000] + ("..." if len(preview) > 1000 else ""),
+                inline=False
+            )
+            
+            embed.add_field(
+                name="🎵 Current Theme",
+                value=f"**{theme}**",
+                inline=True
+            )
+            
+            if deadline:
+                embed.add_field(
+                    name="⏰ Deadline",
+                    value=deadline,
+                    inline=True
+                )
+            
+            # Determine timeout message
+            if announcement_type == "submission_start":
+                timeout_msg = "⏰ **Auto-posts at next Monday 9 AM UTC if no response**"
+            else:
+                timeout_minutes = (await self.config.guild(guild).confirmation_timeout()) // 60
+                timeout_msg = f"⏰ **Auto-posts in {timeout_minutes} minutes if no response**"
+            
+            embed.add_field(
+                name="📋 Actions Available",
+                value=(
+                    "✅ **React with ✅** to approve and post\n"
+                    "❌ **React with ❌** to cancel\n"
+                    "🔄 **React with 🔄** then reply `newtheme: Your Theme`\n"
+                    f"💬 Or use `[p]cw confirm {guild.id}` to approve\n"
+                    f"🚫 Or use `[p]cw deny {guild.id}` to cancel\n\n"
+                    f"{timeout_msg}"
+                ),
+                inline=False
+            )
+            
+            embed.set_footer(text=f"Guild ID: {guild.id} | Auto-expires in 30 minutes")
+            
+            message = await admin_user.send(embed=embed)
+            
+            # Add reaction options
+            await message.add_reaction("✅")
+            await message.add_reaction("❌")
+            await message.add_reaction("🔄")
+            
+            # Start timeout task with smart timeout calculation
+            if announcement_type == "submission_start":
+                timeout = self._calculate_smart_timeout(announcement_type)
+            else:
+                timeout = await self.config.guild(guild).confirmation_timeout()
+            
+            self.bot.loop.create_task(self._handle_confirmation_timeout(guild, timeout))
+            
+        except Exception as e:
+            print(f"Error sending confirmation request: {e}")
+    
+    async def _handle_confirmation_timeout(self, guild, timeout_seconds: int):
+        """Handle automatic posting if no confirmation received within timeout"""
+        await asyncio.sleep(timeout_seconds)
+        
+        # Check if there's still a pending announcement
+        pending = await self.config.guild(guild).pending_announcement()
+        if not pending:
+            return  # Already handled
+        
+        try:
+            # Auto-post the announcement
+            channel = guild.get_channel(pending["channel_id"])
+            if channel:
+                await self._post_announcement(
+                    channel, guild, pending["type"], 
+                    pending["theme"], pending.get("deadline"), force=True
+                )
+                
+                # Notify admin about auto-posting
+                admin_id = await self.config.guild(guild).admin_user_id()
+                if admin_id:
+                    admin_user = self.bot.get_user(admin_id)
+                    if admin_user:
+                        try:
+                            await admin_user.send(
+                                f"⏰ **Auto-posted after timeout**\n"
+                                f"Server: {guild.name}\n"
+                                f"Type: {pending['type'].replace('_', ' ').title()}\n"
+                                f"Theme: {pending['theme']}\n\n"
+                                f"*No response received within {timeout_seconds//60} minutes*"
+                            )
+                        except:
+                            pass  # DM might be blocked
+                
+                print(f"Auto-posted {pending['type']} announcement after timeout in {guild.name}")
+        except Exception as e:
+            print(f"Error auto-posting announcement in {guild.name}: {e}")
+    
+    async def _generate_next_week_theme(self, guild):
+        """Generate theme for next week and request admin confirmation"""
+        try:
+            # Check if a theme is already set for next week
+            existing_theme = await self.config.guild(guild).next_week_theme()
+            if existing_theme:
+                print(f"Theme already exists for next week in {guild.name}: {existing_theme}")
+                return
+            
+            ai_url = await self.config.guild(guild).ai_api_url()
+            ai_key = await self.config.guild(guild).ai_api_key()
+            
+            if not (ai_url and ai_key):
+                print(f"No AI configuration for theme generation in {guild.name}")
+                return
+            
+            # Generate new theme with AI
+            suggested_theme = await self._generate_theme_with_ai(ai_url, ai_key, guild)
+            
+            if not suggested_theme:
+                print(f"Failed to generate theme for {guild.name}")
+                return
+            
+            # Store suggested theme
+            await self.config.guild(guild).next_week_theme.set(suggested_theme)
+            
+            # Send confirmation request to admin
+            admin_id = await self.config.guild(guild).admin_user_id()
+            if admin_id:
+                admin_user = self.bot.get_user(admin_id)
+                if admin_user:
+                    await self._send_theme_confirmation_request(admin_user, guild, suggested_theme)
+                    
+                    # Store pending theme confirmation
+                    next_week = (datetime.utcnow().isocalendar()[1] + 1) % 53 or 1
+                    await self.config.guild(guild).pending_theme_confirmation.set({
+                        "theme": suggested_theme,
+                        "week": next_week,
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+                    
+                    print(f"Theme generation request sent to admin for {guild.name}: {suggested_theme}")
+        
+        except Exception as e:
+            print(f"Error generating next week theme in {guild.name}: {e}")
+    
+    async def _generate_theme_with_ai(self, api_url: str, api_key: str, guild) -> Optional[str]:
+        """Generate a new theme using AI"""
+        prompt = (
+            "Generate a creative and inspiring theme for a weekly music collaboration competition. "
+            "The theme should be 2-4 words, evocative, and spark creativity for musicians. "
+            "Examples: 'Cosmic Dreams', 'Urban Legends', 'Ocean Depths', 'Heart Break', 'Forest Tales'. "
+            "Never use 'Neon', 'Rain', 'City', 'Cracks', 'Coffee', 'Stains', 'Lights', 'Untold', 'Waves', 'Skyline', 'Midnight', 'Echoes', 'Shadows', 'Reflections', 'Whispers', 'Memories', 'Unfold', 'Embrace', 'Void', or similar overused words. "
+            "Respond with ONLY the theme name, no quotes or additional text."
+        )
+        
+        # Get configurable AI parameters
+        ai_model = await self.config.guild(guild).ai_model() or "gpt-3.5-turbo"
+        ai_temperature = await self.config.guild(guild).ai_temperature() or 0.9
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    api_url,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": ai_model,
+                        "messages": [
+                            {"role": "system", "content": "You are a creative theme generator for music competitions."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        "max_tokens": 20,
+                        "temperature": ai_temperature
+                    },
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        theme = data["choices"][0]["message"]["content"].strip()
+                        # Clean up the response (remove quotes, extra whitespace)
+                        theme = theme.strip('"\'').strip()
+                        return theme
+        except Exception as e:
+            print(f"AI theme generation error: {e}")
+            return None
+    
+    async def _send_theme_confirmation_request(self, admin_user, guild, suggested_theme: str):
+        """Send theme confirmation request to admin via DM"""
+        try:
+            current_theme = await self.config.guild(guild).current_theme()
+            
+            embed = discord.Embed(
+                title="🎨 Next Week Theme - Confirmation Required",
+                description=f"**Server:** {guild.name}\n**For:** Next week's competition",
+                color=discord.Color.purple()
+            )
+            
+            embed.add_field(
+                name="🤖 AI Generated Theme",
+                value=f"**{suggested_theme}**",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📝 Current Theme",
+                value=f"*{current_theme}* (this week)",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="📅 Timeline",
+                value="• **Now**: Preview for next week\n• **Monday 9 AM**: Theme will be used\n• **You have until Monday morning** to decide",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📋 Actions Available",
+                value=(
+                    "✅ **React with ✅** to approve AI theme\n"
+                    "❌ **React with ❌** to keep current theme\n"
+                    "🎨 **Reply with:** `nexttheme: Your Custom Theme`\n"
+                    f"💬 Or use `[p]cw confirmtheme {guild.id}` to approve\n"
+                    f"🚫 Or use `[p]cw denytheme {guild.id}` to reject\n\n"
+                    "⏰ **If no response by Monday 9 AM: AI theme will be used automatically**"
+                ),
+                inline=False
+            )
+            
+            embed.set_footer(text=f"Guild ID: {guild.id} | Theme for next week")
+            
+            message = await admin_user.send(embed=embed)
+            
+            # Add reaction options
+            await message.add_reaction("✅")
+            await message.add_reaction("❌")
+            await message.add_reaction("🎨")
+            
+        except Exception as e:
+            print(f"Error sending theme confirmation request: {e}")
+    
+    async def _apply_next_week_theme_if_ready(self, guild):
+        """Apply next week theme if available and it's Monday"""
+        try:
+            next_week_theme = await self.config.guild(guild).next_week_theme()
+            pending_confirmation = await self.config.guild(guild).pending_theme_confirmation()
+            
+            if next_week_theme:
+                # Apply the AI-generated or confirmed theme
+                await self.config.guild(guild).current_theme.set(next_week_theme)
+                print(f"Applied next week theme in {guild.name}: {next_week_theme}")
+                
+                # Clear the next week theme
+                await self.config.guild(guild).next_week_theme.set(None)
+                await self.config.guild(guild).pending_theme_confirmation.set(None)
+                
+                # Notify admin that theme was applied
+                admin_id = await self.config.guild(guild).admin_user_id()
+                if admin_id:
+                    admin_user = self.bot.get_user(admin_id)
+                    if admin_user:
+                        try:
+                            await admin_user.send(
+                                f"🎨 **Theme Applied for New Week**\n"
+                                f"Server: {guild.name}\n"
+                                f"New Theme: **{next_week_theme}**\n"
+                                f"The new week has started with this theme!"
+                            )
+                        except:
+                            pass  # DM might be blocked
+                            
+        except Exception as e:
+            print(f"Error applying next week theme in {guild.name}: {e}")
+    
+    def _calculate_smart_timeout(self, announcement_type: str) -> int:
+        """Calculate timeout based on announcement type and next submission phase"""
+        now = datetime.utcnow()
+        
+        if announcement_type == "submission_start":
+            # For submission start, use next Monday if we're not on Monday
+            days_until_monday = (7 - now.weekday()) % 7  # 0 if Monday, else days until next Monday
+            if days_until_monday == 0 and now.hour < 9:  # Monday before 9 AM
+                # We're on Monday morning, use short timeout
+                return 3600  # 1 hour
+            elif days_until_monday == 0:  # Monday after 9 AM
+                # Next Monday
+                next_monday = now + timedelta(days=7)
+            else:
+                # Calculate next Monday
+                next_monday = now + timedelta(days=days_until_monday)
+            
+            # Set to Monday 9 AM
+            next_monday = next_monday.replace(hour=9, minute=0, second=0, microsecond=0)
+            timeout_seconds = int((next_monday - now).total_seconds())
+            
+            # Minimum 1 hour, maximum 7 days
+            return max(3600, min(timeout_seconds, 7*24*3600))
+        
+        else:
+            # For other announcements, use configured timeout
+            return 1800  # 30 minutes default
         
     async def generate_announcement(self, guild: discord.Guild, announcement_type: str, theme: str, deadline: Optional[str] = None) -> str:
         """
@@ -94,7 +1283,7 @@ class CollabWarz(commands.Cog):
         
         if ai_url and ai_key:
             try:
-                announcement = await self._generate_with_ai(announcement_type, theme, deadline, ai_url, ai_key)
+                announcement = await self._generate_with_ai(announcement_type, theme, deadline, ai_url, ai_key, guild)
                 if announcement:
                     return announcement
             except Exception as e:
@@ -103,17 +1292,31 @@ class CollabWarz(commands.Cog):
         # Fallback to templates
         return self._get_template_announcement(announcement_type, theme, deadline)
     
-    async def _generate_with_ai(self, announcement_type: str, theme: str, deadline: Optional[str], api_url: str, api_key: str) -> Optional[str]:
+    async def _generate_with_ai(self, announcement_type: str, theme: str, deadline: Optional[str], api_url: str, api_key: str, guild) -> Optional[str]:
         """Generate announcement using AI API (OpenAI-compatible format)"""
         
+        # Generate Discord timestamp for deadline if not provided
+        if not deadline:
+            deadline_dt = self._get_next_deadline(announcement_type)
+            deadline = self._create_discord_timestamp(deadline_dt, "R")  # Relative time
+            deadline_full = self._create_discord_timestamp(deadline_dt, "F")  # Full date/time
+        else:
+            # If deadline is already provided, assume it's already formatted
+            deadline_full = deadline
+        
         prompts = {
-            "submission_start": f"Create an exciting Discord announcement for a music collaboration competition called 'Collab Warz'. The submission phase is starting. This week's theme is '{theme}'. Make it enthusiastic, creative, and encourage participants. Keep it under 300 characters. Use emojis.",
-            "voting_start": f"Create an engaging Discord announcement that voting has started for Collab Warz music competition with theme '{theme}'. Encourage everyone to listen and vote. Deadline: {deadline}. Keep it under 300 characters. Use emojis.",
-            "reminder": f"Create a friendly reminder Discord message that voting for Collab Warz (theme: '{theme}') ends soon at {deadline}. Encourage people to vote if they haven't. Keep it under 200 characters. Use emojis.",
+            "submission_start": f"Create an exciting Discord announcement for a music collaboration competition called 'Collab Warz'. The submission phase is starting. This week's theme is '{theme}'. Include the deadline as '{deadline_full}' (this is a Discord timestamp that will show properly formatted). Make it enthusiastic, creative, and encourage participants. Keep it under 300 characters. Use emojis.",
+            "voting_start": f"Create an engaging Discord announcement that voting has started for Collab Warz music competition with theme '{theme}'. Encourage everyone to listen and vote. Include the deadline as '{deadline_full}' (this is a Discord timestamp). Keep it under 300 characters. Use emojis.",
+            "reminder": f"Create a friendly reminder Discord message that voting for Collab Warz (theme: '{theme}') ends {deadline} (this is a Discord timestamp showing relative time). Encourage people to vote if they haven't. Keep it under 200 characters. Use emojis.",
             "winner": f"Create a celebratory Discord announcement for the winner of last week's Collab Warz with theme '{theme}'. Make it exciting and congratulatory. Keep it under 250 characters. Use emojis."
         }
         
         prompt = prompts.get(announcement_type, "")
+        
+        # Get configurable AI parameters
+        ai_model = await self.config.guild(guild).ai_model() or "gpt-3.5-turbo"
+        ai_temperature = await self.config.guild(guild).ai_temperature() or 0.8
+        ai_max_tokens = await self.config.guild(guild).ai_max_tokens() or 150
         
         try:
             async with aiohttp.ClientSession() as session:
@@ -124,15 +1327,15 @@ class CollabWarz(commands.Cog):
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "gpt-3.5-turbo",
+                        "model": ai_model,
                         "messages": [
                             {"role": "system", "content": "You are a creative announcement writer for a music competition community."},
                             {"role": "user", "content": prompt}
                         ],
-                        "max_tokens": 150,
-                        "temperature": 0.8
+                        "max_tokens": ai_max_tokens,
+                        "temperature": ai_temperature
                     },
-                    timeout=aiohttp.ClientTimeout(total=10)
+                    timeout=aiohttp.ClientTimeout(total=15)
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -142,16 +1345,25 @@ class CollabWarz(commands.Cog):
             return None
     
     def _get_template_announcement(self, announcement_type: str, theme: str, deadline: Optional[str]) -> str:
-        """Fallback template announcements"""
+        """Fallback template announcements with Discord timestamps"""
+        
+        # Generate Discord timestamp for deadline if not provided
+        if not deadline:
+            deadline_dt = self._get_next_deadline(announcement_type)
+            deadline = self._create_discord_timestamp(deadline_dt, "R")  # Relative time
+            deadline_full = self._create_discord_timestamp(deadline_dt, "F")  # Full date/time
+        else:
+            # If deadline is already provided, assume it's already formatted
+            deadline_full = deadline
         
         templates = {
-            "submission_start": f"🎵 **Collab Warz - Submission Phase Open!** 🎵\n\nThis week's theme: **{theme}**\n\nTeam up and create something amazing! Submit your collaborative tracks and let the music flow! 🌿✨",
+            "submission_start": f"🎵 **Collab Warz - NEW WEEK STARTS!** 🎵\n\n✨ **This week's theme:** **{theme}** ✨\n\n📝 **Submission Phase:** Monday to Friday noon\n🗳️ **Voting Phase:** Friday noon to Sunday\n\nTeam up with someone and create magic together! 🤝\n\n⏰ **Submissions deadline:** {deadline_full}",
             
-            "voting_start": f"🗳️ **Voting is NOW OPEN!** 🗳️\n\nTheme: **{theme}**\n\nListen to all the incredible submissions and vote for your favorite! Every voice matters! 🎶\n\n⏰ Voting ends: {deadline}",
+            "voting_start": f"🗳️ **VOTING IS NOW OPEN!** 🗳️\n\n🎵 **Theme:** **{theme}**\n\nThe submissions are in! Time to listen and vote for your favorites! 🎧\n\nEvery vote counts - support the artists! 💫\n\n⏰ **Voting closes:** {deadline_full}",
             
-            "reminder": f"⏰ **Reminder!** ⏰\n\nVoting for **{theme}** ends soon at {deadline}!\n\nDon't miss your chance to support your favorite track! 🎵",
+            "reminder": f"⏰ **FINAL CALL!** ⏰\n\n{'🎵 Submissions' if 'submission' in announcement_type else '🗳️ Voting'} for **{theme}** ends {deadline}!\n\n{'Submit your collaboration now!' if 'submission' in announcement_type else 'Cast your votes and support the artists!'} 🎶\n\n{'⏰ Last chance to team up and create!' if 'submission' in announcement_type else '⏰ Every vote matters!'}",
             
-            "winner": f"🏆 **We Have a Winner!** 🏆\n\nCongratulations to the champions of last week's **{theme}** challenge!\n\nAmazing work! Get ready for the next theme! 🎉🎵"
+            "winner": f"🏆 **WINNER ANNOUNCEMENT!** 🏆\n\n🎉 Congratulations to the champions of **{theme}**! 🎉\n\nIncredible collaboration and amazing music! 🎵✨\n\n🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
         }
         
         return templates.get(announcement_type, f"Collab Warz update: {theme}")
@@ -186,6 +1398,142 @@ class CollabWarz(commands.Cog):
         await self.config.guild(ctx.guild).current_phase.set(phase)
         await ctx.send(f"✅ Phase set to: **{phase}**")
     
+    @collabwarz.command(name="help")
+    async def show_help(self, ctx):
+        """Show detailed help for Collab Warz commands"""
+        embed = discord.Embed(
+            title="🎵 Collab Warz Commands Help",
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(
+            name="📋 Basic Setup",
+            value=(
+                "`[p]cw setchannel #channel` - Set announcement channel\n"
+                "`[p]cw settestchannel #channel` - Set test channel\n"
+                "`[p]cw settheme Theme` - Change theme\n"
+                "`[p]cw setadmin @user` - Set confirmation admin\n"
+                "`[p]cw everyone` - Toggle @everyone ping in announcements\n"
+                "`[p]cw timeout 30` - Set timeout for non-submission confirmations\n"
+                "`[p]cw status` - View current status"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🔧 Week Management", 
+            value=(
+                "`[p]cw interrupt [theme]` - 🔄 **Interrupt & restart week**\n"
+                "`[p]cw changetheme Theme` - 🎨 **Change theme only**\n"
+                "`[p]cw nextweek [theme]` - Start new week\n"
+                "`[p]cw reset` - Reset announcement cycle"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="✅ Confirmation System",
+            value=(
+                "`[p]cw confirmation` - Toggle confirmation mode\n"
+                "`[p]cw confirm [guild_id]` - Approve announcement\n"
+                "`[p]cw deny [guild_id]` - Cancel announcement\n"
+                "`[p]cw pending` - Show pending announcements"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="� AI Theme Generation",
+            value=(
+                "`[p]cw setai endpoint key` - Configure AI API\n"
+                "`[p]cw generatetheme` - Generate theme for next week\n"
+                "`[p]cw confirmtheme [guild_id]` - Approve AI theme\n"
+                "`[p]cw denytheme [guild_id]` - Reject AI theme\n"
+                "🔄 **Auto-generated Sundays for next week**"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="👥 Team Management",
+            value=(
+                "`[p]cw minteams 2` - Set minimum teams to start voting\n"
+                "`[p]cw setsubmissionchannel #channel` - Set submissions channel\n"
+                "`[p]cw countteams` - Count current participating teams\n"
+                "`[p]cw togglevalidation` - Enable/disable Discord submission validation\n"
+                "`[p]cw listteams` - List all registered teams this week\n"
+                "`[p]cw clearteams [week]` - Clear team registrations (PERMANENT)\n"
+                "⚠️ **Week cancels if insufficient teams by Friday noon**"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📊 History & Statistics",
+            value=(
+                "`[p]cw history [weeks]` - Show team participation history\n"
+                "`[p]cw teamstats [@user]` - User stats or server overview\n"
+                "`[p]cw searchteams query` - Search teams by name or member\n"
+                "📈 **All team data is permanently preserved**"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🗳️ Automatic Voting System",
+            value=(
+                "`[p]cw setfrontendapi [url] [key]` - Configure frontend API for voting\n"
+                "`[p]cw testfrontend` - Test connection to frontend\n"
+                "`[p]cw checkvotes` - Check current voting results\n"
+                "🤖 **Winners determined automatically by vote count**\n"
+                "⚔️ **24h face-off for ties, random selection if still tied**"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🌸 Rep Rewards (YAGPDB)",
+            value=(
+                "`[p]cw setadminchannel #channel` - Set admin channel for YAGPDB commands\n"
+                "`[p]cw setrepamount 2` - Set petals given to winners\n"
+                "`[p]cw declarewinner \"Team\" @user1 @user2` - 🚨 Manual override only\n"
+                "`[p]cw winners [weeks]` - Show recent winners and rep status\n"
+                "🏆 **Winners automatically get petals via YAGPDB**"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🧪 Testing & Manual",
+            value=(
+                "`[p]cw test` - 🧪 **Test all announcements (in test channel)**\n"
+                "`[p]cw announce type` - Manual announcement\n"
+                "`[p]cw forcepost type [theme]` - Emergency post\n"
+                "`[p]cw schedule` - View weekly schedule"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📱 DM Confirmation Controls",
+            value=(
+                "**Weekly Announcements:**\n"
+                "✅ **React to approve immediately**\n"
+                "❌ **React to cancel**\n" 
+                "🔄 **React, then reply:** `newtheme: New Theme`\n"
+                "⏰ **Auto-posts if no response within timeout**\n\n"
+                "**Theme Confirmations:**\n"
+                "✅ **React to approve AI theme**\n"
+                "❌ **React to keep current theme**\n"
+                "🎨 **React, then reply:** `nexttheme: Custom Theme`"
+            ),
+            inline=False
+        )
+        
+        embed.set_footer(text="Admin permissions required for most commands")
+        
+        await ctx.send(embed=embed)
+
     @collabwarz.command(name="announce")
     async def manual_announce(self, ctx, announcement_type: str):
         """
@@ -222,10 +1570,13 @@ class CollabWarz(commands.Cog):
             await ctx.send(f"✅ Announcement posted in {channel.mention}")
     
     @collabwarz.command(name="setai")
-    async def set_ai_config(self, ctx, api_url: str, api_key: str):
+    async def set_ai_config(self, ctx, api_url: str, api_key: str, model: str = None):
         """Set AI API configuration (API key will be hidden)"""
         await self.config.guild(ctx.guild).ai_api_url.set(api_url)
         await self.config.guild(ctx.guild).ai_api_key.set(api_key)
+        
+        if model:
+            await self.config.guild(ctx.guild).ai_model.set(model)
         
         # Delete the message to hide the API key
         try:
@@ -233,7 +1584,143 @@ class CollabWarz(commands.Cog):
         except:
             pass
         
-        await ctx.send("✅ AI configuration set (message deleted for security)", delete_after=10)
+        model_info = f" (Model: {model})" if model else ""
+        await ctx.send(f"✅ AI configuration set{model_info} (message deleted for security)", delete_after=10)
+    
+    @collabwarz.command(name="aimodel")
+    async def set_ai_model(self, ctx, model: str):
+        """Set AI model (e.g., gpt-4, gpt-3.5-turbo, claude-3-sonnet, llama3)"""
+        await self.config.guild(ctx.guild).ai_model.set(model)
+        await ctx.send(f"✅ AI model set to: **{model}**")
+    
+    @collabwarz.command(name="aitemp")
+    async def set_ai_temperature(self, ctx, temperature: float):
+        """Set AI creativity/temperature (0.0-2.0, default 0.8)"""
+        if not 0.0 <= temperature <= 2.0:
+            await ctx.send("❌ Temperature must be between 0.0 and 2.0")
+            return
+        
+        await self.config.guild(ctx.guild).ai_temperature.set(temperature)
+        await ctx.send(f"✅ AI temperature set to: **{temperature}**")
+    
+    @collabwarz.command(name="aitokens")
+    async def set_ai_max_tokens(self, ctx, max_tokens: int):
+        """Set AI maximum tokens (50-500, default 150)"""
+        if not 50 <= max_tokens <= 500:
+            await ctx.send("❌ Max tokens must be between 50 and 500")
+            return
+        
+        await self.config.guild(ctx.guild).ai_max_tokens.set(max_tokens)
+        await ctx.send(f"✅ AI max tokens set to: **{max_tokens}**")
+    
+    @collabwarz.command(name="everyone")
+    async def toggle_everyone_ping(self, ctx):
+        """Toggle @everyone ping in announcements"""
+        current = await self.config.guild(ctx.guild).use_everyone_ping()
+        new_value = not current
+        
+        await self.config.guild(ctx.guild).use_everyone_ping.set(new_value)
+        
+        status = "✅ Enabled" if new_value else "❌ Disabled"
+        await ctx.send(f"{status} @everyone ping in announcements")
+    
+    @collabwarz.command(name="generatetheme")
+    async def generate_theme_manual(self, ctx):
+        """Generate theme for next week using AI"""
+        # Check if theme already exists
+        existing_theme = await self.config.guild(ctx.guild).next_week_theme()
+        if existing_theme:
+            await ctx.send(f"⚠️ **Theme already exists for next week:** {existing_theme}\n"
+                          f"Generating a new theme will replace it. Continue anyway...")
+        
+        ai_url = await self.config.guild(ctx.guild).ai_api_url()
+        ai_key = await self.config.guild(ctx.guild).ai_api_key()
+        
+        if not (ai_url and ai_key):
+            await ctx.send("❌ AI not configured. Use `[p]cw setai` first.")
+            return
+        
+        await ctx.send("🤖 Generating theme for next week...")
+        
+        suggested_theme = await self._generate_theme_with_ai(ai_url, ai_key, ctx.guild)
+        
+        if not suggested_theme:
+            await ctx.send("❌ Failed to generate theme. Try again later.")
+            return
+        
+        # Store suggested theme for next week
+        await self.config.guild(ctx.guild).next_week_theme.set(suggested_theme)
+        
+        # Send confirmation request to admin
+        admin_id = await self.config.guild(ctx.guild).admin_user_id()
+        if admin_id:
+            admin_user = ctx.guild.get_member(admin_id)
+            if admin_user and admin_user.id == ctx.author.id:
+                # Admin is generating manually, send them the confirmation
+                await self._send_theme_confirmation_request(admin_user, ctx.guild, suggested_theme)
+                await ctx.send(f"✅ Theme generated: **{suggested_theme}**\nCheck your DMs for confirmation options.")
+            else:
+                await ctx.send(f"✅ Theme generated for next week: **{suggested_theme}**\nAdmin will receive confirmation request.")
+        else:
+            await ctx.send(f"✅ Theme generated for next week: **{suggested_theme}**\nNo admin configured for confirmation.")
+    
+    @collabwarz.command(name="confirmtheme")
+    async def confirm_next_theme(self, ctx, guild_id: int = None):
+        """Confirm the AI-generated theme for next week"""
+        if guild_id is None:
+            guild_id = ctx.guild.id
+        
+        target_guild = self.bot.get_guild(guild_id)
+        if not target_guild:
+            await ctx.send("❌ Guild not found")
+            return
+        
+        # Check if user is the designated admin
+        admin_id = await self.config.guild(target_guild).admin_user_id()
+        if admin_id != ctx.author.id:
+            await ctx.send("❌ You are not authorized to confirm themes for this server")
+            return
+        
+        pending_theme = await self.config.guild(target_guild).pending_theme_confirmation()
+        if not pending_theme:
+            await ctx.send("❌ No pending theme confirmation for this server")
+            return
+        
+        # Confirm the theme
+        theme = pending_theme["theme"]
+        await self.config.guild(target_guild).next_week_theme.set(theme)
+        await self.config.guild(target_guild).pending_theme_confirmation.set(None)
+        
+        await ctx.send(f"✅ Theme confirmed for next week: **{theme}**")
+    
+    @collabwarz.command(name="denytheme")
+    async def deny_next_theme(self, ctx, guild_id: int = None):
+        """Deny the AI-generated theme and keep current theme for next week"""
+        if guild_id is None:
+            guild_id = ctx.guild.id
+        
+        target_guild = self.bot.get_guild(guild_id)
+        if not target_guild:
+            await ctx.send("❌ Guild not found")
+            return
+        
+        # Check if user is the designated admin
+        admin_id = await self.config.guild(target_guild).admin_user_id()
+        if admin_id != ctx.author.id:
+            await ctx.send("❌ You are not authorized to deny themes for this server")
+            return
+        
+        pending_theme = await self.config.guild(target_guild).pending_theme_confirmation()
+        if not pending_theme:
+            await ctx.send("❌ No pending theme confirmation for this server")
+            return
+        
+        # Deny the theme - keep current theme for next week
+        current_theme = await self.config.guild(target_guild).current_theme()
+        await self.config.guild(target_guild).next_week_theme.set(current_theme)
+        await self.config.guild(target_guild).pending_theme_confirmation.set(None)
+        
+        await ctx.send(f"❌ AI theme denied. Next week will use current theme: **{current_theme}**")
     
     @collabwarz.command(name="status")
     async def show_status(self, ctx):
@@ -242,17 +1729,161 @@ class CollabWarz(commands.Cog):
         theme = await self.config.guild(ctx.guild).current_theme()
         phase = await self.config.guild(ctx.guild).current_phase()
         auto = await self.config.guild(ctx.guild).auto_announce()
+        last_announcement = await self.config.guild(ctx.guild).last_announcement()
+        winner_announced = await self.config.guild(ctx.guild).winner_announced()
         
         channel = ctx.guild.get_channel(channel_id) if channel_id else None
+        
+        # Calculate expected phase
+        now = datetime.utcnow()
+        day = now.weekday()
+        expected_phase = "submission" if day <= 2 else "voting"
+        current_week = now.isocalendar()[1]
         
         embed = discord.Embed(
             title="🎵 Collab Warz Status",
             color=discord.Color.green()
         )
-        embed.add_field(name="Theme", value=theme, inline=True)
-        embed.add_field(name="Phase", value=phase.title(), inline=True)
-        embed.add_field(name="Auto-Announce", value="✅" if auto else "❌", inline=True)
-        embed.add_field(name="Channel", value=channel.mention if channel else "Not set", inline=False)
+        embed.add_field(name="Current Theme", value=f"**{theme}**", inline=True)
+        embed.add_field(name="Current Phase", value=f"**{phase.title()}**", inline=True)
+        embed.add_field(name="Expected Phase", value=f"**{expected_phase.title()}**", inline=True)
+        
+        embed.add_field(name="Auto-Announce", value="✅ Enabled" if auto else "❌ Disabled", inline=True)
+        embed.add_field(name="Week Number", value=f"**{current_week}**", inline=True)
+        embed.add_field(name="Winner Announced", value="✅ Yes" if winner_announced else "❌ No", inline=True)
+        
+        # Confirmation settings
+        require_confirmation = await self.config.guild(ctx.guild).require_confirmation()
+        admin_id = await self.config.guild(ctx.guild).admin_user_id()
+        admin_user = ctx.guild.get_member(admin_id) if admin_id else None
+        pending = await self.config.guild(ctx.guild).pending_announcement()
+        timeout = await self.config.guild(ctx.guild).confirmation_timeout()
+        test_channel_id = await self.config.guild(ctx.guild).test_channel()
+        test_channel = ctx.guild.get_channel(test_channel_id) if test_channel_id else None
+        
+        embed.add_field(name="Announcement Channel", value=channel.mention if channel else "⚠️ Not set", inline=False)
+        embed.add_field(name="Test Channel", value=test_channel.mention if test_channel else "⚠️ Not set (will use announcement channel)", inline=False)
+        
+        # @everyone ping status
+        use_everyone_ping = await self.config.guild(ctx.guild).use_everyone_ping()
+        
+        embed.add_field(
+            name="Announcement Settings", 
+            value=f"@everyone ping: {'✅ Enabled' if use_everyone_ping else '❌ Disabled'}",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="Confirmation Mode", 
+            value=f"{'✅ Enabled' if require_confirmation else '❌ Disabled'}" + 
+                  (f"\nAdmin: {admin_user.mention}" if admin_user else "\n⚠️ No admin set" if require_confirmation else "") +
+                  (f"\nTimeout: {timeout//60} minutes" if require_confirmation else ""),
+            inline=False
+        )
+        
+        if pending:
+            embed.add_field(
+                name="⏳ Pending Announcement", 
+                value=f"Type: {pending['type'].replace('_', ' ').title()}\nTheme: {pending['theme']}",
+                inline=False
+            )
+        
+        # Check for next week theme information
+        next_week_theme = await self.config.guild(ctx.guild).next_week_theme()
+        ai_endpoint = await self.config.guild(ctx.guild).ai_api_url()
+        ai_key = await self.config.guild(ctx.guild).ai_api_key()
+        ai_model = await self.config.guild(ctx.guild).ai_model() or "gpt-3.5-turbo"
+        ai_temp = await self.config.guild(ctx.guild).ai_temperature() or 0.8
+        ai_tokens = await self.config.guild(ctx.guild).ai_max_tokens() or 150
+        ai_enabled = bool(ai_endpoint and ai_key)
+        
+        theme_status = "❌ No AI configuration"
+        if ai_enabled:
+            if next_week_theme:
+                theme_status = f"✅ Ready: **{next_week_theme}**"
+            else:
+                theme_status = "⏳ Will be generated Sunday"
+        
+        # Team participation info
+        team_count = await self._count_participating_teams(ctx.guild)
+        min_teams = await self.config.guild(ctx.guild).min_teams_required()
+        week_cancelled = await self.config.guild(ctx.guild).week_cancelled()
+        submission_channel_id = await self.config.guild(ctx.guild).submission_channel()
+        
+        if submission_channel_id:
+            submission_channel = ctx.guild.get_channel(submission_channel_id)
+            sub_channel_text = submission_channel.mention if submission_channel else "❌ Channel not found"
+        else:
+            sub_channel_text = "⚠️ Not set (using announcement channel)"
+        
+        team_status_color = "✅" if team_count >= min_teams else "❌"
+        team_status_text = f"{team_status_color} **{team_count}** / **{min_teams}** teams"
+        
+        if week_cancelled:
+            team_status_text += "\n⚠️ **Week was cancelled** (insufficient teams)"
+        
+        # Validation status
+        validate_enabled = await self.config.guild(ctx.guild).validate_discord_submissions()
+        validation_text = f"Validation: {'✅ Enabled' if validate_enabled else '❌ Disabled'}"
+        
+        embed.add_field(
+            name="📊 Team Participation",
+            value=f"{team_status_text}\nSubmission channel: {sub_channel_text}\n{validation_text}",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🎨 Next Week Theme",
+            value=theme_status,
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🤖 AI Configuration",
+            value=(f"Status: {'✅ Configured' if ai_enabled else '❌ Not configured'}\n" +
+                   (f"Model: **{ai_model}**\nTemperature: **{ai_temp}**\nMax Tokens: **{ai_tokens}**" if ai_enabled else "Use `[p]cw setai` to configure")),
+            inline=False
+        )
+        
+        # Rep rewards configuration
+        admin_channel_id = await self.config.guild(ctx.guild).admin_channel()
+        rep_amount = await self.config.guild(ctx.guild).rep_reward_amount()
+        admin_channel = ctx.guild.get_channel(admin_channel_id) if admin_channel_id else None
+        
+        rep_status = "✅ Configured" if admin_channel and rep_amount > 0 else "❌ Not configured"
+        rep_details = []
+        if admin_channel:
+            rep_details.append(f"Admin channel: {admin_channel.mention}")
+        else:
+            rep_details.append("Admin channel: ⚠️ Not set")
+        
+        rep_details.append(f"Reward amount: **{rep_amount} petals**" if rep_amount > 0 else "Rewards: **Disabled**")
+        
+        embed.add_field(
+            name="🌸 Rep Rewards (YAGPDB)",
+            value=f"Status: {rep_status}\n" + "\n".join(rep_details),
+            inline=False
+        )
+        
+        if last_announcement:
+            embed.add_field(name="Last Announcement", value=f"`{last_announcement}`", inline=False)
+        
+        # Show next expected announcements
+        next_events = []
+        if expected_phase == "submission":
+            if day <= 3:  # Monday to Thursday
+                next_events.append("🔔 Submission reminder: Thursday evening")
+            next_events.append("🔔 Voting starts: Friday noon")
+        else:  # voting phase
+            if day == 4 or day == 5:  # Friday or Saturday
+                next_events.append("🔔 Voting reminder: Saturday evening") 
+            next_events.append("🔔 Winner announcement: Sunday evening")
+            next_events.append("🔔 New week starts: Monday morning")
+        
+        if next_events:
+            embed.add_field(name="Upcoming Events", value="\n".join(next_events), inline=False)
+        
+        embed.set_footer(text=f"Current time: {now.strftime('%A, %H:%M UTC')}")
         
         await ctx.send(embed=embed)
     
@@ -264,6 +1895,1909 @@ class CollabWarz(commands.Cog):
         
         status = "enabled" if not current else "disabled"
         await ctx.send(f"✅ Automatic announcements {status}")
+    
+    @collabwarz.command(name="schedule")
+    async def show_schedule(self, ctx):
+        """Show the weekly schedule for Collab Warz"""
+        embed = discord.Embed(
+            title="📅 Collab Warz Weekly Schedule",
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(
+            name="🎵 Submission Phase",
+            value="**Monday - Friday noon**\n• New theme announced Monday morning\n• Reminder Thursday evening\n• Deadline: Friday 12:00 UTC",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🗳️ Voting Phase", 
+            value="**Friday noon - Sunday**\n• Voting opens Friday noon\n• Reminder Saturday evening\n• Results: Sunday evening",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🏆 Winner Announcement",
+            value="**Sunday Evening**\n• Results announced after voting closes\n• Preparation for next week's theme",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="reset")
+    async def reset_cycle(self, ctx):
+        """Reset the announcement cycle (admin only)"""
+        await self.config.guild(ctx.guild).last_announcement.set(None)
+        await self.config.guild(ctx.guild).winner_announced.set(False)
+        
+        # Determine current phase
+        now = datetime.utcnow()
+        day = now.weekday()
+        expected_phase = "submission" if day <= 2 else "voting"
+        await self.config.guild(ctx.guild).current_phase.set(expected_phase)
+        
+        await ctx.send(f"✅ Announcement cycle reset. Current phase: **{expected_phase}**")
+    
+    @collabwarz.command(name="nextweek")
+    async def force_next_week(self, ctx, *, theme: str = None):
+        """Force start the next week with optional new theme"""
+        if theme:
+            await self.config.guild(ctx.guild).current_theme.set(theme)
+        
+        # Reset for new week
+        await self.config.guild(ctx.guild).last_announcement.set(None)
+        await self.config.guild(ctx.guild).winner_announced.set(False)
+        await self.config.guild(ctx.guild).current_phase.set("submission")
+        
+        current_theme = await self.config.guild(ctx.guild).current_theme()
+        
+        # Post new week announcement
+        channel_id = await self.config.guild(ctx.guild).announcement_channel()
+        if channel_id:
+            channel = ctx.guild.get_channel(channel_id)
+            if channel:
+                await self._post_announcement(channel, ctx.guild, "submission_start", current_theme)
+        
+        await ctx.send(f"🎵 **New week started!**\nTheme: **{current_theme}**\nPhase: **Submission**")
+    
+    @collabwarz.command(name="test")
+    async def test_announcements(self, ctx):
+        """Test all announcement types in test channel"""
+        # Try test channel first, fallback to announcement channel
+        test_channel_id = await self.config.guild(ctx.guild).test_channel()
+        announcement_channel_id = await self.config.guild(ctx.guild).announcement_channel()
+        
+        channel_id = test_channel_id or announcement_channel_id
+        if not channel_id:
+            await ctx.send("❌ Please set a test channel with `[p]cw settestchannel` or announcement channel with `[p]cw setchannel`")
+            return
+        
+        channel = ctx.guild.get_channel(channel_id)
+        if not channel:
+            await ctx.send("❌ Test/announcement channel not found")
+            return
+        
+        theme = await self.config.guild(ctx.guild).current_theme()
+        
+        # Indicate where tests will be posted
+        channel_type = "test" if channel_id == test_channel_id else "announcement"
+        await ctx.send(f"🧪 Testing all announcement types in {channel.mention} ({channel_type} channel)...")
+        
+        # Post test header
+        test_header = discord.Embed(
+            title="🧪 ANNOUNCEMENT TESTS",
+            description="Testing all announcement types - ignore these messages",
+            color=discord.Color.orange()
+        )
+        test_header.set_footer(text="Test Mode - SoundGarden's Collab Warz")
+        await channel.send(embed=test_header)
+        
+        # Test each announcement type
+        test_types = [
+            ("submission_start", "Submission Start"),
+            ("voting_start", "Voting Start"), 
+            ("reminder", "Reminder (Wednesday deadline)"),
+            ("winner", "Winner Announcement")
+        ]
+        
+        for ann_type, description in test_types:
+            try:
+                deadline = "Wednesday 23:59" if "reminder" in ann_type else None
+                # Force post to bypass confirmation for tests
+                await self._test_post_announcement(channel, ctx.guild, ann_type, theme, deadline)
+                await ctx.send(f"✅ {description} - Posted")
+                await asyncio.sleep(2)  # Small delay between posts
+            except Exception as e:
+                await ctx.send(f"❌ {description} - Error: {e}")
+        
+        # Post test footer
+        test_footer = discord.Embed(
+            title="🧪 TESTS COMPLETE",
+            description="All announcement tests finished",
+            color=discord.Color.green()
+        )
+        await channel.send(embed=test_footer)
+        
+        await ctx.send("🧪 Test complete!")
+    
+    async def _test_post_announcement(self, channel, guild, announcement_type: str, theme: str, deadline: str = None):
+        """Helper method to post test announcements (bypasses confirmation)"""
+        try:
+            announcement = await self.generate_announcement(guild, announcement_type, theme, deadline)
+            
+            embed = discord.Embed(
+                description=announcement,
+                color=discord.Color.orange()  # Different color for tests
+            )
+            embed.set_footer(text="🧪 TEST MODE - SoundGarden's Collab Warz")
+            
+            await channel.send(embed=embed)
+            print(f"Posted TEST {announcement_type} announcement in {guild.name}")
+            
+        except Exception as e:
+            print(f"Error posting test announcement in {guild.name}: {e}")
+    
+    @collabwarz.command(name="setadmin")
+    async def set_admin(self, ctx, user: discord.Member = None):
+        """Set the admin user for confirmation requests"""
+        if user is None:
+            user = ctx.author
+        
+        await self.config.guild(ctx.guild).admin_user_id.set(user.id)
+        await ctx.send(f"✅ Admin set to {user.mention} for confirmation requests")
+    
+    @collabwarz.command(name="settestchannel")
+    async def set_test_channel(self, ctx, channel: discord.TextChannel):
+        """Set the test channel for testing announcements"""
+        await self.config.guild(ctx.guild).test_channel.set(channel.id)
+        await ctx.send(f"✅ Test channel set to {channel.mention}")
+    
+    @collabwarz.command(name="timeout")
+    async def set_confirmation_timeout(self, ctx, minutes: int):
+        """Set confirmation timeout in minutes for non-submission announcements (default: 30)"""
+        if minutes < 5 or minutes > 120:
+            await ctx.send("❌ Timeout must be between 5 and 120 minutes")
+            return
+        
+        await self.config.guild(ctx.guild).confirmation_timeout.set(minutes * 60)
+        await ctx.send(f"✅ Confirmation timeout set to {minutes} minutes\n*Note: Submission start announcements use smart timeout (until Monday 9 AM UTC)*")
+    
+    @collabwarz.command(name="confirmation")
+    async def toggle_confirmation(self, ctx):
+        """Toggle confirmation requirement for announcements"""
+        current = await self.config.guild(ctx.guild).require_confirmation()
+        await self.config.guild(ctx.guild).require_confirmation.set(not current)
+        
+        status = "enabled" if not current else "disabled"
+        
+        if not current:
+            admin_id = await self.config.guild(ctx.guild).admin_user_id()
+            if not admin_id:
+                await ctx.send(f"✅ Confirmation {status}, but no admin set. Use `[p]cw setadmin @user` to set one.")
+            else:
+                admin_user = ctx.guild.get_member(admin_id)
+                await ctx.send(f"✅ Confirmation {status}. Admin: {admin_user.mention if admin_user else 'Unknown'}")
+        else:
+            await ctx.send(f"✅ Confirmation {status}. Announcements will post automatically.")
+    
+    @collabwarz.command(name="minteams")
+    async def set_min_teams(self, ctx, count: int):
+        """Set minimum number of teams required to start voting (default: 2)"""
+        if count < 1 or count > 10:
+            await ctx.send("❌ Minimum teams must be between 1 and 10")
+            return
+        
+        await self.config.guild(ctx.guild).min_teams_required.set(count)
+        await ctx.send(f"✅ Minimum teams required set to: **{count}**\nIf fewer than {count} teams submit by Friday noon, the week will be cancelled and restarted Monday.")
+    
+    @collabwarz.command(name="setsubmissionchannel")
+    async def set_submission_channel(self, ctx, channel: discord.TextChannel):
+        """Set the channel where submissions are posted for team counting"""
+        await self.config.guild(ctx.guild).submission_channel.set(channel.id)
+        await ctx.send(f"✅ Submission channel set to {channel.mention}\nThis channel will be monitored to count participating teams.")
+    
+    @collabwarz.command(name="countteams")
+    async def count_teams_manual(self, ctx):
+        """Manually count current participating teams"""
+        team_count = await self._count_participating_teams(ctx.guild)
+        min_teams = await self.config.guild(ctx.guild).min_teams_required()
+        
+        submission_channel_id = await self.config.guild(ctx.guild).submission_channel()
+        if submission_channel_id:
+            channel = ctx.guild.get_channel(submission_channel_id)
+            channel_name = channel.mention if channel else "Unknown"
+        else:
+            channel_name = "⚠️ Not set (using announcement channel)"
+        
+        embed = discord.Embed(
+            title="📊 Team Count Status",
+            color=discord.Color.green() if team_count >= min_teams else discord.Color.red()
+        )
+        
+        embed.add_field(
+            name="Current Teams",
+            value=f"**{team_count}** teams found",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="Required",
+            value=f"**{min_teams}** minimum",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="Status",
+            value="✅ Sufficient" if team_count >= min_teams else "❌ Insufficient",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="Submission Channel",
+            value=channel_name,
+            inline=False
+        )
+        
+        embed.set_footer(text="Teams are counted based on registered submissions + raw message detection")
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="togglevalidation")
+    async def toggle_submission_validation(self, ctx):
+        """Toggle Discord submission validation on/off"""
+        current = await self.config.guild(ctx.guild).validate_discord_submissions()
+        await self.config.guild(ctx.guild).validate_discord_submissions.set(not current)
+        
+        status = "enabled" if not current else "disabled"
+        
+        embed = discord.Embed(
+            title="🔍 Submission Validation",
+            color=discord.Color.green() if not current else discord.Color.red()
+        )
+        
+        if not current:
+            embed.description = (
+                "✅ **Discord submission validation ENABLED**\n\n"
+                "Users must include:\n"
+                "• `Team name: YourTeamName`\n"
+                "• @mention of their partner\n"
+                "• Attachment or music platform link\n\n"
+                "Invalid submissions will receive error messages."
+            )
+        else:
+            embed.description = (
+                "❌ **Discord submission validation DISABLED**\n\n"
+                "All submissions will be accepted without validation.\n"
+                "Team counting will use raw message detection."
+            )
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="listteams")
+    async def list_current_teams(self, ctx):
+        """List all registered teams for current week"""
+        week_key = self._get_current_week_key()
+        submitted_teams = await self.config.guild(ctx.guild).submitted_teams()
+        team_members = await self.config.guild(ctx.guild).team_members()
+        
+        week_teams = submitted_teams.get(week_key, [])
+        week_members = team_members.get(week_key, {})
+        
+        embed = discord.Embed(
+            title=f"📋 Registered Teams - Week {week_key}",
+            color=discord.Color.blue()
+        )
+        
+        if not week_teams:
+            embed.description = "No teams registered yet this week."
+        else:
+            team_list = []
+            for team_name in week_teams:
+                if team_name in week_members:
+                    members = week_members[team_name]
+                    member_mentions = []
+                    for user_id in members:
+                        user = ctx.guild.get_member(user_id)
+                        member_mentions.append(user.mention if user else f"<@{user_id}>")
+                    team_list.append(f"**{team_name}**: {' & '.join(member_mentions)}")
+                else:
+                    team_list.append(f"**{team_name}**: Members unknown")
+            
+            embed.description = "\n".join(team_list)
+        
+        embed.set_footer(text=f"Total: {len(week_teams)} teams")
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="clearteams")
+    async def clear_week_teams(self, ctx, week: str = None):
+        """Clear team registrations for specified week (or current week) - ADMIN USE ONLY"""
+        if week is None:
+            week = self._get_current_week_key()
+        
+        # Show warning about permanent deletion
+        embed = discord.Embed(
+            title="⚠️ Clear Team Registrations",
+            description=f"This will **permanently delete** all team registrations for week `{week}`.\n\n"
+                       f"**This action cannot be undone and will affect historical data!**",
+            color=discord.Color.red()
+        )
+        
+        submitted_teams = await self.config.guild(ctx.guild).submitted_teams()
+        team_members = await self.config.guild(ctx.guild).team_members()
+        
+        week_teams = submitted_teams.get(week, [])
+        if week_teams:
+            embed.add_field(
+                name=f"Teams to be deleted ({len(week_teams)})",
+                value=", ".join(f"`{team}`" for team in week_teams[:10]) + 
+                      (f"\n... and {len(week_teams) - 10} more" if len(week_teams) > 10 else ""),
+                inline=False
+            )
+        else:
+            embed.add_field(name="No teams found", value=f"Week `{week}` has no registered teams.", inline=False)
+            await ctx.send(embed=embed)
+            return
+        
+        embed.set_footer(text="React with ✅ to confirm deletion or ❌ to cancel")
+        
+        message = await ctx.send(embed=embed)
+        await message.add_reaction("✅")
+        await message.add_reaction("❌")
+        
+        def check(reaction, user):
+            return (user == ctx.author and 
+                   reaction.message.id == message.id and 
+                   str(reaction.emoji) in ["✅", "❌"])
+        
+        try:
+            reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+            
+            if str(reaction.emoji) == "✅":
+                # Proceed with deletion
+                if week in submitted_teams:
+                    del submitted_teams[week]
+                    await self.config.guild(ctx.guild).submitted_teams.set(submitted_teams)
+                
+                if week in team_members:
+                    del team_members[week]
+                    await self.config.guild(ctx.guild).team_members.set(team_members)
+                
+                await message.edit(embed=discord.Embed(
+                    title="✅ Teams Cleared",
+                    description=f"Successfully deleted all team registrations for week `{week}`",
+                    color=discord.Color.green()
+                ))
+            else:
+                await message.edit(embed=discord.Embed(
+                    title="❌ Cancelled", 
+                    description="Team clearing operation cancelled.",
+                    color=discord.Color.gray()
+                ))
+                
+        except asyncio.TimeoutError:
+            await message.edit(embed=discord.Embed(
+                title="⏰ Timeout",
+                description="Operation timed out. No teams were cleared.",
+                color=discord.Color.gray()
+            ))
+    
+    @collabwarz.command(name="history")
+    async def show_team_history(self, ctx, weeks: int = 4):
+        """Show team participation history for recent weeks"""
+        if weeks < 1 or weeks > 20:
+            await ctx.send("❌ Number of weeks must be between 1 and 20")
+            return
+        
+        submitted_teams = await self.config.guild(ctx.guild).submitted_teams()
+        team_members = await self.config.guild(ctx.guild).team_members()
+        
+        if not submitted_teams:
+            await ctx.send("📊 No team history available yet.")
+            return
+        
+        # Get recent weeks (sorted by week key)
+        all_weeks = sorted(submitted_teams.keys(), reverse=True)
+        recent_weeks = all_weeks[:weeks]
+        
+        embed = discord.Embed(
+            title="📊 Team Participation History",
+            color=discord.Color.blue()
+        )
+        
+        if not recent_weeks:
+            embed.description = "No team data found for recent weeks."
+            await ctx.send(embed=embed)
+            return
+        
+        for week in recent_weeks:
+            week_teams = submitted_teams.get(week, [])
+            week_members = team_members.get(week, {})
+            
+            if not week_teams:
+                embed.add_field(
+                    name=f"Week {week}",
+                    value="No teams registered",
+                    inline=False
+                )
+                continue
+            
+            team_details = []
+            for team_name in week_teams:
+                if team_name in week_members:
+                    members = week_members[team_name]
+                    member_mentions = []
+                    for user_id in members:
+                        user = ctx.guild.get_member(user_id)
+                        if user:
+                            member_mentions.append(user.display_name)
+                        else:
+                            member_mentions.append(f"User-{user_id}")
+                    
+                    team_details.append(f"**{team_name}**: {' & '.join(member_mentions)}")
+                else:
+                    team_details.append(f"**{team_name}**: Members unknown")
+            
+            # Limit to first 8 teams per week for display
+            if len(team_details) > 8:
+                displayed_teams = team_details[:8]
+                displayed_teams.append(f"... and {len(team_details) - 8} more teams")
+            else:
+                displayed_teams = team_details
+            
+            embed.add_field(
+                name=f"Week {week} ({len(week_teams)} teams)",
+                value="\n".join(displayed_teams) if displayed_teams else "No teams",
+                inline=False
+            )
+        
+        # Add summary statistics
+        total_weeks = len(all_weeks)
+        total_teams = sum(len(teams) for teams in submitted_teams.values())
+        avg_teams = total_teams / total_weeks if total_weeks > 0 else 0
+        
+        embed.set_footer(text=f"Total: {total_weeks} weeks recorded • {total_teams} total teams • {avg_teams:.1f} avg teams/week")
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="teamstats") 
+    async def show_team_statistics(self, ctx, user: discord.Member = None):
+        """Show participation statistics for a user or server overview"""
+        submitted_teams = await self.config.guild(ctx.guild).submitted_teams()
+        team_members = await self.config.guild(ctx.guild).team_members()
+        
+        if not submitted_teams:
+            await ctx.send("📊 No team data available yet.")
+            return
+        
+        if user:
+            # Individual user stats
+            user_teams = []
+            for week, week_data in team_members.items():
+                for team_name, members in week_data.items():
+                    if user.id in members:
+                        # Find partner
+                        partner_id = next((mid for mid in members if mid != user.id), None)
+                        partner = ctx.guild.get_member(partner_id) if partner_id else None
+                        partner_name = partner.display_name if partner else "Unknown"
+                        
+                        user_teams.append({
+                            "week": week,
+                            "team": team_name,
+                            "partner": partner_name
+                        })
+            
+            embed = discord.Embed(
+                title=f"📊 Participation Stats: {user.display_name}",
+                color=discord.Color.green()
+            )
+            
+            if not user_teams:
+                embed.description = f"{user.mention} hasn't participated in any registered teams yet."
+            else:
+                # Sort by week (most recent first)
+                user_teams.sort(key=lambda x: x["week"], reverse=True)
+                
+                team_list = []
+                for entry in user_teams[:10]:  # Show last 10 participations
+                    team_list.append(f"**{entry['week']}**: `{entry['team']}` (with {entry['partner']})")
+                
+                if len(user_teams) > 10:
+                    team_list.append(f"... and {len(user_teams) - 10} more")
+                
+                embed.description = "\n".join(team_list)
+                embed.add_field(
+                    name="Summary",
+                    value=f"Total participations: **{len(user_teams)}**",
+                    inline=False
+                )
+            
+        else:
+            # Server overview stats
+            embed = discord.Embed(
+                title="📊 Server Participation Statistics",
+                color=discord.Color.blue()
+            )
+            
+            # Count unique participants
+            all_participants = set()
+            for week_data in team_members.values():
+                for members in week_data.values():
+                    all_participants.update(members)
+            
+            # Most active participants
+            participant_counts = {}
+            for week_data in team_members.values():
+                for members in week_data.values():
+                    for user_id in members:
+                        participant_counts[user_id] = participant_counts.get(user_id, 0) + 1
+            
+            # Sort by participation count
+            top_participants = sorted(participant_counts.items(), key=lambda x: x[1], reverse=True)
+            
+            # Total stats
+            total_weeks = len(submitted_teams)
+            total_teams = sum(len(teams) for teams in submitted_teams.values())
+            total_participants = len(all_participants)
+            
+            embed.add_field(
+                name="Overall Statistics",
+                value=f"**{total_weeks}** weeks recorded\n**{total_teams}** total teams\n**{total_participants}** unique participants",
+                inline=True
+            )
+            
+            if top_participants:
+                top_5 = []
+                for user_id, count in top_participants[:5]:
+                    user = ctx.guild.get_member(user_id)
+                    name = user.display_name if user else f"User-{user_id}"
+                    top_5.append(f"**{name}**: {count} teams")
+                
+                embed.add_field(
+                    name="Most Active (Top 5)",
+                    value="\n".join(top_5),
+                    inline=True
+                )
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="searchteams")
+    async def search_teams(self, ctx, *, query: str):
+        """Search for teams by name or member"""
+        if len(query) < 2:
+            await ctx.send("❌ Search query must be at least 2 characters long")
+            return
+        
+        submitted_teams = await self.config.guild(ctx.guild).submitted_teams()
+        team_members = await self.config.guild(ctx.guild).team_members()
+        
+        if not submitted_teams:
+            await ctx.send("📊 No team data available to search.")
+            return
+        
+        query_lower = query.lower()
+        matches = []
+        
+        # Search through all weeks
+        for week in sorted(submitted_teams.keys(), reverse=True):
+            week_teams = submitted_teams.get(week, [])
+            week_members = team_members.get(week, {})
+            
+            for team_name in week_teams:
+                # Check if query matches team name
+                team_matches = query_lower in team_name.lower()
+                
+                # Check if query matches any member name
+                member_matches = False
+                if team_name in week_members:
+                    for user_id in week_members[team_name]:
+                        user = ctx.guild.get_member(user_id)
+                        if user and (query_lower in user.display_name.lower() or 
+                                   query_lower in user.name.lower()):
+                            member_matches = True
+                            break
+                
+                if team_matches or member_matches:
+                    # Get member details
+                    if team_name in week_members:
+                        members = week_members[team_name]
+                        member_names = []
+                        for user_id in members:
+                            user = ctx.guild.get_member(user_id)
+                            member_names.append(user.display_name if user else f"User-{user_id}")
+                        member_info = " & ".join(member_names)
+                    else:
+                        member_info = "Members unknown"
+                    
+                    matches.append({
+                        "week": week,
+                        "team": team_name,
+                        "members": member_info,
+                        "match_type": "team name" if team_matches else "member"
+                    })
+        
+        embed = discord.Embed(
+            title=f"🔍 Search Results for '{query}'",
+            color=discord.Color.purple()
+        )
+        
+        if not matches:
+            embed.description = f"No teams found matching '{query}'"
+            embed.add_field(
+                name="💡 Search Tips",
+                value="• Try partial names or nicknames\n• Search is case-insensitive\n• Searches both team names and member names",
+                inline=False
+            )
+        else:
+            # Group by week for better display
+            results_by_week = {}
+            for match in matches:
+                week = match["week"]
+                if week not in results_by_week:
+                    results_by_week[week] = []
+                results_by_week[week].append(match)
+            
+            result_lines = []
+            for week in sorted(results_by_week.keys(), reverse=True)[:10]:  # Show max 10 weeks
+                week_matches = results_by_week[week]
+                for match in week_matches[:5]:  # Max 5 teams per week
+                    match_indicator = "📋" if match["match_type"] == "team name" else "👤"
+                    result_lines.append(f"{match_indicator} **{week}**: `{match['team']}` ({match['members']})")
+                
+                if len(week_matches) > 5:
+                    result_lines.append(f"   ... and {len(week_matches) - 5} more in {week}")
+            
+            if len(matches) > 50:  # If too many results, show count
+                result_lines.append(f"\n*... showing first 50 of {len(matches)} total matches*")
+            
+            embed.description = "\n".join(result_lines[:20])  # Limit description length
+            
+            embed.add_field(
+                name="Legend",
+                value="📋 = Team name match • 👤 = Member name match",
+                inline=False
+            )
+        
+        embed.set_footer(text=f"Found {len(matches)} total matches")
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="setadminchannel")
+    async def set_admin_channel(self, ctx, channel: discord.TextChannel):
+        """Set the admin channel for YAGPDB commands (rep rewards)"""
+        await self.config.guild(ctx.guild).admin_channel.set(channel.id)
+        
+        embed = discord.Embed(
+            title="⚙️ Admin Channel Set",
+            description=f"Admin channel set to {channel.mention}",
+            color=discord.Color.green()
+        )
+        
+        embed.add_field(
+            name="Usage",
+            value=(
+                "This channel will be used for:\n"
+                "• YAGPDB `-giverep` commands\n"
+                "• YAGPDB `-rep` lookups\n"
+                "• Automatic rep rewards for winners"
+            ),
+            inline=False
+        )
+        
+        embed.set_footer(text="Make sure YAGPDB has access to this channel!")
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="setrepamount")
+    async def set_rep_amount(self, ctx, amount: int):
+        """Set the amount of rep points given to winners (default: 2)"""
+        if amount < 0 or amount > 50:
+            await ctx.send("❌ Rep amount must be between 0 and 50")
+            return
+        
+        await self.config.guild(ctx.guild).rep_reward_amount.set(amount)
+        
+        if amount == 0:
+            await ctx.send("⚠️ Rep rewards **disabled** - winners will receive 0 petals")
+        else:
+            await ctx.send(f"✅ Rep reward amount set to **{amount} petals** per winner")
+    
+    @collabwarz.command(name="setfrontendapi")
+    async def set_frontend_api(self, ctx, api_url: str, api_key: str = None):
+        """Set the frontend API URL and optional API key for voting results"""
+        # Validate URL format
+        if not api_url.startswith(('http://', 'https://')):
+            await ctx.send("❌ API URL must start with http:// or https://")
+            return
+        
+        # Remove trailing slash
+        api_url = api_url.rstrip('/')
+        
+        await self.config.guild(ctx.guild).frontend_api_url.set(api_url)
+        
+        if api_key:
+            await self.config.guild(ctx.guild).frontend_api_key.set(api_key)
+            key_display = api_key[:8] + "..." if len(api_key) > 8 else "***"
+        else:
+            await self.config.guild(ctx.guild).frontend_api_key.set(None)
+            key_display = "None (public API)"
+        
+        embed = discord.Embed(
+            title="🌐 Frontend API Configured",
+            description=f"Frontend API URL set to: `{api_url}`",
+            color=discord.Color.green()
+        )
+        
+        embed.add_field(
+            name="API Key",
+            value=key_display,
+            inline=True
+        )
+        
+        embed.add_field(
+            name="Expected Endpoints",
+            value=(
+                f"`{api_url}/api/voting/results/{{week}}` - Vote results\n"
+                f"`{api_url}/api/voting/results/{{week}}_faceoff` - Face-off results"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="What This Enables",
+            value=(
+                "• Automatic winner determination from votes\n"
+                "• Tie detection and face-off management\n"
+                "• Vote count display in announcements\n"
+                "• Random winner selection for persistent ties"
+            ),
+            inline=False
+        )
+        
+        embed.set_footer(text="Winners will now be determined by frontend voting results!")
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="testfrontend")
+    async def test_frontend(self, ctx):
+        """Test connection to frontend API"""
+        api_url = await self.config.guild(ctx.guild).frontend_api_url()
+        
+        if not api_url:
+            await ctx.send("❌ Frontend API not configured. Use `[p]cw setfrontendapi` first.")
+            return
+        
+        # Test current week results
+        week = self._get_current_week()
+        
+        embed = discord.Embed(
+            title="🧪 Frontend API Test",
+            color=discord.Color.yellow()
+        )
+        
+        try:
+            vote_counts = await self._fetch_voting_results(ctx.guild, week)
+            
+            if vote_counts:
+                # Show results
+                embed.color = discord.Color.green()
+                embed.add_field(
+                    name="✅ Connection Successful",
+                    value=f"Retrieved voting data for week {week}",
+                    inline=False
+                )
+                
+                # Show vote counts
+                vote_lines = []
+                for team, votes in sorted(vote_counts.items(), key=lambda x: x[1], reverse=True):
+                    vote_lines.append(f"• **{team}**: {votes} votes")
+                
+                if vote_lines:
+                    embed.add_field(
+                        name="Current Vote Counts",
+                        value="\n".join(vote_lines[:10]) + ("\n..." if len(vote_lines) > 10 else ""),
+                        inline=False
+                    )
+            else:
+                embed.color = discord.Color.orange()
+                embed.add_field(
+                    name="⚠️ No Data",
+                    value=f"API responded but no voting data found for week {week}",
+                    inline=False
+                )
+                
+        except Exception as e:
+            embed.color = discord.Color.red()
+            embed.add_field(
+                name="❌ Connection Failed",
+                value=f"Error: {str(e)}",
+                inline=False
+            )
+        
+        embed.add_field(
+            name="API Configuration",
+            value=f"URL: `{api_url}`\nWeek: `{week}`",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="checkvotes")
+    async def check_votes(self, ctx):
+        """Manually check current voting results and determine winner"""
+        winning_teams, is_tie, vote_counts = await self._determine_winners(ctx.guild)
+        
+        embed = discord.Embed(
+            title="🗳️ Current Voting Results",
+            color=discord.Color.blue()
+        )
+        
+        week = self._get_current_week()
+        embed.add_field(
+            name="Week",
+            value=week,
+            inline=True
+        )
+        
+        if not vote_counts:
+            embed.color = discord.Color.red()
+            embed.description = "❌ No voting data available"
+            await ctx.send(embed=embed)
+            return
+        
+        # Show all vote counts
+        vote_lines = []
+        for team, votes in sorted(vote_counts.items(), key=lambda x: x[1], reverse=True):
+            if team in winning_teams:
+                vote_lines.append(f"🏆 **{team}**: {votes} votes")
+            else:
+                vote_lines.append(f"• **{team}**: {votes} votes")
+        
+        embed.add_field(
+            name="Vote Counts",
+            value="\n".join(vote_lines),
+            inline=False
+        )
+        
+        if is_tie:
+            embed.color = discord.Color.orange()
+            embed.add_field(
+                name="⚔️ TIE DETECTED",
+                value=f"**Tied teams:** {', '.join(winning_teams)}\nA face-off would be required!",
+                inline=False
+            )
+        elif winning_teams:
+            embed.color = discord.Color.gold()
+            embed.add_field(
+                name="🏆 Clear Winner",
+                value=f"**Winner:** {winning_teams[0]}",
+                inline=False
+            )
+        
+        # Check if face-off is active
+        face_off_active = await self.config.guild(ctx.guild).face_off_active()
+        if face_off_active:
+            face_off_teams = await self.config.guild(ctx.guild).face_off_teams()
+            face_off_deadline_str = await self.config.guild(ctx.guild).face_off_deadline()
+            
+            if face_off_deadline_str:
+                face_off_deadline = datetime.fromisoformat(face_off_deadline_str)
+                
+                embed.add_field(
+                    name="⚔️ Active Face-Off",
+                    value=(
+                        f"**Teams:** {', '.join(face_off_teams)}\n"
+                        f"**Deadline:** {self._create_discord_timestamp(face_off_deadline)}"
+                    ),
+                    inline=False
+                )
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="apiserver")
+    async def api_server_control(self, ctx, action: str = "status"):
+        """Control the API server for member list (start/stop/status)"""
+        action = action.lower()
+        
+        if action not in ["start", "stop", "status"]:
+            await ctx.send("❌ Valid actions: `start`, `stop`, `status`")
+            return
+        
+        if action == "status":
+            api_enabled = await self.config.guild(ctx.guild).api_server_enabled()
+            port = await self.config.guild(ctx.guild).api_server_port()
+            host = await self.config.guild(ctx.guild).api_server_host()
+            token = await self.config.guild(ctx.guild).api_access_token()
+            
+            embed = discord.Embed(
+                title="🌐 API Server Status",
+                color=discord.Color.green() if api_enabled else discord.Color.red()
+            )
+            
+            embed.add_field(
+                name="Status",
+                value="🟢 Running" if api_enabled else "🔴 Stopped",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="Address",
+                value=f"`{host}:{port}`",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="Authentication",
+                value="🔐 Token required" if token else "🔓 No authentication",
+                inline=True
+            )
+            
+            if api_enabled:
+                embed.add_field(
+                    name="Endpoints",
+                    value=f"`GET {host}:{port}/api/members` - Guild members list",
+                    inline=False
+                )
+                
+                embed.add_field(
+                    name="Usage Example",
+                    value=(
+                        f"```bash\n"
+                        f"curl -H \"Authorization: Bearer YOUR_TOKEN\" \\\n"
+                        f"     http://{host}:{port}/api/members\n"
+                        f"```"
+                    ),
+                    inline=False
+                )
+            
+            await ctx.send(embed=embed)
+            
+        elif action == "start":
+            await self.config.guild(ctx.guild).api_server_enabled.set(True)
+            
+            # Start the API server task
+            asyncio.create_task(self._start_api_server_task(ctx.guild))
+            
+            port = await self.config.guild(ctx.guild).api_server_port()
+            host = await self.config.guild(ctx.guild).api_server_host()
+            
+            embed = discord.Embed(
+                title="🚀 API Server Started",
+                description=f"Member list API is now running on `{host}:{port}`",
+                color=discord.Color.green()
+            )
+            
+            embed.add_field(
+                name="Available Endpoint",
+                value=f"`GET /api/members` - Returns guild member list",
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
+            
+        elif action == "stop":
+            await self.config.guild(ctx.guild).api_server_enabled.set(False)
+            
+            embed = discord.Embed(
+                title="🛑 API Server Stopped",
+                description="Member list API has been disabled",
+                color=discord.Color.red()
+            )
+            
+            await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="apiconfig")
+    async def api_config(self, ctx, setting: str = None, *, value: str = None):
+        """Configure API server settings (port/host/token/cors)"""
+        
+        if not setting:
+            # Show current configuration
+            port = await self.config.guild(ctx.guild).api_server_port()
+            host = await self.config.guild(ctx.guild).api_server_host()
+            token = await self.config.guild(ctx.guild).api_access_token()
+            cors_origins = await self.config.guild(ctx.guild).cors_origins()
+            
+            embed = discord.Embed(
+                title="⚙️ API Server Configuration",
+                color=discord.Color.blue()
+            )
+            
+            embed.add_field(name="Host", value=f"`{host}`", inline=True)
+            embed.add_field(name="Port", value=f"`{port}`", inline=True) 
+            embed.add_field(name="Token", value="Set" if token else "None", inline=True)
+            embed.add_field(name="CORS Origins", value=f"`{', '.join(cors_origins)}`", inline=False)
+            
+            embed.add_field(
+                name="Configuration Commands",
+                value=(
+                    "`[p]cw apiconfig port 8080`\n"
+                    "`[p]cw apiconfig host 0.0.0.0`\n"  
+                    "`[p]cw apiconfig token your-secret-token`\n"
+                    "`[p]cw apiconfig cors https://yoursite.com,*`"
+                ),
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
+            return
+        
+        setting = setting.lower()
+        
+        if setting == "port":
+            try:
+                port = int(value)
+                if port < 1 or port > 65535:
+                    raise ValueError("Port out of range")
+                
+                await self.config.guild(ctx.guild).api_server_port.set(port)
+                await ctx.send(f"✅ API server port set to `{port}`")
+                
+            except (ValueError, TypeError):
+                await ctx.send("❌ Invalid port. Must be a number between 1-65535")
+                
+        elif setting == "host":
+            if not value:
+                await ctx.send("❌ Please provide a host address")
+                return
+            
+            await self.config.guild(ctx.guild).api_server_host.set(value)
+            await ctx.send(f"✅ API server host set to `{value}`")
+            
+        elif setting == "token":
+            if value:
+                await self.config.guild(ctx.guild).api_access_token.set(value)
+                await ctx.send("✅ API access token updated")
+            else:
+                await self.config.guild(ctx.guild).api_access_token.set(None)
+                await ctx.send("✅ API access token removed (no authentication)")
+                
+        elif setting == "cors":
+            if value:
+                origins = [origin.strip() for origin in value.split(',')]
+                await self.config.guild(ctx.guild).cors_origins.set(origins)
+                await ctx.send(f"✅ CORS origins set to: `{', '.join(origins)}`")
+            else:
+                await self.config.guild(ctx.guild).cors_origins.set(["*"])
+                await ctx.send("✅ CORS reset to allow all origins")
+                
+        else:
+            await ctx.send("❌ Invalid setting. Use: `port`, `host`, `token`, or `cors`")
+    
+    @collabwarz.command(name="testapi")
+    async def test_api(self, ctx):
+        """Test the local API server and show member list sample"""
+        api_enabled = await self.config.guild(ctx.guild).api_server_enabled()
+        
+        if not api_enabled:
+            await ctx.send("❌ API server is not running. Use `[p]cw apiserver start` first.")
+            return
+        
+        port = await self.config.guild(ctx.guild).api_server_port()
+        host = await self.config.guild(ctx.guild).api_server_host()
+        
+        embed = discord.Embed(
+            title="🧪 API Server Test",
+            color=discord.Color.blue()
+        )
+        
+        try:
+            # Get sample member data
+            members_data = await self._get_guild_members_for_api(ctx.guild)
+            member_count = len(members_data)
+            
+            embed.add_field(
+                name="✅ Server Status",
+                value=f"Running on `{host}:{port}`",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📊 Member Count",
+                value=f"{member_count} members available",
+                inline=True
+            )
+            
+            # Show sample of members
+            if members_data:
+                sample_members = members_data[:5]  # First 5 members
+                sample_text = "\n".join([f"• {m['display_name']} (@{m['username']})" for m in sample_members])
+                if len(members_data) > 5:
+                    sample_text += f"\n... and {len(members_data) - 5} more"
+                
+                embed.add_field(
+                    name="👥 Sample Members",
+                    value=sample_text,
+                    inline=False
+                )
+            
+            embed.add_field(
+                name="🔗 Test Command",
+                value=(
+                    f"```bash\n"
+                    f"curl http://{host}:{port}/api/members\n"
+                    f"```"
+                ),
+                inline=False
+            )
+            
+        except Exception as e:
+            embed.color = discord.Color.red()
+            embed.add_field(
+                name="❌ Error",
+                value=f"Failed to get member data: {str(e)}",
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="declarewinner")
+    async def declare_winner(self, ctx, team_name: str, member1: discord.Member, member2: discord.Member):
+        """🚨 MANUAL OVERRIDE: Declare a winner (use only if automatic system fails)"""
+        
+        # Warn about manual override
+        warning_embed = discord.Embed(
+            title="⚠️ MANUAL WINNER OVERRIDE",
+            description=(
+                "**WARNING**: This is a manual override of the automatic voting system!\n\n"
+                "**Normal Process**: Winners are automatically determined by frontend voting results.\n"
+                "**Use this only if**: Automatic system failed or emergency situation.\n\n"
+                f"**Declaring**: **{team_name}** as winner"
+            ),
+            color=discord.Color.orange()
+        )
+        
+        warning_embed.add_field(
+            name="Team Members",
+            value=f"{member1.mention} & {member2.mention}",
+            inline=False
+        )
+        
+        rep_amount = await self.config.guild(ctx.guild).rep_reward_amount()
+        warning_embed.add_field(
+            name="Rep Rewards",
+            value=f"Each member will receive **{rep_amount} petals**" if rep_amount > 0 else "No rep rewards (disabled)",
+            inline=False
+        )
+        
+        warning_embed.add_field(
+            name="⚠️ Consider First",
+            value=(
+                "• Check `[p]cw checkvotes` for actual voting results\n"
+                "• Verify frontend API is working with `[p]cw testfrontend`\n"
+                "• Ensure this isn't overriding legitimate voting results"
+            ),
+            inline=False
+        )
+        
+        warning_embed.set_footer(text="React with 🚨 to OVERRIDE or ❌ to cancel")
+        
+        message = await ctx.send(embed=warning_embed)
+        await message.add_reaction("🚨")
+        await message.add_reaction("❌")
+        
+        def check(reaction, user):
+            return (user == ctx.author and 
+                   reaction.message.id == message.id and 
+                   str(reaction.emoji) in ["🚨", "❌"])
+        
+        try:
+            reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+            
+            if str(reaction.emoji) == "🚨":
+                # Proceed with winner declaration
+                theme = await self.config.guild(ctx.guild).current_theme()
+                member_ids = [member1.id, member2.id]
+                
+                # Record winner and give rep
+                rep_results = await self._record_weekly_winner(ctx.guild, team_name, member_ids)
+                
+                # Create winner announcement
+                winner_msg = await self._create_winner_announcement_with_rep(ctx.guild, team_name, member_ids, theme)
+                
+                # Post in announcement channel
+                announcement_channel_id = await self.config.guild(ctx.guild).announcement_channel()
+                if announcement_channel_id:
+                    announcement_channel = ctx.guild.get_channel(announcement_channel_id)
+                    if announcement_channel:
+                        await announcement_channel.send(winner_msg)
+                
+                # Update status
+                await self.config.guild(ctx.guild).winner_announced.set(True)
+                
+                # Success message
+                success_embed = discord.Embed(
+                    title="🎉 Winner Declared Successfully!",
+                    description=f"**{team_name}** has been declared the winner!",
+                    color=discord.Color.green()
+                )
+                
+                rep_status = []
+                for user_id, success in rep_results.items():
+                    user = ctx.guild.get_member(user_id)
+                    status = "✅" if success else "❌"
+                    rep_status.append(f"{status} {user.display_name if user else f'User-{user_id}'}")
+                
+                if rep_status:
+                    success_embed.add_field(
+                        name="Rep Rewards Status",
+                        value="\n".join(rep_status),
+                        inline=False
+                    )
+                
+                await message.edit(embed=success_embed, view=None)
+                
+            else:
+                cancelled_embed = discord.Embed(
+                    title="❌ Cancelled",
+                    description="Winner declaration cancelled.",
+                    color=discord.Color.gray()
+                )
+                await message.edit(embed=cancelled_embed, view=None)
+                
+        except asyncio.TimeoutError:
+            timeout_embed = discord.Embed(
+                title="⏰ Timeout",
+                description="Winner declaration timed out.",
+                color=discord.Color.gray()
+            )
+            await message.edit(embed=timeout_embed, view=None)
+    
+    @collabwarz.command(name="winners")
+    async def show_winners(self, ctx, weeks: int = 4):
+        """Show recent winners and their rep rewards"""
+        if weeks < 1 or weeks > 20:
+            await ctx.send("❌ Number of weeks must be between 1 and 20")
+            return
+        
+        weekly_winners = await self.config.guild(ctx.guild).weekly_winners()
+        
+        if not weekly_winners:
+            await ctx.send("🏆 No winners recorded yet.")
+            return
+        
+        # Get recent weeks
+        all_weeks = sorted(weekly_winners.keys(), reverse=True)
+        recent_weeks = all_weeks[:weeks]
+        
+        embed = discord.Embed(
+            title="🏆 Recent Winners",
+            color=discord.Color.gold()
+        )
+        
+        for week in recent_weeks:
+            winner_data = weekly_winners[week]
+            team_name = winner_data.get("team_name", "Unknown Team")
+            member_ids = winner_data.get("members", [])
+            rep_given = winner_data.get("rep_given", {})
+            
+            member_names = []
+            rep_status = []
+            for user_id in member_ids:
+                user = ctx.guild.get_member(user_id)
+                name = user.display_name if user else f"User-{user_id}"
+                member_names.append(name)
+                
+                if str(user_id) in rep_given or user_id in rep_given:
+                    success = rep_given.get(str(user_id), rep_given.get(user_id, False))
+                    rep_status.append("✅" if success else "❌")
+                else:
+                    rep_status.append("❓")
+            
+            members_text = " & ".join(member_names) if member_names else "Unknown"
+            rep_text = " ".join(rep_status) if rep_status else "No data"
+            
+            embed.add_field(
+                name=f"Week {week}",
+                value=f"**{team_name}**\n{members_text}\nRep: {rep_text}",
+                inline=True
+            )
+        
+        embed.set_footer(text="✅ = Rep given • ❌ = Failed • ❓ = Unknown")
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="confirm")
+    async def confirm_announcement(self, ctx, guild_id: int = None):
+        """Confirm a pending announcement"""
+        if guild_id is None:
+            guild_id = ctx.guild.id
+        
+        target_guild = self.bot.get_guild(guild_id)
+        if not target_guild:
+            await ctx.send("❌ Guild not found")
+            return
+        
+        # Check if user is the designated admin
+        admin_id = await self.config.guild(target_guild).admin_user_id()
+        if admin_id != ctx.author.id:
+            await ctx.send("❌ You are not authorized to confirm announcements for this server")
+            return
+        
+        pending = await self.config.guild(target_guild).pending_announcement()
+        if not pending:
+            await ctx.send("❌ No pending announcement for this server")
+            return
+        
+        # Get the channel and post the announcement
+        channel = target_guild.get_channel(pending["channel_id"])
+        if not channel:
+            await ctx.send("❌ Announcement channel not found")
+            return
+        
+        await self._post_announcement(
+            channel, target_guild, 
+            pending["type"], pending["theme"], 
+            pending.get("deadline"), force=True
+        )
+        
+        await ctx.send(f"✅ Announcement confirmed and posted in {target_guild.name}")
+    
+    @collabwarz.command(name="deny")
+    async def deny_announcement(self, ctx, guild_id: int = None):
+        """Deny a pending announcement"""
+        if guild_id is None:
+            guild_id = ctx.guild.id
+        
+        target_guild = self.bot.get_guild(guild_id)
+        if not target_guild:
+            await ctx.send("❌ Guild not found")
+            return
+        
+        # Check if user is the designated admin
+        admin_id = await self.config.guild(target_guild).admin_user_id()
+        if admin_id != ctx.author.id:
+            await ctx.send("❌ You are not authorized to deny announcements for this server")
+            return
+        
+        pending = await self.config.guild(target_guild).pending_announcement()
+        if not pending:
+            await ctx.send("❌ No pending announcement for this server")
+            return
+        
+        # Clear the pending announcement
+        await self.config.guild(target_guild).pending_announcement.set(None)
+        await ctx.send(f"❌ Announcement denied and cancelled for {target_guild.name}")
+    
+    @collabwarz.command(name="interrupt")
+    async def interrupt_week(self, ctx, *, new_theme: str = None):
+        """Interrupt current week and start fresh (with optional new theme)"""
+        
+        if new_theme:
+            await self.config.guild(ctx.guild).current_theme.set(new_theme)
+            theme_msg = f"with new theme: **{new_theme}**"
+        else:
+            theme_msg = f"with current theme: **{await self.config.guild(ctx.guild).current_theme()}**"
+        
+        # Reset all tracking
+        await self.config.guild(ctx.guild).last_announcement.set(None)
+        await self.config.guild(ctx.guild).winner_announced.set(False)
+        await self.config.guild(ctx.guild).pending_announcement.set(None)
+        await self.config.guild(ctx.guild).current_phase.set("submission")
+        
+        # Force start new submission phase
+        channel_id = await self.config.guild(ctx.guild).announcement_channel()
+        if channel_id:
+            channel = ctx.guild.get_channel(channel_id)
+            if channel:
+                current_theme = await self.config.guild(ctx.guild).current_theme()
+                await self._post_announcement(channel, ctx.guild, "submission_start", current_theme, force=True)
+        
+        embed = discord.Embed(
+            title="🔄 Week Interrupted & Restarted",
+            description=f"New submission phase started {theme_msg}",
+            color=discord.Color.orange()
+        )
+        embed.add_field(name="Phase", value="**Submission**", inline=True)
+        embed.add_field(name="Status", value="**Active**", inline=True)
+        embed.set_footer(text="All tracking reset - fresh start!")
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="changetheme")
+    async def change_theme_only(self, ctx, *, new_theme: str):
+        """Change the current theme without restarting the week"""
+        old_theme = await self.config.guild(ctx.guild).current_theme()
+        await self.config.guild(ctx.guild).current_theme.set(new_theme)
+        
+        embed = discord.Embed(
+            title="🎨 Theme Changed",
+            color=discord.Color.purple()
+        )
+        embed.add_field(name="Old Theme", value=f"~~{old_theme}~~", inline=True)
+        embed.add_field(name="New Theme", value=f"**{new_theme}**", inline=True)
+        embed.set_footer(text="Week continues with new theme")
+        
+        await ctx.send(embed=embed)
+        
+        # Optionally announce theme change
+        channel_id = await self.config.guild(ctx.guild).announcement_channel()
+        if channel_id:
+            channel = ctx.guild.get_channel(channel_id)
+            if channel:
+                change_embed = discord.Embed(
+                    title="🎨 Theme Update!",
+                    description=f"**New theme for this week:** {new_theme}",
+                    color=discord.Color.purple()
+                )
+                change_embed.set_footer(text="SoundGarden's Collab Warz - Theme Change")
+                await channel.send(embed=change_embed)
+    
+    @collabwarz.command(name="pending")
+    async def show_pending(self, ctx):
+        """Show pending announcements waiting for confirmation"""
+        pending = await self.config.guild(ctx.guild).pending_announcement()
+        
+        if not pending:
+            await ctx.send("✅ No pending announcements")
+            return
+        
+        embed = discord.Embed(
+            title="⏳ Pending Announcement",
+            color=discord.Color.yellow()
+        )
+        embed.add_field(name="Type", value=pending["type"].replace("_", " ").title(), inline=True)
+        embed.add_field(name="Theme", value=pending["theme"], inline=True)
+        
+        if pending.get("deadline"):
+            embed.add_field(name="Deadline", value=pending["deadline"], inline=True)
+        
+        # Parse timestamp
+        timestamp = datetime.fromisoformat(pending["timestamp"])
+        embed.add_field(name="Requested", value=timestamp.strftime("%Y-%m-%d %H:%M UTC"), inline=False)
+        
+        admin_id = await self.config.guild(ctx.guild).admin_user_id()
+        if admin_id:
+            admin_user = ctx.guild.get_member(admin_id)
+            embed.add_field(name="Waiting for", value=admin_user.mention if admin_user else "Unknown admin", inline=True)
+        
+        embed.set_footer(text=f"Use '[p]cw confirm' or '[p]cw deny' to handle")
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="forcepost")
+    async def force_post(self, ctx, announcement_type: str, *, custom_theme: str = None):
+        """Force post an announcement without confirmation (emergency use)"""
+        if announcement_type not in ["submission_start", "voting_start", "reminder", "winner"]:
+            await ctx.send("❌ Invalid type. Use: submission_start, voting_start, reminder, or winner")
+            return
+        
+        channel_id = await self.config.guild(ctx.guild).announcement_channel()
+        if not channel_id:
+            await ctx.send("❌ Please set an announcement channel first")
+            return
+        
+        channel = ctx.guild.get_channel(channel_id)
+        if not channel:
+            await ctx.send("❌ Announcement channel not found")
+            return
+        
+        theme = custom_theme or await self.config.guild(ctx.guild).current_theme()
+        deadline = "Soon" if "reminder" in announcement_type else None
+        
+        await self._post_announcement(channel, ctx.guild, announcement_type, theme, deadline, force=True)
+        await ctx.send(f"🚨 **FORCED POST** - {announcement_type.replace('_', ' ').title()} announcement posted")
+    
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        """Handle Discord submissions validation"""
+        # Ignore bot messages
+        if message.author.bot:
+            return
+        
+        # Ignore DMs
+        if not message.guild:
+            return
+        
+        # Validate submission if it looks like one
+        await self._validate_discord_submission(message)
+    
+    async def _fetch_voting_results(self, guild: discord.Guild, week: str = None) -> dict:
+        """Fetch voting results from frontend API
+        
+        Args:
+            guild: Discord guild
+            week: Week identifier (e.g., "2025-W44"). If None, uses current week
+            
+        Returns:
+            Dictionary with team names as keys and vote counts as values
+        """
+        if not week:
+            week = self._get_current_week()
+        
+        frontend_url = await self.config.guild(guild).frontend_api_url()
+        api_key = await self.config.guild(guild).frontend_api_key()
+        
+        if not frontend_url:
+            return {}
+        
+        try:
+            headers = {}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{frontend_url}/api/voting/results/{week}",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("results", {})
+                    else:
+                        print(f"Failed to fetch voting results: HTTP {response.status}")
+                        return {}
+        except Exception as e:
+            print(f"Error fetching voting results: {e}")
+            return {}
+    
+    async def _determine_winners(self, guild: discord.Guild) -> tuple:
+        """Determine the winner(s) based on voting results
+        
+        Returns:
+            Tuple of (winning_teams, is_tie, vote_counts)
+            - winning_teams: List of winning team names
+            - is_tie: Boolean indicating if there's a tie
+            - vote_counts: Dictionary of all vote counts
+        """
+        week = self._get_current_week()
+        vote_counts = await self._fetch_voting_results(guild, week)
+        
+        if not vote_counts:
+            return [], False, {}
+        
+        # Find the maximum vote count
+        max_votes = max(vote_counts.values()) if vote_counts else 0
+        
+        # Find all teams with the maximum votes
+        winning_teams = [team for team, votes in vote_counts.items() if votes == max_votes]
+        
+        is_tie = len(winning_teams) > 1
+        
+        return winning_teams, is_tie, vote_counts
+    
+    async def _start_face_off(self, guild: discord.Guild, tied_teams: list) -> bool:
+        """Start a 24-hour face-off between tied teams
+        
+        Args:
+            guild: Discord guild
+            tied_teams: List of team names that are tied
+            
+        Returns:
+            Boolean indicating if face-off was started successfully
+        """
+        try:
+            # Set face-off configuration
+            await self.config.guild(guild).face_off_active.set(True)
+            await self.config.guild(guild).face_off_teams.set(tied_teams)
+            
+            # Set deadline for 24 hours from now
+            face_off_deadline = datetime.utcnow() + timedelta(hours=24)
+            await self.config.guild(guild).face_off_deadline.set(face_off_deadline.isoformat())
+            
+            # Clear previous face-off results
+            await self.config.guild(guild).face_off_results.set({})
+            
+            # Create face-off announcement
+            channel_id = await self.config.guild(guild).announcement_channel()
+            channel = guild.get_channel(channel_id) if channel_id else None
+            
+            if channel:
+                embed = discord.Embed(
+                    title="⚔️ TIE BREAKER - FINAL FACE-OFF!",
+                    description=(
+                        f"**We have a tie!** 🤝\n\n"
+                        f"**Tied Teams:**\n"
+                        + "\n".join([f"• **{team}**" for team in tied_teams]) +
+                        f"\n\n**⏰ 24-Hour Final Vote!**\n"
+                        f"Vote now on the website for your favorite!\n"
+                        f"Deadline: {self._create_discord_timestamp(face_off_deadline)}\n\n"
+                        f"🔥 **Winner takes all!** 🏆"
+                    ),
+                    color=discord.Color.red()
+                )
+                
+                embed.set_footer(text="SoundGarden's Collab Warz - Final Face-Off")
+                
+                use_ping = await self.config.guild(guild).use_everyone_ping()
+                content = "@everyone 🔥 **FINAL FACE-OFF!** 🔥" if use_ping else None
+                
+                await channel.send(content=content, embed=embed)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error starting face-off: {e}")
+            return False
+    
+    async def _check_face_off_results(self, guild: discord.Guild) -> Optional[str]:
+        """Check face-off results and determine final winner
+        
+        Returns:
+            Winner team name, or None if still tied or error
+        """
+        try:
+            face_off_teams = await self.config.guild(guild).face_off_teams()
+            
+            if not face_off_teams:
+                return None
+            
+            # Fetch current face-off voting results
+            week = self._get_current_week()
+            vote_counts = await self._fetch_voting_results(guild, f"{week}_faceoff")
+            
+            if not vote_counts:
+                # No votes yet, or error fetching
+                return None
+            
+            # Filter only face-off teams
+            face_off_votes = {team: vote_counts.get(team, 0) for team in face_off_teams}
+            
+            # Find winner
+            max_votes = max(face_off_votes.values()) if face_off_votes else 0
+            winners = [team for team, votes in face_off_votes.items() if votes == max_votes]
+            
+            if len(winners) == 1:
+                return winners[0]
+            elif len(winners) > 1:
+                # Still tied after face-off, random selection
+                import random
+                winner = random.choice(winners)
+                
+                # Announce random selection
+                channel_id = await self.config.guild(guild).announcement_channel()
+                channel = guild.get_channel(channel_id) if channel_id else None
+                
+                if channel:
+                    embed = discord.Embed(
+                        title="🎲 Random Winner Selection!",
+                        description=(
+                            f"**Still tied after face-off!** 😱\n\n"
+                            f"**Tied Teams:** {', '.join(winners)}\n\n"
+                            f"**🎲 Random Winner:** **{winner}**\n\n"
+                            f"🎉 Congratulations to the randomly selected champions! 🏆"
+                        ),
+                        color=discord.Color.gold()
+                    )
+                    await channel.send(embed=embed)
+                
+                return winner
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error checking face-off results: {e}")
+            return None
+    
+    async def _end_face_off(self, guild: discord.Guild):
+        """End the current face-off and reset state"""
+        await self.config.guild(guild).face_off_active.set(False)
+        await self.config.guild(guild).face_off_teams.set([])
+        await self.config.guild(guild).face_off_deadline.set(None)
+        await self.config.guild(guild).face_off_results.set({})
+    
+    async def _process_voting_end(self, guild: discord.Guild):
+        """Process the end of voting phase and determine winners"""
+        try:
+            # Check if there's an active face-off
+            face_off_active = await self.config.guild(guild).face_off_active()
+            
+            if face_off_active:
+                # Check face-off deadline
+                face_off_deadline_str = await self.config.guild(guild).face_off_deadline()
+                if face_off_deadline_str:
+                    face_off_deadline = datetime.fromisoformat(face_off_deadline_str)
+                    
+                    if datetime.utcnow() >= face_off_deadline:
+                        # Face-off time is up, determine final winner
+                        winner = await self._check_face_off_results(guild)
+                        
+                        if winner:
+                            # We have a winner from face-off
+                            await self._announce_winner(guild, winner, from_face_off=True)
+                            await self._end_face_off(guild)
+                            return
+            
+            # Normal voting phase end
+            winning_teams, is_tie, vote_counts = await self._determine_winners(guild)
+            
+            if not winning_teams:
+                # No votes or error, cancel week
+                await self._cancel_week_and_restart(guild, "No votes received")
+                return
+            
+            if is_tie and len(winning_teams) > 1:
+                # Start face-off
+                success = await self._start_face_off(guild, winning_teams)
+                
+                if success:
+                    # Delay next week start by 1 day (Tuesday instead of Monday)
+                    # The scheduler will handle this automatically when it detects face_off_active
+                    return
+                else:
+                    # Face-off failed to start, pick random winner
+                    import random
+                    winner = random.choice(winning_teams)
+                    await self._announce_winner(guild, winner, vote_counts=vote_counts)
+            else:
+                # Clear winner
+                winner = winning_teams[0]
+                await self._announce_winner(guild, winner, vote_counts=vote_counts)
+                
+        except Exception as e:
+            print(f"Error processing voting end: {e}")
+            # Fallback: cancel week
+            await self._cancel_week_and_restart(guild, f"Error processing results: {e}")
+    
+    async def _announce_winner(self, guild: discord.Guild, winning_team: str, 
+                             vote_counts: dict = None, from_face_off: bool = False):
+        """Announce the winning team and distribute rewards"""
+        try:
+            week = self._get_current_week()
+            
+            # Get team members
+            team_members_data = await self.config.guild(guild).team_members()
+            week_teams = team_members_data.get(week, {})
+            members = week_teams.get(winning_team, [])
+            
+            # Create winner announcement
+            channel_id = await self.config.guild(guild).announcement_channel()
+            channel = guild.get_channel(channel_id) if channel_id else None
+            
+            if channel:
+                # Get current theme
+                current_theme = await self.config.guild(guild).current_theme()
+                
+                # Create announcement with rep rewards
+                winner_message = await self._create_winner_announcement_with_rep(
+                    guild, winning_team, members, current_theme, vote_counts, from_face_off
+                )
+                
+                embed = discord.Embed(
+                    title="🏆 WINNER ANNOUNCEMENT! 🏆",
+                    description=winner_message,
+                    color=discord.Color.gold()
+                )
+                
+                embed.set_footer(text="SoundGarden's Collab Warz - Victory!")
+                
+                use_ping = await self.config.guild(guild).use_everyone_ping()
+                content = "@everyone 🎉 **WINNER ANNOUNCEMENT!** 🎉" if use_ping else None
+                
+                await channel.send(content=content, embed=embed)
+            
+            # Record winner and distribute rep
+            await self._record_weekly_winner(guild, winning_team, members)
+            
+            # Mark winner as announced
+            await self.config.guild(guild).winner_announced.set(True)
+            
+        except Exception as e:
+            print(f"Error announcing winner: {e}")
+    
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction, user):
+        """Handle reactions on confirmation messages"""
+        if user.bot:
+            return
+        
+        # Check if this is a DM and the message is a confirmation request
+        if not isinstance(reaction.message.channel, discord.DMChannel):
+            return
+        
+        # Look for confirmation messages
+        for guild in self.bot.guilds:
+            admin_id = await self.config.guild(guild).admin_user_id()
+            if admin_id != user.id:
+                continue
+            
+            pending = await self.config.guild(guild).pending_announcement()
+            if not pending:
+                continue
+            
+            # Check if this is a confirmation message (has the right embed)
+            if (reaction.message.embeds and 
+                "Collab Warz - Confirmation Required" in reaction.message.embeds[0].title):
+                
+                if str(reaction.emoji) == "✅":
+                    # Approve announcement
+                    channel = guild.get_channel(pending["channel_id"])
+                    if channel:
+                        await self._post_announcement(
+                            channel, guild, pending["type"], 
+                            pending["theme"], pending.get("deadline"), force=True
+                        )
+                        await user.send(f"✅ Announcement approved and posted in {guild.name}")
+                
+                elif str(reaction.emoji) == "❌":
+                    # Deny announcement
+                    await self.config.guild(guild).pending_announcement.set(None)
+                    await user.send(f"❌ Announcement cancelled for {guild.name}")
+                
+                elif str(reaction.emoji) == "🔄":
+                    # Request new theme
+                    await user.send(
+                        f"🔄 **Theme change requested for {guild.name}**\n\n"
+                        f"Reply with: `newtheme: Your New Theme Here`\n\n"
+                        f"Example: `newtheme: Space Odyssey`\n"
+                        f"The announcement will be posted immediately with the new theme."
+                    )
+            
+            # Check for next week theme confirmation messages
+            if (reaction.message.embeds and 
+                "Next Week Theme Suggestion" in reaction.message.embeds[0].title):
+                
+                if str(reaction.emoji) == "✅":
+                    # Approve next week theme
+                    next_theme = await self.config.guild(guild).next_week_theme()
+                    if next_theme:
+                        await user.send(f"✅ Theme '{next_theme}' approved for next week in {guild.name}")
+                        # Theme will be automatically applied on Monday
+                
+                elif str(reaction.emoji) == "❌":
+                    # Deny next week theme - keep current theme
+                    await self.config.guild(guild).next_week_theme.set(None)
+                    await user.send(f"❌ Next week theme rejected for {guild.name}. Current theme will continue.")
+                
+                elif str(reaction.emoji) == "🎨":
+                    # Request custom theme for next week
+                    await user.send(
+                        f"🎨 **Custom theme requested for next week in {guild.name}**\n\n"
+                        f"Reply with: `nexttheme: Your Custom Theme Here`\n\n"
+                        f"Example: `nexttheme: Underwater Adventure`\n"
+                        f"This theme will be used starting Monday."
+                    )
+    
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        """Handle DM responses from admins for theme changes"""
+        if message.author.bot or not isinstance(message.channel, discord.DMChannel):
+            return
+        
+        # Check if this is a theme change response
+        if message.content.lower().startswith("newtheme:"):
+            new_theme = message.content[9:].strip()
+            
+            if not new_theme:
+                await message.author.send("❌ Please provide a theme after 'newtheme:'")
+                return
+            
+            # Find the guild this admin manages
+            for guild in self.bot.guilds:
+                admin_id = await self.config.guild(guild).admin_user_id()
+                if admin_id != message.author.id:
+                    continue
+                
+                pending = await self.config.guild(guild).pending_announcement()
+                if not pending:
+                    continue
+                
+                # Update theme and post announcement
+                await self.config.guild(guild).current_theme.set(new_theme)
+                pending["theme"] = new_theme
+                
+                channel = guild.get_channel(pending["channel_id"])
+                if channel:
+                    await self._post_announcement(
+                        channel, guild, pending["type"], 
+                        new_theme, pending.get("deadline"), force=True
+                    )
+                    await message.author.send(f"✅ Theme changed to '{new_theme}' and announcement posted in {guild.name}")
+                break
+        
+        # Check if this is a next week theme response
+        elif message.content.lower().startswith("nexttheme:"):
+            new_theme = message.content[10:].strip()
+            
+            if not new_theme:
+                await message.author.send("❌ Please provide a theme after 'nexttheme:'")
+                return
+            
+            # Find the guild this admin manages
+            for guild in self.bot.guilds:
+                admin_id = await self.config.guild(guild).admin_user_id()
+                if admin_id != message.author.id:
+                    continue
+                
+                # Set the custom theme for next week
+                await self.config.guild(guild).next_week_theme.set(new_theme)
+                await message.author.send(f"✅ Custom theme '{new_theme}' set for next week in {guild.name}. It will be applied on Monday.")
+                break
 
 
 async def setup(bot: Red):

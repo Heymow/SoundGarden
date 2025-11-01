@@ -1,0 +1,134 @@
+{
+  "example_config": {
+    "description": "Configuration d'exemple pour le bot Collab Warz avec intégration YAGPDB",
+    "note": "Copiez et ajustez ces valeurs selon votre serveur Discord"
+  },
+  
+  "required_setup": {
+    "ai_api_url": "https://api.openai.com/v1",
+    "ai_api_key": "votre-clé-api-ici",
+    "ai_model": "gpt-3.5-turbo",
+    "ai_temperature": 0.7,
+    "ai_max_tokens": 150,
+    
+    "competition_channel": "1234567890123456789",
+    "submission_channel": "1234567890123456780",
+    "admin_channel": "1234567890123456781",
+    
+    "min_teams_required": 2,
+    "validate_discord_submissions": true,
+    "rep_reward_amount": 2,
+    
+    "ping_everyone": true,
+    
+    "scheduler_enabled": false,
+    "last_theme_generation": null,
+    "last_week_start": null,
+    "next_deadline": null,
+    
+    "current_theme": null,
+    "theme_history": [],
+    "submitted_teams": {},
+    "team_members": {},
+    "weekly_winners": {}
+  },
+  
+  "permissions_required": {
+    "bot_permissions": [
+      "Send Messages",
+      "Embed Links", 
+      "Add Reactions",
+      "Read Message History",
+      "Use External Emojis",
+      "Mention Everyone"
+    ],
+    "yagpdb_integration": [
+      "Admin channel access",
+      "Execute commands in admin channel",
+      "Read bot responses"
+    ]
+  },
+  
+  "channel_setup": {
+    "competition_channel": {
+      "name": "#collab-warz",
+      "description": "Canal principal pour les annonces de compétition",
+      "permissions": "Tous les membres peuvent lire, seuls les admins peuvent écrire"
+    },
+    "submission_channel": {
+      "name": "#submissions", 
+      "description": "Canal pour les soumissions Discord (optionnel si site web utilisé)",
+      "permissions": "Tous les membres peuvent écrire et lire"
+    },
+    "admin_channel": {
+      "name": "#admin-commands",
+      "description": "Canal privé pour les commandes YAGPDB et l'administration",
+      "permissions": "Admins uniquement, bots autorisés"
+    }
+  },
+  
+  "yagpdb_setup": {
+    "required_commands": [
+      "-giverep <user> <amount>",
+      "-rep <user>"
+    ],
+    "permissions": "Le bot Collab Warz doit pouvoir envoyer des commandes dans le canal admin",
+    "note": "YAGPDB doit être configuré avec le système de réputation activé"
+  },
+  
+  "installation_checklist": [
+    "1. Installer Red-DiscordBot avec Python 3.8+",
+    "2. Installer les dépendances: pip install aiohttp",
+    "3. Charger le cog: [p]load collabwarz",
+    "4. Configurer l'API AI: [p]cw setapi [url] [key]",
+    "5. Configurer les canaux: [p]cw setchannel, [p]cw setsubmissionchannel, [p]cw setadminchannel",
+    "6. Configurer YAGPDB: [p]cw setrepamount [montant]",
+    "7. Tester avec: [p]cw status",
+    "8. Activer le scheduler: [p]cw scheduler on"
+  ],
+  
+  "example_commands": {
+    "setup": [
+      "[p]cw setapi https://api.openai.com/v1 sk-proj-...",
+      "[p]cw setchannel #collab-warz",
+      "[p]cw setsubmissionchannel #submissions", 
+      "[p]cw setadminchannel #admin-commands",
+      "[p]cw setrepamount 2",
+      "[p]cw minteams 3"
+    ],
+    "administration": [
+      "[p]cw generatetheme",
+      "[p]cw declarewinner \"Team Alpha\" @user1 @user2",
+      "[p]cw winners 5",
+      "[p]cw teams search user1",
+      "[p]cw scheduler status"
+    ],
+    "user_commands": [
+      "[p]cw theme",
+      "[p]cw deadline", 
+      "[p]cw history",
+      "[p]cw teams stats @user1"
+    ]
+  },
+  
+  "troubleshooting": {
+    "common_issues": {
+      "theme_not_generating": {
+        "cause": "API non configurée ou erreur de connexion",
+        "solution": "Vérifier [p]cw setapi et tester [p]cw generatetheme"
+      },
+      "scheduler_not_working": {
+        "cause": "Scheduler désactivé ou canal non configuré",  
+        "solution": "Utiliser [p]cw scheduler on et vérifier [p]cw setchannel"
+      },
+      "rep_not_distributed": {
+        "cause": "Canal admin non configuré ou YAGPDB hors ligne",
+        "solution": "Vérifier [p]cw setadminchannel et permissions YAGPDB"
+      },
+      "teams_not_validating": {
+        "cause": "Format Discord incorrect ou validation désactivée",
+        "solution": "Vérifier format 'Team name: X' et @mention du partenaire"
+      }
+    }
+  }
+}
