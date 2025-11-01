@@ -12,18 +12,23 @@ export default function AudioPlayer({ currentSong, onClose }) {
       setIsVisible(true);
       if (audioRef.current) {
         audioRef.current.src = currentSong.audioUrl;
-        audioRef.current.play().catch(err => console.log('Autoplay prevented:', err));
-        setIsPlaying(true);
+        audioRef.current.play()
+          .then(() => setIsPlaying(true))
+          .catch(err => {
+            console.log('Autoplay prevented:', err);
+            setIsPlaying(false);
+          });
       }
     } else {
       setIsPlaying(false);
       // Fade out then close
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         setIsVisible(false);
         if (onClose) onClose();
       }, 300);
+      return () => clearTimeout(timeoutId);
     }
-  }, [currentSong]);
+  }, [currentSong, onClose]);
 
   useEffect(() => {
     const audio = audioRef.current;
