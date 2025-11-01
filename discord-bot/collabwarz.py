@@ -1039,7 +1039,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             return web.json_response({"error": "Failed to get submissions"}, status=500)
     
     async def _handle_public_history(self, request):
-        """Get competition history for frontend users"""
+        """Get competition history for frontend users with song details"""
         try:
             guild = None
             for g in self.bot.guilds:
@@ -1065,7 +1065,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             end_idx = start_idx + per_page
             paginated_history = sorted_history[start_idx:end_idx]
             
-            # Enrich history with additional stats
+            # Enrich history with additional stats and song details
             enriched_history = {}
             for week_id, week_data in paginated_history:
                 enriched_week = week_data.copy()
@@ -1077,6 +1077,50 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                         week_data['total_votes'] / week_data['total_teams'] 
                         if week_data.get('total_teams', 0) > 0 else 0
                     )
+                
+                # Add song details from submissions
+                if 'all_submissions' in week_data:
+                    submissions_with_songs = []
+                    for submission in week_data['all_submissions']:
+                        submission_copy = submission.copy()
+                        
+                        # Extract song info from suno_metadata if available
+                        if 'suno_metadata' in submission and submission['suno_metadata']:
+                            metadata = submission['suno_metadata']
+                            submission_copy['song'] = {
+                                'title': metadata.get('title', 'Unknown Title'),
+                                'audio_url': metadata.get('audio_url'),
+                                'image_url': metadata.get('image_url'),
+                                'duration': metadata.get('duration'),
+                                'author_name': metadata.get('author_name'),
+                                'suno_url': submission.get('track_url')
+                            }
+                        else:
+                            # Fallback: just provide the URL
+                            submission_copy['song'] = {
+                                'title': submission.get('team_name', 'Unknown'),
+                                'audio_url': None,
+                                'image_url': None,
+                                'duration': None,
+                                'author_name': None,
+                                'suno_url': submission.get('track_url')
+                            }
+                        
+                        submissions_with_songs.append(submission_copy)
+                    
+                    enriched_week['all_submissions'] = submissions_with_songs
+                
+                # Add song info to winner as well
+                if 'winner' in enriched_week and 'suno_metadata' in enriched_week['winner']:
+                    metadata = enriched_week['winner']['suno_metadata']
+                    enriched_week['winner']['song'] = {
+                        'title': metadata.get('title', 'Unknown Title'),
+                        'audio_url': metadata.get('audio_url'),
+                        'image_url': metadata.get('image_url'),
+                        'duration': metadata.get('duration'),
+                        'author_name': metadata.get('author_name'),
+                        'suno_url': enriched_week['winner'].get('track_url')
+                    }
                 
                 enriched_history[week_id] = enriched_week
             
