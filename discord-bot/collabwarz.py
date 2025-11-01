@@ -1004,10 +1004,25 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 # Get Suno metadata if available
                 suno_metadata = {}
                 track_url = submission.get('track_url')
+                song_info = None
+                
                 if track_url:
                     song_id = self._extract_suno_song_id(track_url)
                     if song_id:
                         suno_metadata = await self._fetch_suno_metadata(song_id, guild)
+                        
+                        # Create clean song object for frontend
+                        if suno_metadata:
+                            song_info = {
+                                'title': suno_metadata.get('title', 'Unknown Title'),
+                                'audio_url': suno_metadata.get('audio_url'),
+                                'image_url': suno_metadata.get('image_url'),
+                                'duration': suno_metadata.get('duration'),
+                                'author_name': suno_metadata.get('author_name'),
+                                'author_handle': suno_metadata.get('author_handle'),
+                                'author_profile_url': f"https://suno.com/@{suno_metadata.get('author_handle')}" if suno_metadata.get('author_handle') else None,
+                                'suno_url': track_url
+                            }
                 
                 enriched_submission = {
                     "team_name": team_name,
@@ -1015,7 +1030,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     "members": members_info,
                     "submitted_at": submission.get('submitted_at'),
                     "vote_count": vote_count,
-                    "suno_metadata": suno_metadata
+                    "song": song_info,
+                    "suno_metadata": suno_metadata  # Keep for backward compatibility
                 }
                 
                 enriched_submissions.append(enriched_submission)
@@ -1206,10 +1222,25 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 # Get Suno metadata if available
                 suno_metadata = {}
                 track_url = submission.get('track_url')
+                song_info = None
+                
                 if track_url:
                     song_id = self._extract_suno_song_id(track_url)
                     if song_id:
                         suno_metadata = await self._fetch_suno_metadata(song_id, guild)
+                        
+                        # Create clean song object for frontend
+                        if suno_metadata:
+                            song_info = {
+                                'title': suno_metadata.get('title', 'Unknown Title'),
+                                'audio_url': suno_metadata.get('audio_url'),
+                                'image_url': suno_metadata.get('image_url'),
+                                'duration': suno_metadata.get('duration'),
+                                'author_name': suno_metadata.get('author_name'),
+                                'author_handle': suno_metadata.get('author_handle'),
+                                'author_profile_url': f"https://suno.com/@{suno_metadata.get('author_handle')}" if suno_metadata.get('author_handle') else None,
+                                'suno_url': track_url
+                            }
                 
                 enriched_results.append({
                     "team_name": team_name,
@@ -1217,7 +1248,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     "track_url": track_url,
                     "members": members_info,
                     "submitted_at": submission.get('submitted_at'),
-                    "suno_metadata": suno_metadata
+                    "song": song_info,
+                    "suno_metadata": suno_metadata  # Keep for backward compatibility
                 })
             
             # Sort by votes (descending)
@@ -1393,11 +1425,27 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                                 'wins': 0,
                                 'participations': 0,
                                 'total_votes': 0,
-                                'member_name': member_name
+                                'member_name': member_name,
+                                'suno_handles': set(),  # Track all Suno handles used
+                                'winning_songs': []  # Track winning songs with metadata
                             }
                         member_stats[member_name]['wins'] += 1
                         member_stats[member_name]['total_votes'] += winner.get('votes', 0)
                         total_participants.add(member_name)
+                        
+                        # Extract Suno handle from winner's metadata
+                        if 'suno_metadata' in winner and winner['suno_metadata']:
+                            handle = winner['suno_metadata'].get('author_handle')
+                            if handle:
+                                member_stats[member_name]['suno_handles'].add(handle)
+                            
+                            # Track winning song info
+                            member_stats[member_name]['winning_songs'].append({
+                                'week': week_id,
+                                'title': winner['suno_metadata'].get('title'),
+                                'suno_url': winner.get('track_url'),
+                                'votes': winner.get('votes', 0)
+                            })
                 
                 # Track all participants (from submissions if available)
                 if 'all_submissions' in week_data:
@@ -1410,15 +1458,27 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                                         'wins': 0,
                                         'participations': 0,
                                         'total_votes': 0,
-                                        'member_name': member_name
+                                        'member_name': member_name,
+                                        'suno_handles': set(),
+                                        'winning_songs': []
                                     }
                                 member_stats[member_name]['participations'] += 1
+                                
+                                # Track Suno handle from any submission
+                                if 'suno_metadata' in submission and submission['suno_metadata']:
+                                    handle = submission['suno_metadata'].get('author_handle')
+                                    if handle:
+                                        member_stats[member_name]['suno_handles'].add(handle)
             
             # Calculate win rates and sort
             leaderboard = []
             for member_name, stats in member_stats.items():
                 stats['win_rate'] = (stats['wins'] / stats['participations'] * 100) if stats['participations'] > 0 else 0
                 stats['average_votes'] = (stats['total_votes'] / stats['wins']) if stats['wins'] > 0 else 0
+                
+                # Convert suno_handles set to list and get primary handle
+                suno_handles_list = list(stats['suno_handles']) if stats['suno_handles'] else []
+                primary_handle = suno_handles_list[0] if suno_handles_list else None
                 
                 # Try to get current Discord member info
                 member_info = None
@@ -1433,6 +1493,13 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                         break
                 
                 stats['member_info'] = member_info
+                stats['suno_handle'] = primary_handle
+                stats['suno_profile_url'] = f"https://suno.com/@{primary_handle}" if primary_handle else None
+                stats['all_suno_handles'] = suno_handles_list  # In case they use multiple
+                
+                # Remove the set object before JSON serialization
+                del stats['suno_handles']
+                
                 leaderboard.append(stats)
             
             # Sort by wins, then by win rate
@@ -4595,7 +4662,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                           "💡 **Recommendation**: Only disable for testing")
             
         else:
-            await ctx.send("❌ Valid actions: `enable`, `disable`, `status`")    async def api_server_control(self, ctx, action: str = "status"):
+            await ctx.send("❌ Valid actions: `enable`, `disable`, `status`")
+    
+    @collabwarz.command(name="apiserver")
+    async def api_server_control(self, ctx, action: str = "status"):
         """Control the API server for member list (start/stop/status)"""
         action = action.lower()
         
