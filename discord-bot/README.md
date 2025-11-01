@@ -18,7 +18,7 @@
 
 ## Overview
 
-The **Collab Warz Bot** fully automates the management of a weekly music collaboration competition on Discord. It handles announcements, phases (submission/voting), reminders, and can even generate creative themes using AI.
+The **Collab Warz Bot** fully automates the management of a weekly music collaboration competition on Discord. It handles announcements, phases (submission/voting), reminders, and can even generate creative themes using AI. **Submissions are restricted to Suno.com URLs and file attachments only.**
 
 ### Automatic Weekly Cycle
 - **Monday 9:00 AM** : 🎵 Submissions start + new theme
@@ -38,6 +38,7 @@ The **Collab Warz Bot** fully automates the management of a weekly music collabo
 - ✅ **Configurable @everyone pings** for announcements
 - ✅ **Discord timestamps** showing relative time in user's timezone
 - ✅ **Automatic week cancellation** when insufficient teams participate
+- ✅ **Suno.com URL validation** with restriction to Suno platform only
 
 ---
 
@@ -449,6 +450,11 @@ async function fetchMembers() {
 [p]cw testapi                   # Test server and show sample data
 ```
 
+### URL Validation Testing
+```bash
+[p]cw testsuno [url]            # Test Suno.com URL format validation
+```
+
 ### AI Configuration
 ```bash
 [p]cw setai endpoint key [model]  # Configure AI API with optional model
@@ -760,7 +766,17 @@ The bot monitors team participation and automatically cancels weeks with insuffi
 ### Submission Detection
 The bot counts teams based on messages containing:
 - **File attachments** (audio files, etc.)
-- **Music platform links**: SoundCloud, YouTube, Bandcamp, Spotify, Google Drive
+- **Suno.com URLs only** (other music platforms are forbidden)
+
+**⚠️ Forbidden Platforms**: SoundCloud, YouTube, Bandcamp, Spotify, Google Drive
+**✅ Allowed**: File attachments and Suno.com URLs only
+
+### Suno.com URL Validation
+For Suno.com submissions, URLs must follow valid formats:
+- **Short format**: `https://suno.com/s/kFacPCnBlw9n9oEP`
+- **Song format**: `https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26`
+
+Invalid Suno URLs will be rejected with format guidance.
 
 ### Cancellation Process
 When insufficient teams are detected:
@@ -814,6 +830,7 @@ Invalid submissions receive automatic error messages:
 ### Management Commands
 ```bash
 [p]cw togglevalidation        # Enable/disable validation system
+[p]cw autodeletemsgs          # Toggle automatic message deletion
 [p]cw listteams              # Show all registered teams this week
 [p]cw clearteams [week]      # Clear team registrations for week
 [p]cw countteams            # Count both registered and raw submissions
@@ -823,6 +840,185 @@ Invalid submissions receive automatic error messages:
 - **Preferred method**: Users should use the website form for submissions
 - **Discord fallback**: Discord submissions with proper format are accepted
 - **Hybrid counting**: Bot counts both registered teams and raw message detection
+
+---
+
+## Automatic Message Moderation
+
+### Overview
+The bot automatically moderates the submission channel to ensure clean, organized competition participation.
+
+### Automatic Actions
+
+#### ✅ **Valid Submissions**
+- **Thumbs up reaction** (👍) added to message
+- **Confirmation message** with team registration details
+- **Message preserved** in channel
+
+#### ❌ **Invalid Submissions** 
+- **Message deleted** (if auto-delete enabled)
+- **Error explanation** with specific guidance
+- **Resubmission instructions** provided
+
+#### 🚫 **Non-Submissions**
+- **Off-topic messages deleted** during submission phase  
+- **Explanation provided** about channel purpose
+- **Direction to appropriate channels**
+
+#### ⏰ **Wrong Phase Messages**
+- **Messages deleted** when submissions are closed
+- **Phase information** provided (voting/inactive)
+- **Clear timeline** for next submission window
+
+### Admin Exemptions
+**Admins bypass all restrictions:**
+- ✅ Can post any message anytime
+- ✅ Messages never deleted
+- ✅ No moderation applied
+
+### Configuration
+```bash
+[p]cw autodeletemsgs          # Toggle message deletion on/off
+[p]cw toggle                  # Enable/disable bot automation
+```
+
+**Default**: Auto-deletion enabled for clean channel management
+
+### Benefits
+- **Clean submission channel**: Only valid submissions remain
+- **Clear feedback**: Users get immediate guidance  
+- **Reduced admin work**: Automatic moderation and cleanup
+
+---
+
+## Competition Phase Management
+
+### Normal Competition Phases
+
+#### 📝 **Submission Phase**
+- Users can submit their collaborations
+- Valid song URLs accepted and processed
+- Team formation and registration available
+- All submission rules enforced
+
+#### 🗳️ **Voting Phase**  
+- Submissions closed, voting open on frontend
+- Late submissions may be accepted but not eligible for voting
+- Users directed to website for vote casting
+- Results processing begins
+
+#### 💤 **Inactive Phase**
+- No competition currently running (default state)
+- All submissions blocked
+- Users informed about next competition start
+- Configuration and setup can be performed
+
+### Competition Interruption Phases
+
+#### ⏸️ **Paused Phase**
+**When to use:** Technical issues, temporary admin absence, need to make adjustments
+- Competition temporarily halted
+- All progress and submissions preserved  
+- Can resume at any time with `[p]cw resume`
+- Clear communication about temporary nature
+
+#### ❌ **Cancelled Phase**  
+**When to use:** Major problems, unfair advantage discovered, insufficient participation
+- Current week completely cancelled
+- All submissions for the week are void
+- No voting or winner announcement
+- Fresh start available with `[p]cw nextweek`
+
+#### 🏁 **Ended Phase**
+**When to use:** Time constraints, early conclusion desired, manual intervention needed  
+- Week manually concluded by admin
+- Results finalized in current state
+- No more submissions or voting accepted
+- Can proceed to winner announcement or new week
+
+### What Happens During "Wrong Phase"
+
+When users try to submit outside the submission phase, their messages are automatically deleted with specific feedback:
+
+#### 🗳️ **During Voting Phase**
+```
+❌ Message deleted: Submissions are closed!
+🗳️ Voting is currently in progress
+⏰ New submissions open Monday
+🌐 Cast your vote at: [website]
+```
+
+#### ❌ **During Cancelled Phase**  
+```
+❌ Message deleted: Week cancelled!  
+🚫 This week's competition has been cancelled by admins
+📅 New competition starts next Monday
+💬 Check announcements for details
+```
+
+#### ⏸️ **During Paused Phase**
+```
+❌ Message deleted: Competition paused!
+⏸️ The competition is temporarily paused  
+⏰ Will resume soon - stay tuned!
+💬 Check announcements for updates
+```
+
+#### 🏁 **During Ended Phase**
+```
+❌ Message deleted: Week ended!
+🏁 This week's competition has concluded
+🏆 Results will be announced soon
+📅 New week starts Monday
+```
+
+#### 💤 **During Inactive Phase**
+```
+❌ Message deleted: No competition running!
+💤 No active competition at the moment
+📅 Competitions run Monday-Sunday  
+🔔 Follow announcements for next start
+```
+
+### Interruption Management Commands
+
+```bash
+[p]cw pause [reason]           # Pause competition temporarily
+[p]cw resume                   # Resume paused competition
+[p]cw cancelweek [reason]      # Cancel current week completely  
+[p]cw endweek [message]        # Manually end current week
+[p]cw setphase <phase>         # Set specific phase manually
+```
+
+### Phase Transition Examples
+
+**Temporary Technical Issue:**
+```bash
+[p]cw pause Server maintenance in progress
+# ... fix issues ...
+[p]cw resume
+```
+
+**Unfair Advantage Discovered:**  
+```bash
+[p]cw cancelweek Collaboration rules violated - restarting fair competition
+[p]cw nextweek
+```
+
+**Early Week Conclusion:**
+```bash  
+[p]cw endweek Amazing participation this week! Moving to voting early
+[p]cw setphase voting
+```
+
+### Admin Communication
+
+Each phase change includes:
+- 🎯 **Clear status announcement** with appropriate emoji
+- 📋 **Specific reason** (if provided)  
+- ⏭️ **Next steps information** for users
+- 📅 **Timeline expectations** when applicable
+- **Better organization**: Focused competition environment
 
 ---
 
@@ -1073,7 +1269,7 @@ This example demonstrates a complete integration from frontend submission to Dis
         
         <label for="track-url">Track URL:</label>
         <input type="url" id="track-url" required 
-               placeholder="SoundCloud, YouTube, etc...">
+               placeholder="Suno.com URL only (e.g., https://suno.com/s/...)">
         
         <button type="submit">Submit Collaboration</button>
         <div id="status"></div>
@@ -1296,35 +1492,58 @@ app.listen(3000, () => {
 
 #### Valid Discord Submissions
 ```
-✅ VALID: All requirements met
-Team name: Electronic Fusion
-@alice check out our amazing collaboration!
-https://soundcloud.com/electronic-fusion/track
-
-✅ VALID: Attachment instead of URL
+✅ VALID: Attachment submission
 Team name: Beat Makers  
-@bob our track is attached! 🎵
+@alice our track is attached! 🎵
 [Attached: collaboration.mp3]
+
+✅ VALID: Suno.com submission (short format)
+Team name: AI Creators
+@charlie check our AI-generated collaboration!
+https://suno.com/s/kFacPCnBlw9n9oEP
+
+✅ VALID: Suno.com submission (song format)
+Team name: Digital Dreams
+@diana our Suno creation is ready!
+https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26
 ```
 
 #### Invalid Discord Submissions
 ```
 ❌ INVALID: Missing team name
 @charlie our song is ready!
-https://youtube.com/watch?v=123
+https://suno.com/s/validID123
 → Bot response: "❌ Team name missing: Please include `Team name: YourTeamName`"
 
 ❌ INVALID: Partner not on server  
 Team name: External Collab
 @unknown_user from another server
-https://soundcloud.com/track
+https://suno.com/s/track123
 → Bot response: "❌ @unknown_user is not a member of the SoundGarden Discord server"
 
 ❌ INVALID: No partner mentioned
 Team name: Solo Project
 My new track without collaboration
-https://soundcloud.com/solo
+https://suno.com/s/solo456
 → Bot response: "❌ Partner mention missing: Please mention your collaboration partner with @username"
+
+❌ INVALID: Forbidden platform (SoundCloud)
+Team name: Old School
+@alice our track on SoundCloud!
+https://soundcloud.com/track/123
+→ Bot response: "❌ Only Suno.com URLs are accepted. Forbidden platforms: SoundCloud, YouTube, Bandcamp, Spotify, Google Drive"
+
+❌ INVALID: Forbidden platform (YouTube)
+Team name: Video Track
+@bob check our YouTube upload!
+https://youtube.com/watch?v=123
+→ Bot response: "❌ Only Suno.com URLs are accepted. Please use Suno.com or attach your audio file directly."
+
+❌ INVALID: Invalid Suno.com URL format
+Team name: AI Experiment
+@alice our track is on Suno!
+https://suno.com/invalid/url/format
+→ Bot response: "❌ Invalid Suno.com URL format. Valid formats: https://suno.com/s/... or https://suno.com/song/..."
 ```
 
 ### Production Deployment Checklist

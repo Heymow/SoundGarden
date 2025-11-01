@@ -71,7 +71,8 @@ class CollabWarz(commands.Cog):
             "api_server_port": 8080,    # Port for the API server
             "api_server_host": "0.0.0.0", # Host for the API server
             "api_access_token": None,   # Token for API authentication
-            "cors_origins": ["*"]       # CORS allowed origins
+            "cors_origins": ["*"],      # CORS allowed origins
+            "auto_delete_messages": True, # Automatically delete invalid messages
         }
         
         self.config.register_guild(**default_guild)
@@ -502,6 +503,116 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         except Exception as e:
             print(f"Error in API server task for {guild.name}: {e}")
     
+    async def _validate_and_process_submission(self, message) -> dict:
+        """
+        Validate Discord submission and return structured result
+        
+        Returns:
+            dict: {
+                "success": bool,
+                "team_name": str (if success),
+                "partner_mention": str (if success),
+                "errors": list[str] (if not success)
+            }
+        """
+        try:
+            guild = message.guild
+            
+            # Check for forbidden platforms first
+            forbidden_platforms = ['soundcloud', 'youtube', 'bandcamp', 'spotify', 'drive.google']
+            has_forbidden_platform = any(platform in message.content.lower() for platform in forbidden_platforms)
+            
+            if has_forbidden_platform:
+                return {
+                    "success": False,
+                    "errors": [
+                        "**Only Suno.com URLs are accepted**",
+                        "Forbidden platforms: SoundCloud, YouTube, Bandcamp, Spotify, Google Drive",
+                        "**Allowed submissions:**",
+                        "• File attachments (audio files)",
+                        "• Valid Suno.com URLs: `https://suno.com/s/...` or `https://suno.com/song/...`"
+                    ]
+                }
+            
+            # Check for Suno URLs and validate them
+            suno_urls = self._extract_suno_urls_from_text(message.content)
+            has_suno_reference = 'suno.com' in message.content.lower()
+            has_attachment = len(message.attachments) > 0
+            
+            if has_suno_reference and not suno_urls:
+                return {
+                    "success": False,
+                    "errors": [
+                        "**Invalid Suno.com URL format**",
+                        "Valid Suno URL formats:",
+                        "• `https://suno.com/s/kFacPCnBlw9n9oEP`",
+                        "• `https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26`"
+                    ]
+                }
+            
+            # Must have either attachment or valid Suno URL
+            if not (has_attachment or suno_urls):
+                return {
+                    "success": False,
+                    "errors": [
+                        "**No valid submission content**",
+                        "Please include either:",
+                        "• An audio file attachment",
+                        "• A valid Suno.com URL"
+                    ]
+                }
+            
+            # Extract team info from message
+            team_info = self._extract_team_info_from_message(
+                message.content, message.mentions, guild, message.author.id
+            )
+            
+            if team_info["errors"]:
+                return {
+                    "success": False,
+                    "errors": team_info["errors"]
+                }
+            
+            # Check if team can submit
+            team_check = await self._is_team_already_submitted(
+                guild, 
+                team_info["team_name"], 
+                message.author.id, 
+                team_info["partner_id"]
+            )
+            
+            if not team_check["can_submit"]:
+                return {
+                    "success": False,
+                    "errors": team_check["errors"]
+                }
+            
+            # Register successful submission
+            await self._register_team_submission(
+                guild, 
+                team_info["team_name"], 
+                message.author.id, 
+                team_info["partner_id"]
+            )
+            
+            # Get partner mention for response
+            partner = guild.get_member(team_info["partner_id"])
+            partner_mention = partner.mention if partner else "your partner"
+            
+            return {
+                "success": True,
+                "team_name": team_info["team_name"],
+                "partner_mention": partner_mention,
+                "errors": []
+            }
+            
+        except Exception as e:
+            print(f"Error validating Discord submission in {guild.name}: {e}")
+            return {
+                "success": False,
+                "errors": [f"Internal error: {str(e)}"]
+            }
+    
     async def _validate_discord_submission(self, message):
         """Validate and process Discord submission"""
         try:
@@ -519,13 +630,49 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             if not submission_channel_id or message.channel.id != submission_channel_id:
                 return
             
-            # Check if message has attachment or music link (potential submission)
+            # Check if message has attachment or valid Suno URL (potential submission)
             has_attachment = len(message.attachments) > 0
-            has_music_link = any(platform in message.content.lower() 
-                               for platform in ['soundcloud', 'youtube', 'bandcamp', 'spotify', 'drive.google'])
             
-            if not (has_attachment or has_music_link):
+            # Check for other music platforms (now forbidden)
+            forbidden_platforms = ['soundcloud', 'youtube', 'bandcamp', 'spotify', 'drive.google']
+            has_forbidden_platform = any(platform in message.content.lower() for platform in forbidden_platforms)
+            
+            # Check for Suno URLs
+            suno_urls = self._extract_suno_urls_from_text(message.content)
+            has_valid_suno = len(suno_urls) > 0
+            has_suno_reference = 'suno.com' in message.content.lower()
+            
+            # Reject if forbidden platforms are used
+            if has_forbidden_platform:
+                error_msg = (
+                    "❌ **Only Suno.com URLs are accepted**\n\n"
+                    "**Forbidden platforms**: SoundCloud, YouTube, Bandcamp, Spotify, Google Drive\n"
+                    "**Allowed submissions**:\n"
+                    "• File attachments (audio files)\n"
+                    "• Valid Suno.com URLs:\n"
+                    "  - `https://suno.com/s/kFacPCnBlw9n9oEP`\n"
+                    "  - `https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26`\n\n"
+                    "Please use Suno.com or attach your audio file directly."
+                )
+                await self._send_submission_error(message.channel, message.author, [error_msg])
+                return
+            
+            # Check if it's a potential submission
+            if not (has_attachment or has_valid_suno or has_suno_reference):
                 return  # Not a submission, ignore
+            
+            # Validate Suno URLs if referenced
+            if has_suno_reference and not has_valid_suno:
+                # Has Suno reference but no valid URLs
+                error_msg = (
+                    "❌ **Invalid Suno.com URL format**\n\n"
+                    "Valid Suno URL formats:\n"
+                    "• `https://suno.com/s/kFacPCnBlw9n9oEP`\n"
+                    "• `https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26`\n\n"
+                    "Please check your URL and try again."
+                )
+                await self._send_submission_error(message.channel, message.author, [error_msg])
+                return
             
             # Extract team info from message
             team_info = self._extract_team_info_from_message(message.content, message.mentions, guild, message.author.id)
@@ -569,6 +716,117 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             
         except Exception as e:
             print(f"Error validating Discord submission in {guild.name}: {e}")
+    
+    def _validate_suno_url(self, url: str) -> bool:
+        """
+        Validate Suno.com URL format
+        
+        Valid formats:
+        - https://suno.com/s/kFacPCnBlw9n9oEP
+        - https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26
+        
+        Args:
+            url: The URL to validate
+            
+        Returns:
+            bool: True if URL is valid Suno format, False otherwise
+        """
+        import re
+        
+        if not url or not isinstance(url, str):
+            return False
+            
+        # Remove trailing whitespace and normalize URL
+        url = url.strip()
+        
+        # Pattern for Suno URLs
+        # Format 1: https://suno.com/s/[alphanumeric string]
+        # Format 2: https://suno.com/song/[UUID format]
+        suno_patterns = [
+            r'^https://suno\.com/s/[a-zA-Z0-9]+$',  # Short format
+            r'^https://suno\.com/song/[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$'  # UUID format
+        ]
+        
+        for pattern in suno_patterns:
+            if re.match(pattern, url):
+                return True
+                
+        return False
+    
+    def _extract_suno_urls_from_text(self, text: str) -> list:
+        """
+        Extract all potential Suno URLs from text
+        
+        Args:
+            text: Text to search for URLs
+            
+        Returns:
+            list: List of found Suno URLs
+        """
+        import re
+        
+        if not text:
+            return []
+            
+        # Pattern to find URLs that might be Suno links
+        url_pattern = r'https://suno\.com/(?:s/[a-zA-Z0-9]+|song/[a-fA-F0-9-]+)'
+        
+        found_urls = re.findall(url_pattern, text)
+        
+        # Validate each found URL
+        valid_urls = []
+        for url in found_urls:
+            if self._validate_suno_url(url):
+                valid_urls.append(url)
+                
+        return valid_urls
+    
+    async def _is_user_admin(self, guild, user) -> bool:
+        """Check if user is admin or has manage messages permission"""
+        # Check if user is the configured admin
+        admin_id = await self.config.guild(guild).admin_user_id()
+        if admin_id == user.id:
+            return True
+        
+        # Check if user has admin/manage permissions
+        if hasattr(user, 'guild_permissions'):
+            return (user.guild_permissions.administrator or 
+                    user.guild_permissions.manage_messages or
+                    user.guild_permissions.manage_guild)
+        
+        return False
+    
+    async def _delete_message_with_explanation(self, message, title: str, explanation: str, 
+                                             auto_delete_enabled: bool, delete_after: int = 10) -> None:
+        """
+        Delete message and send explanation if auto-delete is enabled
+        
+        Args:
+            message: The message to potentially delete
+            title: Title for the explanation message
+            explanation: Explanation text
+            auto_delete_enabled: Whether auto-deletion is enabled
+            delete_after: Seconds after which to delete the explanation
+        """
+        if auto_delete_enabled:
+            try:
+                await message.delete()
+                await message.channel.send(
+                    f"{title}\n\n{explanation}\n\n*This message will be deleted in {delete_after} seconds.*",
+                    delete_after=delete_after
+                )
+            except discord.Forbidden:
+                # Can't delete message, send warning instead
+                await message.channel.send(
+                    f"{title} - {message.author.mention} {explanation}",
+                    delete_after=delete_after
+                )
+        else:
+            # Just send a warning without deleting
+            await message.channel.send(
+                f"{title} - {message.author.mention} {explanation}",
+                delete_after=delete_after
+            )
     
     async def _get_user_rep_count(self, guild, user_id: int) -> int:
         """Get user's current rep points using YAGPDB command"""
@@ -1389,14 +1647,57 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     
     @collabwarz.command(name="setphase")
     async def set_phase(self, ctx, phase: str):
-        """Set the current phase (submission or voting)"""
+        """Set the current competition phase"""
         phase = phase.lower()
-        if phase not in ["submission", "voting"]:
-            await ctx.send("❌ Phase must be 'submission' or 'voting'")
+        valid_phases = ["submission", "voting", "cancelled", "paused", "ended", "inactive"]
+        
+        if phase not in valid_phases:
+            embed = discord.Embed(
+                title="❌ Invalid Phase",
+                color=discord.Color.red()
+            )
+            embed.add_field(
+                name="Valid phases:",
+                value=(
+                    "• `submission` - 🎵 Users can submit collaborations\n"
+                    "• `voting` - 🗳️ Voting on submissions is active\n"
+                    "• `cancelled` - ❌ Current week cancelled\n"
+                    "• `paused` - ⏸️ Competition temporarily on hold\n"
+                    "• `ended` - 🏁 Current cycle completed\n"
+                    "• `inactive` - ⏰ No competition running"
+                ),
+                inline=False
+            )
+            embed.set_footer(text="Use: [p]cw setphase <phase>")
+            await ctx.send(embed=embed)
             return
         
         await self.config.guild(ctx.guild).current_phase.set(phase)
-        await ctx.send(f"✅ Phase set to: **{phase}**")
+        
+        # Create status embed with phase-specific information
+        phase_info = {
+            "submission": ("🎵", "Submission Phase Active", "Users can now submit their collaborations!"),
+            "voting": ("🗳️", "Voting Phase Active", "Users can vote on submitted collaborations!"),
+            "cancelled": ("❌", "Week Cancelled", "Current competition week has been cancelled."),
+            "paused": ("⏸️", "Competition Paused", "Competition is temporarily on hold."),
+            "ended": ("🏁", "Competition Ended", "This competition cycle is complete."),
+            "inactive": ("⏰", "Competition Inactive", "No competition currently running.")
+        }
+        
+        emoji, title, description = phase_info[phase]
+        
+        embed = discord.Embed(
+            title=f"{emoji} {title}",
+            description=description,
+            color=discord.Color.green() if phase in ["submission", "voting"] else discord.Color.orange()
+        )
+        embed.add_field(
+            name="Current Status",
+            value=f"Phase set to: **{phase.title()}**",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
     
     @collabwarz.command(name="help")
     async def show_help(self, ctx):
@@ -1960,6 +2261,112 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         
         await ctx.send(f"🎵 **New week started!**\nTheme: **{current_theme}**\nPhase: **Submission**")
     
+    @collabwarz.command(name="pause")
+    async def pause_competition(self, ctx, *, reason: str = None):
+        """Pause the current competition temporarily"""
+        await self.config.guild(ctx.guild).current_phase.set("paused")
+        
+        embed = discord.Embed(
+            title="⏸️ Competition Paused",
+            description="The competition has been temporarily paused by an admin.",
+            color=discord.Color.orange()
+        )
+        
+        if reason:
+            embed.add_field(name="Reason", value=reason, inline=False)
+        
+        embed.add_field(
+            name="What happens now?",
+            value=(
+                "• All submissions are temporarily blocked\n"
+                "• Current progress is preserved\n"
+                "• Use `[p]cw resume` to continue\n"
+                "• Use `[p]cw setphase submission` to restart submissions"
+            ),
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="resume")
+    async def resume_competition(self, ctx):
+        """Resume a paused competition"""
+        current_phase = await self.config.guild(ctx.guild).current_phase()
+        
+        if current_phase != "paused":
+            await ctx.send(f"❌ Competition is not paused (current phase: {current_phase})")
+            return
+        
+        # Resume to submission phase by default
+        await self.config.guild(ctx.guild).current_phase.set("submission")
+        
+        embed = discord.Embed(
+            title="▶️ Competition Resumed",
+            description="The competition has been resumed! Submissions are now open again.",
+            color=discord.Color.green()
+        )
+        
+        current_theme = await self.config.guild(ctx.guild).current_theme()
+        if current_theme:
+            embed.add_field(name="Current Theme", value=current_theme, inline=False)
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="cancelweek")
+    async def cancel_current_week(self, ctx, *, reason: str = None):
+        """Cancel the current competition week"""
+        await self.config.guild(ctx.guild).current_phase.set("cancelled")
+        await self.config.guild(ctx.guild).week_cancelled.set(True)
+        
+        embed = discord.Embed(
+            title="❌ Week Cancelled",
+            description="This week's competition has been cancelled by an admin.",
+            color=discord.Color.red()
+        )
+        
+        if reason:
+            embed.add_field(name="Reason", value=reason, inline=False)
+        
+        embed.add_field(
+            name="What happens next?",
+            value=(
+                "• All submissions for this week are void\n"
+                "• No voting will take place\n"
+                "• Competition will restart next Monday\n"
+                "• Use `[p]cw nextweek` to start a new week immediately"
+            ),
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="endweek")
+    async def end_current_week(self, ctx, *, message: str = None):
+        """Manually end the current competition week"""
+        await self.config.guild(ctx.guild).current_phase.set("ended")
+        
+        embed = discord.Embed(
+            title="🏁 Week Ended",
+            description="This week's competition has been manually ended by an admin.",
+            color=discord.Color.blue()
+        )
+        
+        if message:
+            embed.add_field(name="Admin Message", value=message, inline=False)
+        
+        embed.add_field(
+            name="What happens next?",
+            value=(
+                "• No more submissions or voting\n"
+                "• Results are finalized\n"
+                "• Use `[p]cw nextweek` to start a new competition\n"
+                "• Winners can still be declared manually if needed"
+            ),
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+    
     @collabwarz.command(name="test")
     async def test_announcements(self, ctx):
         """Test all announcement types in test channel"""
@@ -2169,6 +2576,41 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "❌ **Discord submission validation DISABLED**\n\n"
                 "All submissions will be accepted without validation.\n"
                 "Team counting will use raw message detection."
+            )
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="autodeletemsgs")
+    async def toggle_auto_delete_messages(self, ctx):
+        """Toggle automatic deletion of invalid messages on/off"""
+        current = await self.config.guild(ctx.guild).auto_delete_messages()
+        await self.config.guild(ctx.guild).auto_delete_messages.set(not current)
+        
+        status = "enabled" if not current else "disabled"
+        
+        embed = discord.Embed(
+            title="🗑️ Auto-Delete Messages",
+            color=discord.Color.green() if not current else discord.Color.red()
+        )
+        
+        if not current:
+            embed.description = (
+                "✅ **Automatic message deletion ENABLED**\n\n"
+                "**Bot will delete:**\n"
+                "• Invalid submissions with error explanation\n"
+                "• Messages when bot is inactive\n" 
+                "• Messages during wrong phases\n"
+                "• Non-submission messages in submission channel\n\n"
+                "**Admins are always exempt from deletion.**"
+            )
+        else:
+            embed.description = (
+                "❌ **Automatic message deletion DISABLED**\n\n"
+                "**Bot will only:**\n"
+                "• Send warning messages (no deletion)\n"
+                "• React to valid submissions\n"
+                "• Allow all messages to remain\n\n"
+                "**Useful for debugging or less restrictive moderation.**"
             )
         
         await ctx.send(embed=embed)
@@ -3138,6 +3580,89 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             )
             await message.edit(embed=timeout_embed, view=None)
     
+    @collabwarz.command(name="testsuno")
+    async def test_suno_validation(self, ctx, *, url: str = None):
+        """🧪 Test Suno.com URL validation"""
+        
+        embed = discord.Embed(
+            title="🧪 Suno.com URL Validation Test",
+            color=discord.Color.blue()
+        )
+        
+        # Add information about valid formats
+        embed.add_field(
+            name="✅ Valid Formats",
+            value=(
+                "• `https://suno.com/s/kFacPCnBlw9n9oEP`\n"
+                "• `https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26`"
+            ),
+            inline=False
+        )
+        
+        if url:
+            # Test the provided URL
+            is_valid = self._validate_suno_url(url)
+            
+            embed.add_field(
+                name="🔍 Test URL",
+                value=f"`{url}`",
+                inline=False
+            )
+            
+            if is_valid:
+                embed.add_field(
+                    name="✅ Result",
+                    value="**Valid Suno.com URL**",
+                    inline=False
+                )
+                embed.color = discord.Color.green()
+            else:
+                embed.add_field(
+                    name="❌ Result", 
+                    value="**Invalid URL format**",
+                    inline=False
+                )
+                embed.color = discord.Color.red()
+                
+            # Extract URLs from text
+            extracted = self._extract_suno_urls_from_text(url)
+            if extracted:
+                embed.add_field(
+                    name="🔗 Extracted URLs",
+                    value="\n".join([f"• `{u}`" for u in extracted]),
+                    inline=False
+                )
+        else:
+            # Show example usage
+            embed.add_field(
+                name="📝 Usage",
+                value=f"`{ctx.prefix}cw testsuno https://suno.com/s/example123`",
+                inline=False
+            )
+            
+            # Test examples
+            test_urls = [
+                "https://suno.com/s/kFacPCnBlw9n9oEP",
+                "https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26",
+                "https://suno.com/invalid/url",
+                "https://soundcloud.com/track/123"
+            ]
+            
+            test_results = []
+            for test_url in test_urls:
+                is_valid = self._validate_suno_url(test_url)
+                result = "✅" if is_valid else "❌"
+                test_results.append(f"{result} `{test_url}`")
+            
+            embed.add_field(
+                name="📋 Test Examples",
+                value="\n".join(test_results),
+                inline=False
+            )
+        
+        embed.set_footer(text="Use this command to verify Suno URL formats before submission")
+        await ctx.send(embed=embed)
+    
     @collabwarz.command(name="winners")
     async def show_winners(self, ctx, weeks: int = 4):
         """Show recent winners and their rep rewards"""
@@ -3374,7 +3899,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     
     @commands.Cog.listener()
     async def on_message(self, message):
-        """Handle Discord submissions validation"""
+        """Handle Discord submissions validation and message cleanup"""
         # Ignore bot messages
         if message.author.bot:
             return
@@ -3383,8 +3908,111 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         if not message.guild:
             return
         
-        # Validate submission if it looks like one
-        await self._validate_discord_submission(message)
+        guild = message.guild
+        
+        # Check if user is admin (admins can always post)
+        is_admin = await self._is_user_admin(guild, message.author)
+        if is_admin:
+            return  # Admins bypass all restrictions
+        
+        # Check if auto-delete is enabled
+        auto_delete_enabled = await self.config.guild(guild).auto_delete_messages()
+        
+        # Check if this is the configured submission channel
+        submission_channel_id = await self.config.guild(guild).submission_channel()
+        if not submission_channel_id or message.channel.id != submission_channel_id:
+            return  # Not in submission channel, ignore
+        
+        # Check if automation is enabled
+        automation_enabled = await self.config.guild(guild).automation_enabled()
+        if not automation_enabled:
+            # Bot is inactive, delete message and explain
+            await self._delete_message_with_explanation(
+                message,
+                "🤖 **Collab Warz is currently inactive**",
+                f"{message.author.mention}, the competition bot is not currently running.\nPlease wait for an admin to activate Collab Warz before posting submissions.",
+                auto_delete_enabled,
+                10
+            )
+            return
+        
+        # Check current phase - only allow submissions during submission phase
+        current_phase = await self.config.guild(guild).current_phase()
+        if current_phase != "submission":
+            # Determine specific message based on phase
+            if current_phase == "voting":
+                phase_msg = "voting is currently active"
+                emoji = "🗳️"
+                explanation = "Submissions are closed. Please vote on existing collaborations!"
+            elif current_phase == "cancelled":
+                phase_msg = "this week has been cancelled"
+                emoji = "❌"
+                explanation = "The current competition week was cancelled. Wait for next week's announcement."
+            elif current_phase == "paused":
+                phase_msg = "competition is temporarily paused"
+                emoji = "⏸️"
+                explanation = "Competition is on hold. Admin will announce when submissions reopen."
+            elif current_phase == "ended":
+                phase_msg = "this week's competition has ended"
+                emoji = "🏁"
+                explanation = "This competition cycle is complete. Wait for next week's announcement."
+            else:
+                phase_msg = "competition is not currently active"
+                emoji = "⏰"
+                explanation = "No active competition. Wait for admin to start submissions."
+            
+            await self._delete_message_with_explanation(
+                message,
+                f"{emoji} **Submissions closed**",
+                f"{message.author.mention}, {phase_msg}.\n{explanation}\nCurrent status: **{current_phase.title() if current_phase else 'Inactive'}**",
+                auto_delete_enabled,
+                12
+            )
+            return
+        
+        # Check if message looks like a submission attempt
+        has_attachment = len(message.attachments) > 0
+        has_suno_reference = 'suno.com' in message.content.lower()
+        forbidden_platforms = ['soundcloud', 'youtube', 'bandcamp', 'spotify', 'drive.google']
+        has_forbidden_platform = any(platform in message.content.lower() for platform in forbidden_platforms)
+        
+        # If it looks like a submission attempt, validate it
+        if has_attachment or has_suno_reference or has_forbidden_platform:
+            validation_result = await self._validate_and_process_submission(message)
+            
+            if validation_result["success"]:
+                # Valid submission - add thumbs up reaction
+                try:
+                    await message.add_reaction("👍")
+                except discord.Forbidden:
+                    pass
+                
+                # Send confirmation message
+                await message.channel.send(
+                    f"✅ **Submission registered!** {message.author.mention}\n\n"
+                    f"**Team:** `{validation_result['team_name']}`\n"
+                    f"**Partner:** {validation_result['partner_mention']}\n"
+                    f"Your collaboration has been successfully recorded for this week's competition! 🎵"
+                )
+            else:
+                # Invalid submission - delete and explain
+                error_msg = "\n".join(validation_result["errors"])
+                await self._delete_message_with_explanation(
+                    message,
+                    "❌ **Invalid submission**",
+                    f"{message.author.mention}\n{error_msg}\nPlease fix the issues and resubmit.",
+                    auto_delete_enabled,
+                    15
+                )
+        # If message doesn't look like submission, delete it with explanation
+        else:
+            await self._delete_message_with_explanation(
+                message,
+                "🗑️ **Message removed**",
+                f"{message.author.mention}\nThis channel is for competition submissions only during the submission phase.\nPlease use other channels for general discussion.",
+                auto_delete_enabled,
+                8
+            )
     
     async def _fetch_voting_results(self, guild: discord.Guild, week: str = None) -> dict:
         """Fetch voting results from frontend API
