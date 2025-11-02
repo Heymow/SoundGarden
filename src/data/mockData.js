@@ -340,8 +340,6 @@ export const teamsData = [
     ],
     participations: 5,
     victories: 1,
-    petals: 205,
-    rank: 'Flower',
     compositions: [
       {
         title: 'Starlight Journey',
@@ -376,8 +374,6 @@ export const teamsData = [
     ],
     participations: 6,
     victories: 2,
-    petals: 260,
-    rank: 'Rosegarden',
     compositions: [
       {
         title: 'Nebula Whispers',
@@ -412,8 +408,6 @@ export const teamsData = [
     ],
     participations: 7,
     victories: 3,
-    petals: 290,
-    rank: 'Eden',
     compositions: [
       {
         title: 'Galactic Vibes',
@@ -448,8 +442,6 @@ export const teamsData = [
     ],
     participations: 8,
     victories: 3,
-    petals: 445,
-    rank: 'Eden',
     compositions: [
       {
         title: 'City of Shadows',
@@ -484,8 +476,6 @@ export const teamsData = [
     ],
     participations: 3,
     victories: 0,
-    petals: 130,
-    rank: 'Sprout',
     compositions: [
       {
         title: 'Rhythm Nation',
@@ -509,8 +499,6 @@ export const teamsData = [
     ],
     participations: 2,
     victories: 1,
-    petals: 115,
-    rank: 'Flower',
     compositions: [
       {
         title: 'Harmony Waves',

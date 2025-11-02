@@ -23,7 +23,8 @@ function AppContent() {
   return (
     <div className="app-root">
       <div className="main-banner">
-        <h1 className="main-banner-title">SoundGarden</h1>
+        <h1 className="main-banner-title">🌿 SoundGarden</h1>
+        <p className="main-banner-subtitle">SUNO AI MUSIC COMMUNITY</p>
       </div>
 
       <header className="app-header">

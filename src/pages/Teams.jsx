@@ -44,7 +44,23 @@ export default function Teams() {
   };
 
   if (selectedTeam) {
-    const songsByWeek = getSongsByWeek(selectedTeam.compositions || []);
+    const victoriousSongs = (selectedTeam.compositions || []).filter(song => song.isWinner);
+    const allSongs = selectedTeam.compositions || [];
+    
+    // Sort all songs by date descending
+    const sortedSongs = [...allSongs].sort((a, b) => {
+      if (a.year !== b.year) return b.year - a.year;
+      return b.weekNumber - a.weekNumber;
+    });
+    
+    // Group songs by week for display
+    const songsByWeek = {};
+    sortedSongs.forEach(song => {
+      if (!songsByWeek[song.week]) {
+        songsByWeek[song.week] = [];
+      }
+      songsByWeek[song.week].push(song);
+    });
     
     return (
       <section className="page teams-page">
@@ -55,7 +71,8 @@ export default function Teams() {
         <div className="team-detail">
           {/* Main Team Banner - matching main-banner style */}
           <div className="team-detail-banner">
-            <h1 className="team-detail-banner-title">🎵 {selectedTeam.name}</h1>
+            <h1 className="team-detail-banner-title">🌿 {selectedTeam.name}</h1>
+            <p className="team-detail-banner-subtitle">SUNO AI MUSIC COMMUNITY</p>
           </div>
 
           {/* Team Statistics */}
@@ -69,18 +86,6 @@ export default function Teams() {
               <div className="stat-card">
                 <div className="stat-value">{selectedTeam.victories}</div>
                 <div className="stat-label">Victories</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-value">{selectedTeam.petals}</div>
-                <div className="stat-label">Petals</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-value">
-                  <div className={`team-rank-badge rank-${selectedTeam.rank.toLowerCase()}`}>
-                    {selectedTeam.rank}
-                  </div>
-                </div>
-                <div className="stat-label">Rank</div>
               </div>
             </div>
           </div>
@@ -109,44 +114,65 @@ export default function Teams() {
             </div>
           )}
 
-          {/* Competition History & Songs by Week */}
-          {songsByWeek.length > 0 && (
-            <div className="team-songs-section">
-              <h3>Competition History</h3>
-              <p className="section-subtitle">Songs organized by week with results</p>
-              {songsByWeek.map((weekData, weekIdx) => (
-                <div key={weekIdx} className="week-section">
-                  <h4 className="week-header">{weekData.week}</h4>
-                  <div className="history-grid">
-                    {weekData.songs.map((song, songIdx) => (
-                      <div key={songIdx} className="history-card">
-                        <div className="history-card-header">
-                          <h4>{song.title}</h4>
-                          {song.isWinner && <span className="winner-icon">🏆</span>}
-                        </div>
-                        <p className="history-theme">Theme: {song.theme}</p>
-                        <div className="history-winner">
-                          <div className="winner-details">
-                            <p className="winner-team">Participants: {song.participants.join(', ')}</p>
-                            <p className="winner-stats">
-                              {song.votes} votes
-                              {song.isWinner ? ' • Winner' : ''}
-                            </p>
-                          </div>
-                        </div>
-                        <a 
-                          href={song.sunoUrl} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="btn-suno"
-                        >
-                          🎵 Listen on Suno
-                        </a>
+          {/* Victorious Songs List */}
+          {victoriousSongs.length > 0 && (
+            <div className="victories-section">
+              <h3>🏆 Victories</h3>
+              <div className="victories-list">
+                {victoriousSongs.map((song, idx) => (
+                  <div key={idx} className="victory-item">
+                    <div className="victory-info">
+                      <div className="victory-title">{song.title}</div>
+                      <div className="victory-meta">
+                        {song.week} • Theme: {song.theme} • {song.votes} votes
                       </div>
-                    ))}
+                    </div>
+                    <a 
+                      href={song.sunoUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="btn-suno"
+                    >
+                      🎵 Listen
+                    </a>
+                    <span className="victory-icon">🏆</span>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* All Songs in Grid View by Week */}
+          {allSongs.length > 0 && (
+            <div className="songs-grid-section">
+              <h3>All Compositions</h3>
+              <div className="songs-by-week">
+                {Object.entries(songsByWeek).map(([week, songs], weekIdx) => (
+                  <div key={weekIdx} className="week-songs-group">
+                    <div className="week-date-header">{week}</div>
+                    <div className="songs-grid">
+                      {songs.map((song, songIdx) => (
+                        <div key={songIdx} className="song-card-compact">
+                          <div className="song-card-title">
+                            {song.title}
+                            {song.isWinner && <span> 🏆</span>}
+                          </div>
+                          <div className="song-card-theme">Theme: {song.theme}</div>
+                          <div className="song-card-votes">{song.votes} votes</div>
+                          <a 
+                            href={song.sunoUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="btn-suno"
+                          >
+                            🎵 Listen on Suno
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -191,9 +217,6 @@ export default function Teams() {
                 onClick={() => handleTeamSelect(team)}
               >
                 <span className="team-dropdown-name">{team.name}</span>
-                <span className={`team-dropdown-rank rank-${team.rank.toLowerCase()}`}>
-                  {team.rank}
-                </span>
               </div>
             ))}
           </div>
@@ -209,14 +232,10 @@ export default function Teams() {
           >
             <div className="team-item-info">
               <span className="team-item-name">{team.name}</span>
-              <span className={`team-rank-badge rank-${team.rank.toLowerCase()}`}>
-                {team.rank}
-              </span>
             </div>
             <div className="team-item-stats">
               <span>{team.participations} participations</span>
               <span>{team.victories} victories</span>
-              <span>{team.petals} petals</span>
             </div>
           </div>
         ))}
