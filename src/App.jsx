@@ -20,9 +20,21 @@ function AppContent() {
 
   return (
     <div className="app-root">
+      <div className="main-banner">
+        <h1 className="main-banner-title">SoundGarden</h1>
+      </div>
+
       <header className="app-header">
         <h1 className="site-title">SoundGarden's Collab Warz</h1>
         <div className="auth-actions">
+          <a 
+            href="https://discord.gg/g4wtWhCUV9" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="btn-discord"
+          >
+            💬 Join Discord Server
+          </a>
           {user ? (
             <div className="user-menu">
               <span className="username">{user.username}</span>
@@ -49,7 +61,7 @@ function AppContent() {
       </main>
 
       <footer className="app-footer">
-        <small>© SoundGarden · Collab Warz · Powered by Suno AI</small>
+        <small>© Heymow - SoundGarden · Collab Warz</small>
       </footer>
 
       <AudioPlayer 

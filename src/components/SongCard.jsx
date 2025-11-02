@@ -1,12 +1,16 @@
 import React from 'react';
 
-export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn }) {
+export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, onLoginRequired }) {
   const handleImageClick = () => {
     window.open(song.sunoUrl, '_blank');
   };
 
   const handleVoteClick = () => {
-    if (isLoggedIn && phase === 'voting' && !hasVoted) {
+    if (!isLoggedIn) {
+      onLoginRequired && onLoginRequired();
+      return;
+    }
+    if (phase === 'voting' && !hasVoted) {
       onVote(song.id);
     }
   };
@@ -47,7 +51,7 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn }) 
             <button 
               className={`btn-vote ${hasVoted ? 'voted' : ''}`}
               onClick={handleVoteClick}
-              disabled={!isLoggedIn || hasVoted}
+              disabled={hasVoted}
             >
               {hasVoted ? '✓ Voted' : '🎤 Vote'}
             </button>
