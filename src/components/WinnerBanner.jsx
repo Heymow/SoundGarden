@@ -15,8 +15,8 @@ export default function WinnerBanner({ winner, theme, onPlay, onNavigateToTeam }
           <p className="winner-team">
             Team: {onNavigateToTeam ? (
               <span 
+                className="team-chip clickable-chip"
                 onClick={() => onNavigateToTeam(teamName)}
-                style={{ cursor: 'pointer', textDecoration: 'underline', color: 'var(--accent)' }}
               >
                 {teamName}
               </span>

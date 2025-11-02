@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { artistsData } from '../data/mockData';
 
-export default function Artists({ selectedArtist, setSelectedArtist, onNavigateToTeam }) {
+export default function Artists({ selectedArtist, setSelectedArtist, onNavigateToTeam, onPlaySong }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
 
@@ -33,13 +33,13 @@ export default function Artists({ selectedArtist, setSelectedArtist, onNavigateT
         </button>
         
         <div className="artist-detail">
-          <div className="artist-detail-header">
-            <div>
-              <div className={`artist-rank-badge rank-${selectedArtist.rank.toLowerCase()}`}>
-                {selectedArtist.rank}
-              </div>
-              <h2 className="artist-detail-name">{selectedArtist.name}</h2>
-              {selectedArtist.sunoProfile && (
+          <div className="artist-detail-header-horizontal">
+            <div className={`artist-rank-badge rank-${selectedArtist.rank.toLowerCase()}`}>
+              {selectedArtist.rank}
+            </div>
+            <h2 className="artist-detail-name">{selectedArtist.name}</h2>
+            {selectedArtist.sunoProfile && (
+              <>
                 <a 
                   href={selectedArtist.sunoProfile} 
                   target="_blank" 
@@ -48,16 +48,14 @@ export default function Artists({ selectedArtist, setSelectedArtist, onNavigateT
                 >
                   🎵 Suno Profile
                 </a>
-              )}
-            </div>
-            {selectedArtist.sunoProfile && (
-              <div className="artist-avatar">
-                <img 
-                  src={getAvatarUrl()} 
-                  alt={`${selectedArtist.name}'s avatar`}
-                  style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover' }}
-                />
-              </div>
+                <div className="artist-avatar">
+                  <img 
+                    src={getAvatarUrl()} 
+                    alt={`${selectedArtist.name}'s avatar`}
+                    style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover' }}
+                  />
+                </div>
+              </>
             )}
           </div>
 
@@ -110,8 +108,8 @@ export default function Artists({ selectedArtist, setSelectedArtist, onNavigateT
                         <p className="winner-team">
                           Team: {onNavigateToTeam ? (
                             <span 
+                              className="team-chip clickable-chip"
                               onClick={() => onNavigateToTeam(song.team)}
-                              style={{ cursor: 'pointer', textDecoration: 'underline', color: 'var(--accent)' }}
                             >
                               {song.team}
                             </span>
@@ -121,6 +119,22 @@ export default function Artists({ selectedArtist, setSelectedArtist, onNavigateT
                         </p>
                         <p className="winner-stats">{song.votes} votes{song.isWinner ? ' • 🏆 Winner' : ''}</p>
                       </div>
+                      {onPlaySong && (
+                        <button 
+                          className="history-play-btn"
+                          onClick={() => onPlaySong({
+                            id: `artist-song-${idx}`,
+                            title: song.title,
+                            participants: [selectedArtist.name],
+                            imageUrl: 'https://via.placeholder.com/200',
+                            audioUrl: 'https://cdn.suno.com/audio/mock.mp3',
+                            sunoUrl: song.sunoUrl
+                          })}
+                          aria-label={`Play ${song.title}`}
+                        >
+                          ▶
+                        </button>
+                      )}
                     </div>
                     <a 
                       href={song.sunoUrl} 

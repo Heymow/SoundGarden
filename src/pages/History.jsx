@@ -31,8 +31,8 @@ export default function History({ onPlaySong, onNavigateToTeam }) {
                   <div className="winner-team">
                     {onNavigateToTeam ? (
                       <span 
+                        className="team-chip clickable-chip"
                         onClick={() => onNavigateToTeam(teamName)}
-                        style={{ cursor: 'pointer', textDecoration: 'underline', color: 'var(--accent)' }}
                       >
                         {teamName}
                       </span>

@@ -48,11 +48,6 @@ export default function Current({ onPlaySong, onNavigateToTeam, onNavigateToArti
     alert('Song submitted successfully!');
   };
 
-  const handleJoinDiscord = () => {
-    // Discord server invite link - consider moving to config/env in production
-    window.open('https://discord.gg/soundgarden', '_blank');
-  };
-
   return (
     <section className="page current-page">
       <WinnerBanner 
@@ -68,17 +63,6 @@ export default function Current({ onPlaySong, onNavigateToTeam, onNavigateToArti
         submissionDeadline={currentChallenge.submissionDeadline}
         votingDeadline={currentChallenge.votingDeadline}
       />
-
-      {(!user || !isOnDiscordServer) && (
-        <div className="action-bar">
-          <button 
-            className="btn-discord"
-            onClick={handleJoinDiscord}
-          >
-            💬 Join Discord Server
-          </button>
-        </div>
-      )}
 
       {currentChallenge.phase === 'submission' && (
         <div className="action-bar">

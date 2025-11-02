@@ -103,7 +103,7 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong }) {
                         rel="noopener noreferrer"
                         className="btn-suno-mini"
                       >
-                        🎵 Profile
+                        🎵 Suno Profile
                       </a>
                     )}
                   </div>
@@ -145,7 +145,7 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong }) {
                       rel="noopener noreferrer"
                       className="btn-suno"
                     >
-                      🎵 Listen
+                      🎵 Listen on Suno
                     </a>
                     <span className="victory-icon">🏆</span>
                   </div>

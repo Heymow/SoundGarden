@@ -65,9 +65,8 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
               {idx > 0 && ' & '}
               {onNavigateToArtist ? (
                 <span 
-                  className="clickable-participant" 
+                  className="participant-chip" 
                   onClick={() => handleParticipantClick(participant)}
-                  style={{ cursor: 'pointer', textDecoration: 'underline' }}
                 >
                   {participant}
                 </span>
@@ -78,13 +77,14 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
           ))}
         </p>
         {onNavigateToTeam && song.participants.length >= 2 && (
-          <p 
-            className="song-team-link" 
-            onClick={() => onNavigateToTeam(song.participants.join(' & '))}
-            style={{ cursor: 'pointer', textDecoration: 'underline', color: 'var(--accent)', fontSize: '0.9em', marginTop: '4px' }}
-          >
-            View Team →
-          </p>
+          <div className="song-team-chip-container">
+            <span 
+              className="team-chip clickable-chip" 
+              onClick={() => onNavigateToTeam(song.participants.join(' & '))}
+            >
+              {song.participants.join(' & ')}
+            </span>
+          </div>
         )}
         <div className="song-accounts">
           {song.sunoAccounts.map((account, idx) => (
