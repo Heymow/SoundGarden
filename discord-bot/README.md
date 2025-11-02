@@ -27,7 +27,9 @@
 
 The **Collab Warz Bot** fully automates the management of a weekly music collaboration competition on Discord. It handles announcements, phases (submission/voting), reminders, and can even generate creative themes using AI. **Submissions are restricted to Suno.com URLs only.**
 
-### Automatic Weekly Cycle
+### Competition Cycles
+
+#### 📅 **Weekly Mode** (Default)
 - **Monday 9:00 AM** : 🎵 Submissions start + new theme
 - **Thursday evening** : 🔔 Submission reminder  
 - **Friday 12:00 PM** : 🗳️ Voting starts (submissions end) *OR* ⚠️ Week cancelled if insufficient teams
@@ -35,8 +37,17 @@ The **Collab Warz Bot** fully automates the management of a weekly music collabo
 - **Sunday evening** : 🏆 Winner announcement
 - **Sunday 9 PM+** : 🤖 AI theme generation for next week
 
+#### 🗓️ **Bi-Weekly Mode** (Optional)
+- **Week 1 Monday** : 🎵 Submissions start + new theme
+- **Week 1 Friday** : 🔔 Submission reminder  
+- **Week 2 Monday** : 🗳️ Voting starts (submissions end) *OR* ⚠️ Cycle cancelled if insufficient teams
+- **Week 2 Saturday** : 🔔 Voting reminder
+- **Week 2 Sunday** : 🏆 Winner announcement
+- **Week 2 Sunday 9 PM+** : 🤖 AI theme generation for next cycle
+
 ### Key Features
 - ✅ **Complete automation** of competition cycle
+- ✅ **Flexible scheduling** - Weekly or bi-weekly competition modes
 - ✅ **Admin confirmations** for total control
 - ✅ **AI generation** of creative themes
 - ✅ **Smart management** of interruptions
@@ -1258,6 +1269,78 @@ Each phase change includes:
 - ⏭️ **Next steps information** for users
 - 📅 **Timeline expectations** when applicable
 
+## Bi-Weekly Competition Mode
+
+### Overview
+The bot supports **bi-weekly mode** for communities that prefer longer, 2-week competition cycles instead of the default weekly format.
+
+### Bi-Weekly Schedule
+**🗓️ Competition Cycle:** Every 2 weeks (14 days)
+
+#### Week 1 - Submission Phase
+- **Monday 9:00 AM**: 🎵 New cycle starts, submissions open + new theme
+- **Friday Evening**: 🔔 Submission reminder ("Voting starts next Monday")
+- **Weekend**: Submissions continue (extended time for creativity)
+
+#### Week 2 - Voting Phase  
+- **Monday**: 🗳️ Voting opens (submissions close)
+- **Saturday Evening**: 🔔 Voting reminder ("Voting ends tomorrow")
+- **Sunday Evening**: 🏆 Winner announcement
+- **Sunday 9 PM+**: 🤖 AI theme generation for next cycle
+
+### Enabling Bi-Weekly Mode
+
+```bash
+# Toggle between weekly and bi-weekly modes
+[p]cw biweekly
+
+# Check current mode in status
+[p]cw status
+```
+
+### Key Differences from Weekly Mode
+
+| Feature | Weekly Mode | Bi-Weekly Mode |
+|---------|-------------|----------------|
+| **Cycle Length** | 7 days | 14 days |
+| **Submission Time** | Mon-Fri noon (4.5 days) | Full Week 1 (7 days) |
+| **Voting Time** | Fri noon-Sun (2.5 days) | Full Week 2 (7 days) |
+| **Competition ID** | `2024-W42` | `2024-C21` (Cycle 21) |
+| **Frequency** | Every week | Every 2 weeks |
+
+### Benefits of Bi-Weekly Mode
+
+**🎵 For Creators:**
+- More time for complex collaborations
+- Less pressure, higher quality submissions
+- Better work-life balance for participants
+
+**👥 For Communities:**
+- Higher participation rates
+- More polished final products
+- Less admin overhead
+
+**🗓️ For Planning:**
+- Aligns with bi-weekly meeting schedules
+- Easier to coordinate with other events
+- More sustainable for smaller communities
+
+### Switching Between Modes
+
+**⚠️ Important Notes:**
+- Active competitions continue under their original mode
+- New mode takes effect on the next cycle start
+- Competition tracking IDs will change (Week vs Cycle)
+- Historical data remains intact under original format
+
+**Example Transition:**
+```bash
+# Currently in Week 43 (weekly mode)
+[p]cw biweekly                  # Enable bi-weekly mode
+# Week 43 completes normally
+# Next Monday starts Cycle 22 (bi-weekly mode)
+```
+
 ## Members API Server
 
 ### Overview
@@ -1546,6 +1629,7 @@ The bot supports **multiple administrator levels** for flexible team management:
 [p]cw setphase submission       # Force phase (submission/voting)
 [p]cw toggle                    # Enable/disable automation
 [p]cw everyone                  # Toggle @everyone ping in announcements
+[p]cw biweekly                  # Toggle bi-weekly mode (2-week cycles)
 [p]cw status                    # View current configuration
 ```
 

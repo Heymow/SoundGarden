@@ -78,6 +78,7 @@ class CollabWarz(commands.Cog):
             "suno_api_base_url": "https://api.suno-proxy.click", # Suno API base URL
             "individual_votes": {},     # Track individual votes {week: {user_id: team_name}}
             "session_token_required": True,   # Require Discord session tokens for voting
+            "biweekly_mode": False,     # Enable bi-weekly competitions (every 2 weeks)
         }
         
         self.config.register_guild(**default_guild)
@@ -145,9 +146,9 @@ class CollabWarz(commands.Cog):
         return now + timedelta(days=1)
     
     async def _count_participating_teams(self, guild) -> int:
-        """Count the number of teams with submissions this week"""
+        """Count the number of teams with submissions this competition cycle"""
         try:
-            week_key = self._get_current_week_key()
+            week_key = await self._get_competition_week_key(guild)
             
             # Count teams from different sources
             total_teams = set()  # Use set to avoid double-counting
@@ -291,9 +292,26 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         return result
     
     def _get_current_week_key(self) -> str:
-        """Get current week identifier for tracking submissions"""
+        """Get current week identifier for tracking submissions (backwards compatibility)"""
         now = datetime.now()
-        return f"{now.year}-W{now.isocalendar()[1]}"
+        iso_year, iso_week, _ = now.isocalendar()
+        return f"{iso_year}-W{iso_week}"
+    
+    async def _get_competition_week_key(self, guild) -> str:
+        """Get current competition week identifier, handling bi-weekly mode"""
+        now = datetime.now()
+        iso_year, iso_week, _ = now.isocalendar()
+        
+        biweekly_mode = await self.config.guild(guild).biweekly_mode()
+        
+        if biweekly_mode:
+            # For bi-weekly mode, we group weeks into 2-week cycles
+            # Week 1-2 = cycle 1, Week 3-4 = cycle 2, etc.
+            cycle_number = ((iso_week - 1) // 2) + 1
+            return f"{iso_year}-C{cycle_number}"
+        else:
+            # Regular weekly mode
+            return f"{iso_year}-W{iso_week}"
     
     def _get_current_week(self) -> str:
         """Get current week identifier (alias for _get_current_week_key for consistency)"""
@@ -362,8 +380,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             return {}
     
     async def _is_team_already_submitted(self, guild, team_name: str, user_id: int, partner_id: int) -> dict:
-        """Check if team or members already submitted this week"""
-        week_key = self._get_current_week_key()
+        """Check if team or members already submitted this competition cycle"""
+        week_key = await self._get_competition_week_key(guild)
         submitted_teams = await self.config.guild(guild).submitted_teams()
         team_members = await self.config.guild(guild).team_members()
         
@@ -395,7 +413,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     
     async def _register_team_submission(self, guild, team_name: str, user_id: int, partner_id: int):
         """Register a successful team submission"""
-        week_key = self._get_current_week_key()
+        week_key = await self._get_competition_week_key(guild)
         
         # Update submitted teams
         submitted_teams = await self.config.guild(guild).submitted_teams()
@@ -2062,7 +2080,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             success_msg = f"✅ **Submission registered!**\n\n"
             success_msg += f"**Team:** `{team_info['team_name']}`\n"
             success_msg += f"**Members:** {message.author.mention} & {partner_name}\n"
-            success_msg += f"**Week:** {self._get_current_week_key()}\n\n"
+            competition_key = await self._get_competition_week_key(guild)
+            success_msg += f"**Competition:** {competition_key}\n\n"
             success_msg += "Good luck in the competition! 🎵"
             
             await message.add_reaction("✅")
@@ -2264,10 +2283,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             return False
     
     async def _record_weekly_winner(self, guild, team_name: str, member_ids: list, week_key: str = None):
-        """Record the weekly winner and give rep rewards"""
+        """Record the competition winner and give rep rewards"""
         try:
             if week_key is None:
-                week_key = self._get_current_week_key()
+                week_key = await self._get_competition_week_key(guild)
             
             # Record winner
             weekly_winners = await self.config.guild(guild).weekly_winners()
@@ -2424,19 +2443,40 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         theme = await self.config.guild(guild).current_theme()
         last_announcement = await self.config.guild(guild).last_announcement()
         winner_announced = await self.config.guild(guild).winner_announced()
+        biweekly_mode = await self.config.guild(guild).biweekly_mode()
         
-        # Calculate current phase based on day of week
+        # Calculate current phase based on day of week and bi-weekly mode
         day = now.weekday()  # 0 = Monday, 6 = Sunday
-        # Mon-Fri noon = submission, Fri noon-Sun = voting
-        if day < 4:  # Monday to Thursday
-            expected_phase = "submission"
-        elif day == 4 and now.hour < 12:  # Friday before noon
-            expected_phase = "submission"
-        else:  # Friday noon onwards to Sunday
-            expected_phase = "voting"
+        iso_year, iso_week, _ = now.isocalendar()
         
-        # Get current week number for tracking
-        current_week = now.isocalendar()[1]
+        if biweekly_mode:
+            # In bi-weekly mode: Week 1 = submission, Week 2 = voting
+            # Cycle: weeks 1-2, 3-4, 5-6, etc.
+            week_in_cycle = ((iso_week - 1) % 2) + 1  # 1 or 2
+            
+            if week_in_cycle == 1:
+                # Week 1 of cycle: submission phase (Monday to Friday noon)
+                if day < 4:  # Monday to Thursday
+                    expected_phase = "submission"
+                elif day == 4 and now.hour < 12:  # Friday before noon
+                    expected_phase = "submission"
+                else:  # Friday noon onwards - transition to week 2
+                    expected_phase = "submission"  # Stay in submission until next Monday
+            else:
+                # Week 2 of cycle: voting phase (entire week until Sunday)
+                expected_phase = "voting"
+        else:
+            # Regular weekly mode: Mon-Fri noon = submission, Fri noon-Sun = voting
+            if day < 4:  # Monday to Thursday
+                expected_phase = "submission"
+            elif day == 4 and now.hour < 12:  # Friday before noon
+                expected_phase = "submission"
+            else:  # Friday noon onwards to Sunday
+                expected_phase = "voting"
+        
+        # Get current competition identifier for tracking
+        competition_key = await self._get_competition_week_key(guild)
+        current_week = iso_week  # Keep for backwards compatibility with existing code
         
         # Check for phase transitions and send appropriate announcements
         announcement_posted = False
@@ -2462,11 +2502,21 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     if day == 1:  # Tuesday
                         should_restart = True
         else:
-            # Normal Monday start
-            should_restart = (expected_phase == "submission" and 
-                             (current_phase != "submission" or current_phase == "cancelled" or week_cancelled) and 
-                             last_announcement != f"submission_start_{current_week}" and
-                             day == 0)  # Monday only
+            # Check if we should start a new competition cycle
+            if biweekly_mode:
+                # In bi-weekly mode, new cycles start on Monday of odd weeks (1, 3, 5, etc.)
+                week_in_cycle = ((iso_week - 1) % 2) + 1
+                should_restart = (week_in_cycle == 1 and  # Week 1 of new cycle
+                                 expected_phase == "submission" and 
+                                 (current_phase != "submission" or current_phase == "cancelled" or week_cancelled) and 
+                                 last_announcement != f"submission_start_{competition_key}" and
+                                 day == 0)  # Monday only
+            else:
+                # Normal weekly start
+                should_restart = (expected_phase == "submission" and 
+                                 (current_phase != "submission" or current_phase == "cancelled" or week_cancelled) and 
+                                 last_announcement != f"submission_start_{competition_key}" and
+                                 day == 0)  # Monday only
         
         if should_restart:
             # Reset cancelled week flag
@@ -2481,74 +2531,126 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             
             await self._post_announcement(channel, guild, "submission_start", current_theme)
             await self.config.guild(guild).current_phase.set("submission")
-            await self.config.guild(guild).last_announcement.set(f"submission_start_{current_week}")
+            await self.config.guild(guild).last_announcement.set(f"submission_start_{competition_key}")
             await self.config.guild(guild).winner_announced.set(False)
-            await self.config.guild(guild).theme_generation_done.set(False)  # Reset for next week
+            await self.config.guild(guild).theme_generation_done.set(False)  # Reset for next cycle
             await self.config.guild(guild).week_cancelled.set(False)  # Reset cancelled flag
             
             # Note: Team registrations are automatically separated by week, no need to clear
             announcement_posted = True
         
-        # 2. Check if we need to announce start of voting phase (Friday noon)
+        # 2. Check if we need to announce start of voting phase
         elif (expected_phase == "voting" and 
               current_phase != "voting" and 
-              last_announcement != f"voting_start_{current_week}"):
+              last_announcement != f"voting_start_{competition_key}"):
             
-            # Check if we have enough teams to proceed with voting
-            team_count = await self._count_participating_teams(guild)
-            min_teams = await self.config.guild(guild).min_teams_required()
-            
-            if team_count < min_teams:
-                # Cancel the week due to insufficient participation
-                await self._cancel_week_and_restart(guild, channel, theme)
-                announcement_posted = True
+            # Determine when voting should start based on mode
+            should_start_voting = False
+            if biweekly_mode:
+                # In bi-weekly mode, voting starts on Monday of Week 2
+                week_in_cycle = ((iso_week - 1) % 2) + 1
+                should_start_voting = (week_in_cycle == 2 and day == 0)  # Monday of Week 2
             else:
-                # Proceed with normal voting phase
-                await self._post_announcement(channel, guild, "voting_start", theme)
-                await self.config.guild(guild).current_phase.set("voting")
-                await self.config.guild(guild).last_announcement.set(f"voting_start_{current_week}")
-                announcement_posted = True
+                # Regular mode: Friday noon
+                should_start_voting = (day == 4 and now.hour >= 12)  # Friday noon
+                
+            if should_start_voting:
+                # Check if we have enough teams to proceed with voting
+                team_count = await self._count_participating_teams(guild)
+                min_teams = await self.config.guild(guild).min_teams_required()
+                
+                if team_count < min_teams:
+                    # Cancel the competition due to insufficient participation
+                    await self._cancel_week_and_restart(guild, channel, theme)
+                    announcement_posted = True
+                else:
+                    # Proceed with normal voting phase
+                    await self._post_announcement(channel, guild, "voting_start", theme)
+                    await self.config.guild(guild).current_phase.set("voting")
+                    await self.config.guild(guild).last_announcement.set(f"voting_start_{competition_key}")
+                    announcement_posted = True
         
-        # 3. Check for reminder announcements (1 day before deadline)
+        # 3. Check for reminder announcements 
         if not announcement_posted:
-            # Reminder for submission phase (Thursday evening)
-            if (expected_phase == "submission" and 
-                day == 3 and now.hour >= 18 and  # Thursday after 6 PM
-                last_announcement != f"submission_reminder_{current_week}"):
+            if biweekly_mode:
+                # Bi-weekly reminders
+                week_in_cycle = ((iso_week - 1) % 2) + 1
                 
-                await self._post_announcement(channel, guild, "reminder", theme, "Friday 12:00")
-                await self.config.guild(guild).last_announcement.set(f"submission_reminder_{current_week}")
-                announcement_posted = True
-            
-            # Reminder for voting phase (Saturday evening)
-            elif (expected_phase == "voting" and 
-                  day == 5 and now.hour >= 18 and  # Saturday after 6 PM
-                  last_announcement != f"voting_reminder_{current_week}"):
+                # Submission reminder (Friday of Week 1)
+                if (expected_phase == "submission" and week_in_cycle == 1 and
+                    day == 4 and now.hour >= 18 and  # Friday after 6 PM
+                    last_announcement != f"submission_reminder_{competition_key}"):
+                    
+                    await self._post_announcement(channel, guild, "reminder", theme, "Next Monday (Week 2)")
+                    await self.config.guild(guild).last_announcement.set(f"submission_reminder_{competition_key}")
+                    announcement_posted = True
                 
-                await self._post_announcement(channel, guild, "reminder", theme, "Sunday 23:59")
-                await self.config.guild(guild).last_announcement.set(f"voting_reminder_{current_week}")
-                announcement_posted = True
+                # Voting reminder (Saturday of Week 2)
+                elif (expected_phase == "voting" and week_in_cycle == 2 and
+                      day == 5 and now.hour >= 18 and  # Saturday after 6 PM
+                      last_announcement != f"voting_reminder_{competition_key}"):
+                    
+                    await self._post_announcement(channel, guild, "reminder", theme, "Sunday 23:59")
+                    await self.config.guild(guild).last_announcement.set(f"voting_reminder_{competition_key}")
+                    announcement_posted = True
+            else:
+                # Regular weekly reminders
+                # Submission reminder (Thursday evening)
+                if (expected_phase == "submission" and 
+                    day == 3 and now.hour >= 18 and  # Thursday after 6 PM
+                    last_announcement != f"submission_reminder_{competition_key}"):
+                    
+                    await self._post_announcement(channel, guild, "reminder", theme, "Friday 12:00")
+                    await self.config.guild(guild).last_announcement.set(f"submission_reminder_{competition_key}")
+                    announcement_posted = True
+                
+                # Voting reminder (Saturday evening)
+                elif (expected_phase == "voting" and 
+                      day == 5 and now.hour >= 18 and  # Saturday after 6 PM
+                      last_announcement != f"voting_reminder_{competition_key}"):
+                    
+                    await self._post_announcement(channel, guild, "reminder", theme, "Sunday 23:59")
+                    await self.config.guild(guild).last_announcement.set(f"voting_reminder_{competition_key}")
+                    announcement_posted = True
         
         # 4. Check for winner announcement (Sunday evening after voting ends)
+        should_announce_winner = False
+        if biweekly_mode:
+            # In bi-weekly mode, announce winner on Sunday of Week 2
+            week_in_cycle = ((iso_week - 1) % 2) + 1
+            should_announce_winner = (week_in_cycle == 2 and day == 6 and now.hour >= 20)  # Sunday after 8 PM of Week 2
+        else:
+            # Regular mode: every Sunday
+            should_announce_winner = (day == 6 and now.hour >= 20)  # Sunday after 8 PM
+            
         if (not announcement_posted and 
-            day == 6 and now.hour >= 20 and  # Sunday after 8 PM
+            should_announce_winner and
             not winner_announced and
-            last_announcement != f"winner_{current_week}"):
+            last_announcement != f"winner_{competition_key}"):
             
             # Process voting results automatically
             await self._process_voting_end(guild)
-            await self.config.guild(guild).last_announcement.set(f"winner_{current_week}")
+            await self.config.guild(guild).last_announcement.set(f"winner_{competition_key}")
             # winner_announced will be set by _process_voting_end if successful
         
-        # 5. Check for next week theme generation (Sunday evening after winner announcement)
+        # 5. Check for next cycle theme generation (Sunday evening after winner announcement)
         theme_generation_done = await self.config.guild(guild).theme_generation_done()
         next_week_theme = await self.config.guild(guild).next_week_theme()
         
+        should_generate_theme = False
+        if biweekly_mode:
+            # Generate theme on Sunday of Week 2 (end of cycle)
+            week_in_cycle = ((iso_week - 1) % 2) + 1
+            should_generate_theme = (week_in_cycle == 2 and day == 6 and now.hour >= 21)  # Sunday after 9 PM of Week 2
+        else:
+            # Regular mode: every Sunday
+            should_generate_theme = (day == 6 and now.hour >= 21)  # Sunday after 9 PM
+        
         if (not announcement_posted and
-            day == 6 and now.hour >= 21 and  # Sunday after 9 PM
+            should_generate_theme and
             winner_announced and
             not theme_generation_done and
-            not next_week_theme):  # Only generate if no theme already set for next week
+            not next_week_theme):  # Only generate if no theme already set for next cycle
             
             await self._generate_next_week_theme(guild)
             await self.config.guild(guild).theme_generation_done.set(True)
@@ -2941,7 +3043,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 print(f"AI generation failed: {e}")
         
         # Fallback to templates
-        return self._get_template_announcement(announcement_type, theme, deadline)
+        return await self._get_template_announcement(guild, announcement_type, theme, deadline)
     
     async def _generate_with_ai(self, announcement_type: str, theme: str, deadline: Optional[str], api_url: str, api_key: str, guild) -> Optional[str]:
         """Generate announcement using AI API (OpenAI-compatible format)"""
@@ -2995,8 +3097,11 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             print(f"AI API error: {e}")
             return None
     
-    def _get_template_announcement(self, announcement_type: str, theme: str, deadline: Optional[str]) -> str:
+    async def _get_template_announcement(self, guild, announcement_type: str, theme: str, deadline: Optional[str]) -> str:
         """Fallback template announcements with Discord timestamps"""
+        
+        # Check if bi-weekly mode is enabled
+        biweekly_mode = await self.config.guild(guild).biweekly_mode()
         
         # Generate Discord timestamp for deadline if not provided
         if not deadline:
@@ -3007,14 +3112,24 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             # If deadline is already provided, assume it's already formatted
             deadline_full = deadline
         
+        # Create mode-specific text
+        if biweekly_mode:
+            cycle_text = "🎵 **Collab Warz - NEW CYCLE STARTS!** 🎵\n\n✨ **This cycle's theme:** **{theme}** ✨\n\n📝 **Submission Phase:** Week 1 (Monday to Sunday)\n🗳️ **Voting Phase:** Week 2 (Monday to Sunday)\n\nTeam up with someone and create magic together! 🤝"
+            winner_next = "🔥 Get ready for next cycle's challenge!\n\n*New theme drops in 2 weeks!* 🚀"
+            schedule_info = "📅 **Bi-Weekly Schedule:** 2-week cycles with extended submission and voting phases"
+        else:
+            cycle_text = "🎵 **Collab Warz - NEW WEEK STARTS!** 🎵\n\n✨ **This week's theme:** **{theme}** ✨\n\n📝 **Submission Phase:** Monday to Friday noon\n🗳️ **Voting Phase:** Friday noon to Sunday\n\nTeam up with someone and create magic together! 🤝"
+            winner_next = "🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
+            schedule_info = ""
+        
         templates = {
-            "submission_start": f"🎵 **Collab Warz - NEW WEEK STARTS!** 🎵\n\n✨ **This week's theme:** **{theme}** ✨\n\n📝 **Submission Phase:** Monday to Friday noon\n🗳️ **Voting Phase:** Friday noon to Sunday\n\nTeam up with someone and create magic together! 🤝\n\n**📋 How to Submit (Discord):**\nIn ONE message, include:\n• `Team name: YourTeamName`\n• Tag your partner: `@username`\n• Your Suno.com link (only accepted format)\n\n**🌐 Alternative:** Submit & vote on our website:\n**https://collabwarz.soundgarden.app**\n\n**💡 Need Help?** Use `!info` for submission guide or `!status` for current competition status\n\n⏰ **Submissions deadline:** {deadline_full}",
+            "submission_start": f"{cycle_text.format(theme=theme)}\n\n**📋 How to Submit (Discord):**\nIn ONE message, include:\n• `Team name: YourTeamName`\n• Tag your partner: `@username`\n• Your Suno.com link (only accepted format)\n\n**🌐 Alternative:** Submit & vote on our website:\n**https://collabwarz.soundgarden.app**\n\n**💡 Need Help?** Use `!info` for submission guide or `!status` for current competition status\n\n{schedule_info}\n\n⏰ **Submissions deadline:** {deadline_full}",
             
             "voting_start": f"🗳️ **VOTING IS NOW OPEN!** 🗳️\n\n🎵 **Theme:** **{theme}**\n\nThe submissions are in! Time to listen and vote for your favorites! 🎧\n\n**🌐 Listen & Vote:** https://collabwarz.soundgarden.app\n\n**💡 Commands:** Use `!info` for competition guide or `!status` for detailed status\n\nEvery vote counts - support the artists! 💫\n\n⏰ **Voting closes:** {deadline_full}",
             
             "reminder": f"⏰ **FINAL CALL!** ⏰\n\n{'🎵 Submissions' if 'submission' in announcement_type else '🗳️ Voting'} for **{theme}** ends {deadline}!\n\n{'Submit your collaboration now!' if 'submission' in announcement_type else 'Cast your votes and support the artists!'} 🎶\n\n🌐 **Website:** https://collabwarz.soundgarden.app\n💡 **Help:** Use `!info` or `!status` for guidance\n\n{'⏰ Last chance to team up and create!' if 'submission' in announcement_type else '⏰ Every vote matters!'}",
             
-            "winner": f"🏆 **WINNER ANNOUNCEMENT!** 🏆\n\n🎉 Congratulations to the champions of **{theme}**! 🎉\n\nIncredible collaboration and amazing music! 🎵✨\n\n🌐 **Listen to all tracks:** https://collabwarz.soundgarden.app\n💡 **Commands:** Use `!info` for competition guide or `!status` for details\n\n🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
+            "winner": f"🏆 **WINNER ANNOUNCEMENT!** 🏆\n\n🎉 Congratulations to the champions of **{theme}**! 🎉\n\nIncredible collaboration and amazing music! 🎵✨\n\n🌐 **Listen to all tracks:** https://collabwarz.soundgarden.app\n💡 **Commands:** Use `!info` for competition guide or `!status` for details\n\n{winner_next}"
         }
         
         return templates.get(announcement_type, f"Collab Warz update: {theme}")
@@ -3107,6 +3222,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "`[p]cw settestchannel #channel` - Set test channel\n"
                 "`[p]cw settheme Theme` - Change theme\n"
                 "`[p]cw everyone` - Toggle @everyone ping in announcements\n"
+                "`[p]cw biweekly` - Toggle bi-weekly mode (2-week cycles)\n"
                 "`[p]cw timeout 30` - Set timeout for non-submission confirmations\n"
                 "`[p]cw status` - View current status"
             ),
@@ -3364,6 +3480,59 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         status = "✅ Enabled" if new_value else "❌ Disabled"
         await ctx.send(f"{status} @everyone ping in announcements")
     
+    @collabwarz.command(name="biweekly")
+    async def toggle_biweekly_mode(self, ctx):
+        """Toggle bi-weekly competition mode (every 2 weeks instead of weekly)"""
+        current = await self.config.guild(ctx.guild).biweekly_mode()
+        new_value = not current
+        
+        await self.config.guild(ctx.guild).biweekly_mode.set(new_value)
+        
+        embed = discord.Embed(
+            title="🗓️ Bi-Weekly Mode Configuration",
+            color=discord.Color.green() if new_value else discord.Color.orange()
+        )
+        
+        if new_value:
+            embed.add_field(
+                name="✅ Bi-Weekly Mode Enabled",
+                value=(
+                    "• **Competition cycle:** Every 2 weeks\n"
+                    "• **Submission phase:** Week 1 (Monday-Friday noon)\n"
+                    "• **Voting phase:** Week 2 (Friday noon-Sunday)\n"
+                    "• **Winner announcement:** End of Week 2\n"
+                    "• **Next cycle starts:** Monday of Week 3"
+                ),
+                inline=False
+            )
+            embed.add_field(
+                name="🔄 Cycle Grouping",
+                value="Weeks 1-2 = Cycle 1, Weeks 3-4 = Cycle 2, etc.",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="❌ Bi-Weekly Mode Disabled",
+                value=(
+                    "• **Competition cycle:** Weekly\n"
+                    "• **Submission phase:** Monday-Friday noon\n"
+                    "• **Voting phase:** Friday noon-Sunday\n"
+                    "• **Winner announcement:** Sunday evening\n"
+                    "• **Next week starts:** Following Monday"
+                ),
+                inline=False
+            )
+        
+        embed.add_field(
+            name="⚠️ Important Note",
+            value="Changing this setting affects how competition cycles are tracked. Active competitions will continue under the previous setting until the next cycle starts.",
+            inline=False
+        )
+        
+        embed.set_footer(text="Use `[p]cw status` to see current competition information")
+        
+        await ctx.send(embed=embed)
+    
     @collabwarz.command(name="generatetheme")
     async def generate_theme_manual(self, ctx):
         """Generate theme for next week using AI"""
@@ -3523,14 +3692,28 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         auto = await self.config.guild(ctx.guild).auto_announce()
         last_announcement = await self.config.guild(ctx.guild).last_announcement()
         winner_announced = await self.config.guild(ctx.guild).winner_announced()
+        biweekly_mode = await self.config.guild(ctx.guild).biweekly_mode()
         
         channel = ctx.guild.get_channel(channel_id) if channel_id else None
         
         # Calculate expected phase
         now = datetime.utcnow()
         day = now.weekday()
-        expected_phase = "submission" if day <= 2 else "voting"
-        current_week = now.isocalendar()[1]
+        iso_year, iso_week, _ = now.isocalendar()
+        
+        if biweekly_mode:
+            week_in_cycle = ((iso_week - 1) % 2) + 1
+            if week_in_cycle == 1:
+                expected_phase = "submission"
+            else:
+                expected_phase = "voting"
+            cycle_number = ((iso_week - 1) // 2) + 1
+        else:
+            expected_phase = "submission" if day <= 2 else "voting"
+            cycle_number = None
+        
+        current_week = iso_week
+        competition_key = await self._get_competition_week_key(ctx.guild)
         
         embed = discord.Embed(
             title="🎵 Collab Warz Status",
@@ -3539,6 +3722,14 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         embed.add_field(name="Current Theme", value=f"**{theme}**", inline=True)
         embed.add_field(name="Current Phase", value=f"**{phase.title()}**", inline=True)
         embed.add_field(name="Expected Phase", value=f"**{expected_phase.title()}**", inline=True)
+        
+        # Competition mode and timing info
+        if biweekly_mode:
+            embed.add_field(name="Competition Mode", value="🗓️ **Bi-Weekly** (2-week cycles)", inline=True)
+            embed.add_field(name="Current Cycle", value=f"**{competition_key}** (Week {week_in_cycle}/2)", inline=True)
+        else:
+            embed.add_field(name="Competition Mode", value="📅 **Weekly**", inline=True)
+            embed.add_field(name="Current Week", value=f"**{competition_key}**", inline=True)
         
         # Next week theme status
         next_week_theme = await self.config.guild(ctx.guild).next_week_theme()
@@ -3550,9 +3741,9 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         elif theme_generation_done:
             next_theme_status = "🔄 Pending confirmation"
         
-        embed.add_field(name="Next Week Theme", value=next_theme_status, inline=True)
+        next_theme_label = "Next Cycle Theme" if biweekly_mode else "Next Week Theme"
+        embed.add_field(name=next_theme_label, value=next_theme_status, inline=True)
         embed.add_field(name="Auto-Announce", value="✅ Enabled" if auto else "❌ Disabled", inline=True)
-        embed.add_field(name="Week Number", value=f"**{current_week}**", inline=True)
         embed.add_field(name="Winner Announced", value="✅ Yes" if winner_announced else "❌ No", inline=True)
         
         # Confirmation settings
@@ -4254,7 +4445,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     async def count_teams_manual(self, ctx):
         """Manually count current participating teams"""
         # Get detailed breakdown for debugging
-        week_key = self._get_current_week_key()
+        week_key = await self._get_competition_week_key(ctx.guild)
         
         # Count Discord registered teams
         submitted_teams = await self.config.guild(ctx.guild).submitted_teams()
@@ -4395,8 +4586,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     
     @collabwarz.command(name="listteams")
     async def list_current_teams(self, ctx):
-        """List all registered teams for current week"""
-        week_key = self._get_current_week_key()
+        """List all registered teams for current competition cycle"""
+        week_key = await self._get_competition_week_key(ctx.guild)
         submitted_teams = await self.config.guild(ctx.guild).submitted_teams()
         team_members = await self.config.guild(ctx.guild).team_members()
         
@@ -4404,7 +4595,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         week_members = team_members.get(week_key, {})
         
         embed = discord.Embed(
-            title=f"📋 Registered Teams - Week {week_key}",
+            title=f"📋 Registered Teams - {week_key}",
             color=discord.Color.blue()
         )
         
@@ -4430,14 +4621,14 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     
     @collabwarz.command(name="clearteams")
     async def clear_week_teams(self, ctx, week: str = None):
-        """Clear team registrations for specified week (or current week) - ADMIN USE ONLY"""
+        """Clear team registrations for specified competition cycle (or current cycle) - ADMIN USE ONLY"""
         if week is None:
-            week = self._get_current_week_key()
+            week = await self._get_competition_week_key(ctx.guild)
         
         # Show warning about permanent deletion
         embed = discord.Embed(
             title="⚠️ Clear Team Registrations",
-            description=f"This will **permanently delete** all team registrations for week `{week}`.\n\n"
+            description=f"This will **permanently delete** all team registrations for `{week}`.\n\n"
                        f"**This action cannot be undone and will affect historical data!**",
             color=discord.Color.red()
         )
