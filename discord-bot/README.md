@@ -2139,12 +2139,25 @@ Winners of each weekly competition automatically receive rep points (petals) thr
 
 **🎵 Winning Team:** `Amazing Duo`
 **👥 Members:** @Alice & @Bob
+**🎧 Winning Song:** https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26
+**� Title:** "Neon Cityscape"
+**⏱️ Duration:** 185.3s
 
-**🌸 Rep Rewards:**
+**📊 Final Results:**
+🏆 **Amazing Duo**: 45 votes
+• **Digital Warriors**: 38 votes
+• **Synth Masters**: 22 votes
+• **Beat Collective**: 18 votes
+• **Sound Architects**: 12 votes
+
+**�🌸 Rep Rewards:**
 • @Alice: +2 petals (Total: 15 petals)
 • @Bob: +2 petals (Total: 8 petals)
 
 🔥 Incredible collaboration and amazing music! 🎵✨
+
+🌐 **Listen to all tracks:** https://collabwarz.soundgarden.app
+💡 **Commands:** Use `!info` for competition guide or `!status` for details
 
 🔥 Get ready for next week's challenge!
 
