@@ -148,24 +148,31 @@ class CollabWarz(commands.Cog):
         """Count the number of teams with submissions this week"""
         try:
             week_key = self._get_current_week_key()
+            
+            # Count teams from different sources
+            total_teams = set()  # Use set to avoid double-counting
+            
+            # 1. Count Discord registered teams for current week
             submitted_teams = await self.config.guild(guild).submitted_teams()
-            
-            # Count registered teams for current week
             week_teams = submitted_teams.get(week_key, [])
-            registered_count = len(week_teams)
+            for team_name in week_teams:
+                total_teams.add(team_name)
             
-            # Also check for unregistered submissions (fallback for website/old submissions)
+            # 2. Count web submissions (from submissions config)
+            # Note: submissions config contains all current active submissions
+            submissions = await self.config.guild(guild).submissions()
+            for team_name in submissions.keys():
+                total_teams.add(team_name)
+            
+            # 3. Also check for unregistered submissions (fallback for raw Discord messages)
             validate_enabled = await self.config.guild(guild).validate_discord_submissions()
             if not validate_enabled:
-                # If validation is disabled, count raw messages as before
-                return await self._count_raw_submissions(guild)
+                # If validation is disabled, also count raw messages
+                raw_count = await self._count_raw_submissions(guild)
+                # For raw counting, we can't get team names, so just return the max
+                return max(len(total_teams), raw_count)
             
-            # If validation is enabled, we might have some unregistered submissions
-            # Add them to the count but don't double-count
-            raw_count = await self._count_raw_submissions(guild)
-            
-            # Return the maximum to account for both registered and unregistered submissions
-            return max(registered_count, raw_count)
+            return len(total_teams)
             
         except Exception as e:
             print(f"Error counting teams in {guild.name}: {e}")
@@ -4246,7 +4253,27 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     @collabwarz.command(name="countteams")
     async def count_teams_manual(self, ctx):
         """Manually count current participating teams"""
-        team_count = await self._count_participating_teams(ctx.guild)
+        # Get detailed breakdown for debugging
+        week_key = self._get_current_week_key()
+        
+        # Count Discord registered teams
+        submitted_teams = await self.config.guild(ctx.guild).submitted_teams()
+        discord_teams = set(submitted_teams.get(week_key, []))
+        
+        # Count web submissions  
+        submissions = await self.config.guild(ctx.guild).submissions()
+        web_teams = set(submissions.keys())
+        
+        # Count raw submissions if validation is disabled
+        validate_enabled = await self.config.guild(ctx.guild).validate_discord_submissions()
+        raw_count = 0
+        if not validate_enabled:
+            raw_count = await self._count_raw_submissions(ctx.guild)
+        
+        # Total unique teams
+        all_teams = discord_teams.union(web_teams)
+        team_count = max(len(all_teams), raw_count) if not validate_enabled else len(all_teams)
+        
         min_teams = await self.config.guild(ctx.guild).min_teams_required()
         
         submission_channel_id = await self.config.guild(ctx.guild).submission_channel()
@@ -4262,30 +4289,41 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         )
         
         embed.add_field(
-            name="Current Teams",
+            name="📈 Total Teams",
             value=f"**{team_count}** teams found",
             inline=True
         )
         
         embed.add_field(
-            name="Required",
+            name="🎯 Required",
             value=f"**{min_teams}** minimum",
             inline=True
         )
         
         embed.add_field(
-            name="Status",
+            name="✅ Status",
             value="✅ Sufficient" if team_count >= min_teams else "❌ Insufficient",
             inline=True
         )
         
+        # Breakdown
+        breakdown_value = f"🤖 **Discord:** {len(discord_teams)} teams\n🌐 **Web:** {len(web_teams)} teams"
+        if not validate_enabled and raw_count > 0:
+            breakdown_value += f"\n📝 **Raw messages:** {raw_count}"
+        
         embed.add_field(
-            name="Submission Channel",
+            name="📊 Breakdown",
+            value=breakdown_value,
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📍 Submission Channel",
             value=channel_name,
             inline=False
         )
         
-        embed.set_footer(text="Teams are counted based on registered submissions + raw message detection")
+        embed.set_footer(text=f"Week: {week_key} • Validation: {'ON' if validate_enabled else 'OFF'}")
         
         await ctx.send(embed=embed)
     
