@@ -6,11 +6,14 @@ import SongCard from "../components/SongCard";
 import SubmitModal from "../components/SubmitModal";
 import { currentChallenge, previousChallenge } from "../data/mockData";
 
-export default function Current({ onPlaySong }) {
+export default function Current({ onPlaySong, onNavigateToTeam, onNavigateToArtist }) {
   const { user, loginWithDiscord } = useAuth();
   const [songs, setSongs] = useState(currentChallenge.songs);
   const [votedSongId, setVotedSongId] = useState(null);
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
+
+  // Check if user is on Discord server - for now, assume false until we have real data
+  const isOnDiscordServer = user?.onDiscordServer || false;
 
   const handleVote = (songId) => {
     if (!user) {
@@ -51,6 +54,7 @@ export default function Current({ onPlaySong }) {
         winner={previousChallenge.winner} 
         theme={previousChallenge.theme}
         onPlay={onPlaySong}
+        onNavigateToTeam={onNavigateToTeam}
       />
 
       <PhaseInfo
@@ -91,6 +95,9 @@ export default function Current({ onPlaySong }) {
               hasVoted={votedSongId === song.id}
               isLoggedIn={!!user}
               onLoginRequired={loginWithDiscord}
+              onPlaySong={onPlaySong}
+              onNavigateToTeam={onNavigateToTeam}
+              onNavigateToArtist={onNavigateToArtist}
             />
           ))}
         </div>

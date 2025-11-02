@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { artistsData } from '../data/mockData';
 
-export default function Artists() {
+export default function Artists({ selectedArtist, setSelectedArtist, onNavigateToTeam, onPlaySong }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedArtist, setSelectedArtist] = useState(null);
   const [showDropdown, setShowDropdown] = useState(false);
 
   const filteredArtists = artistsData.filter(artist =>
@@ -20,6 +19,12 @@ export default function Artists() {
     setSelectedArtist(null);
   };
 
+  // Get Suno avatar URL - uses placeholder for now
+  // In production, this would fetch actual avatar from Suno API
+  const getAvatarUrl = () => {
+    return 'https://via.placeholder.com/80';
+  };
+
   if (selectedArtist) {
     return (
       <section className="page artists-page">
@@ -28,20 +33,29 @@ export default function Artists() {
         </button>
         
         <div className="artist-detail">
-          <div className="artist-detail-header">
+          <div className="artist-detail-header-horizontal">
             <div className={`artist-rank-badge rank-${selectedArtist.rank.toLowerCase()}`}>
               {selectedArtist.rank}
             </div>
             <h2 className="artist-detail-name">{selectedArtist.name}</h2>
             {selectedArtist.sunoProfile && (
-              <a 
-                href={selectedArtist.sunoProfile} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="btn-suno-profile"
-              >
-                🎵 Suno Profile
-              </a>
+              <>
+                <a 
+                  href={selectedArtist.sunoProfile} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="btn-suno-profile"
+                >
+                  🎵 Suno Profile
+                </a>
+                <div className="artist-avatar">
+                  <img 
+                    src={getAvatarUrl()} 
+                    alt={`${selectedArtist.name}'s avatar`}
+                    style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover' }}
+                  />
+                </div>
+              </>
             )}
           </div>
 
@@ -65,7 +79,14 @@ export default function Artists() {
               <h3>Teams</h3>
               <div className="teams-list">
                 {selectedArtist.teams.map((team, idx) => (
-                  <span key={idx} className="team-tag">{team}</span>
+                  <span 
+                    key={idx} 
+                    className="team-tag team-tag-compact"
+                    onClick={() => onNavigateToTeam && onNavigateToTeam(team)}
+                    style={{ cursor: onNavigateToTeam ? 'pointer' : 'default' }}
+                  >
+                    {team}
+                  </span>
                 ))}
               </div>
             </div>
@@ -84,9 +105,36 @@ export default function Artists() {
                     <p className="history-theme">Theme: {song.theme}</p>
                     <div className="history-winner">
                       <div className="winner-details">
-                        <p className="winner-team">Team: {song.team}</p>
+                        <p className="winner-team">
+                          Team: {onNavigateToTeam ? (
+                            <span 
+                              className="team-chip clickable-chip"
+                              onClick={() => onNavigateToTeam(song.team)}
+                            >
+                              {song.team}
+                            </span>
+                          ) : (
+                            song.team
+                          )}
+                        </p>
                         <p className="winner-stats">{song.votes} votes{song.isWinner ? ' • 🏆 Winner' : ''}</p>
                       </div>
+                      {onPlaySong && (
+                        <button 
+                          className="history-play-btn"
+                          onClick={() => onPlaySong({
+                            id: `artist-song-${idx}`,
+                            title: song.title,
+                            participants: [selectedArtist.name],
+                            imageUrl: 'https://via.placeholder.com/200',
+                            audioUrl: 'https://cdn.suno.com/audio/mock.mp3',
+                            sunoUrl: song.sunoUrl
+                          })}
+                          aria-label={`Play ${song.title}`}
+                        >
+                          ▶
+                        </button>
+                      )}
                     </div>
                     <a 
                       href={song.sunoUrl} 
