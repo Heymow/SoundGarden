@@ -191,7 +191,7 @@ class CollabWarz(commands.Cog):
             
             team_count = 0
             async for message in channel.history(after=week_start, limit=None):
-                if message.attachments or 'suno.com' in message.content.lower():
+                if 'suno.com' in message.content.lower():
                     team_count += 1
             
             return team_count
@@ -412,7 +412,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         error_msg += "```\n"
         error_msg += "Team name: Amazing Duo\n"
         error_msg += "@YourPartner check out our track!\n"
-        error_msg += "[Suno.com link or audio file attachment]\n"
+        error_msg += "[Suno.com link only]\n"
         error_msg += "```\n"
         error_msg += "💡 **Alternative:** Submit via our website: **https://collabwarz.soundgarden.app**\n"
         error_msg += "ℹ️ **Need help?** Use `!info` for submission guide or `!status` for competition status"
@@ -1852,9 +1852,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     "errors": [
                         "**Only Suno.com URLs are accepted**",
                         "Forbidden platforms: SoundCloud, YouTube, Bandcamp, Spotify, Google Drive",
-                        "**Allowed submissions:**",
-                        "• File attachments (audio files)",
-                        "• Valid Suno.com URLs: `https://suno.com/s/...` or `https://suno.com/song/...`"
+                        "**Valid submissions:**",
+                        "• Valid Suno.com URLs only: `https://suno.com/s/...` or `https://suno.com/song/...`"
                     ]
                 }
             
@@ -1862,6 +1861,19 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             suno_urls = self._extract_suno_urls_from_text(message.content)
             has_suno_reference = 'suno.com' in message.content.lower()
             has_attachment = len(message.attachments) > 0
+            
+            # Reject file attachments - only Suno URLs are allowed
+            if has_attachment:
+                return {
+                    "success": False,
+                    "errors": [
+                        "**File attachments are not accepted**",
+                        "Valid submissions must be Suno.com URLs only:",
+                        "• `https://suno.com/s/kFacPCnBlw9n9oEP`",
+                        "• `https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26`",
+                        "Please create your collaboration on Suno.com and share the link."
+                    ]
+                }
             
             if has_suno_reference and not suno_urls:
                 return {
@@ -1874,15 +1886,15 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     ]
                 }
             
-            # Must have either attachment or valid Suno URL
-            if not (has_attachment or suno_urls):
+            # Must have valid Suno URL
+            if not suno_urls:
                 return {
                     "success": False,
                     "errors": [
                         "**No valid submission content**",
-                        "Please include either:",
-                        "• An audio file attachment",
-                        "• A valid Suno.com URL"
+                        "Please include a valid Suno.com URL:",
+                        "• `https://suno.com/s/kFacPCnBlw9n9oEP`",
+                        "• `https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26`"
                     ]
                 }
             
@@ -1971,18 +1983,29 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 error_msg = (
                     "❌ **Only Suno.com URLs are accepted**\n\n"
                     "**Forbidden platforms**: SoundCloud, YouTube, Bandcamp, Spotify, Google Drive\n"
-                    "**Allowed submissions**:\n"
-                    "• File attachments (audio files)\n"
-                    "• Valid Suno.com URLs:\n"
+                    "**Valid submissions**:\n"
+                    "• Valid Suno.com URLs only:\n"
                     "  - `https://suno.com/s/kFacPCnBlw9n9oEP`\n"
                     "  - `https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26`\n\n"
-                    "Please use Suno.com or attach your audio file directly."
+                    "Please use Suno.com to create and share your collaboration."
                 )
                 await self._send_submission_error(message.channel, message.author, [error_msg])
                 return
             
-            # Check if it's a potential submission
-            if not (has_attachment or has_valid_suno or has_suno_reference):
+            # Reject file attachments - only Suno URLs are allowed
+            if has_attachment:
+                error_msg = (
+                    "❌ **File attachments are not accepted**\n\n"
+                    "**Valid submissions must be Suno.com URLs only:**\n"
+                    "• `https://suno.com/s/kFacPCnBlw9n9oEP`\n"
+                    "• `https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26`\n\n"
+                    "Please create your collaboration on Suno.com and share the link."
+                )
+                await self._send_submission_error(message.channel, message.author, [error_msg])
+                return
+            
+            # Check if it's a potential submission (only Suno URLs now)
+            if not (has_valid_suno or has_suno_reference):
                 return  # Not a submission, ignore
             
             # Validate Suno URLs if referenced
@@ -2978,7 +3001,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             deadline_full = deadline
         
         templates = {
-            "submission_start": f"🎵 **Collab Warz - NEW WEEK STARTS!** 🎵\n\n✨ **This week's theme:** **{theme}** ✨\n\n📝 **Submission Phase:** Monday to Friday noon\n🗳️ **Voting Phase:** Friday noon to Sunday\n\nTeam up with someone and create magic together! 🤝\n\n**📋 How to Submit (Discord):**\nIn ONE message, include:\n• `Team name: YourTeamName`\n• Tag your partner: `@username`\n• Your Suno.com link or audio file attachment\n\n**🌐 Alternative:** Submit & vote on our website:\n**https://collabwarz.soundgarden.app**\n\n**💡 Need Help?** Use `!info` for submission guide or `!status` for current competition status\n\n⏰ **Submissions deadline:** {deadline_full}",
+            "submission_start": f"🎵 **Collab Warz - NEW WEEK STARTS!** 🎵\n\n✨ **This week's theme:** **{theme}** ✨\n\n📝 **Submission Phase:** Monday to Friday noon\n🗳️ **Voting Phase:** Friday noon to Sunday\n\nTeam up with someone and create magic together! 🤝\n\n**📋 How to Submit (Discord):**\nIn ONE message, include:\n• `Team name: YourTeamName`\n• Tag your partner: `@username`\n• Your Suno.com link (only accepted format)\n\n**🌐 Alternative:** Submit & vote on our website:\n**https://collabwarz.soundgarden.app**\n\n**💡 Need Help?** Use `!info` for submission guide or `!status` for current competition status\n\n⏰ **Submissions deadline:** {deadline_full}",
             
             "voting_start": f"🗳️ **VOTING IS NOW OPEN!** 🗳️\n\n🎵 **Theme:** **{theme}**\n\nThe submissions are in! Time to listen and vote for your favorites! 🎧\n\n**🌐 Listen & Vote:** https://collabwarz.soundgarden.app\n\n**💡 Commands:** Use `!info` for competition guide or `!status` for detailed status\n\nEvery vote counts - support the artists! 💫\n\n⏰ **Voting closes:** {deadline_full}",
             
@@ -3693,7 +3716,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "**In ONE message, include:**\n"
                 "• `Team name: YourTeamName`\n"
                 "• Tag your partner: `@username`\n"
-                "• Your Suno.com link or audio file attachment\n\n"
+                "• Your Suno.com link (only accepted format)\n\n"
                 "**Example:**\n"
                 "```\nTeam name: Sonic Wizards\n"
                 "@john Check out our collab!\n"
@@ -4285,7 +4308,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "Users must include:\n"
                 "• `Team name: YourTeamName`\n"
                 "• @mention of their partner\n"
-                "• Suno.com link or audio file attachment\n\n"
+                "• Suno.com link (only accepted format)\n\n"
                 "Invalid submissions will receive error messages."
             )
         else:

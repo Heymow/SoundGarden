@@ -25,7 +25,7 @@
 
 ## Overview
 
-The **Collab Warz Bot** fully automates the management of a weekly music collaboration competition on Discord. It handles announcements, phases (submission/voting), reminders, and can even generate creative themes using AI. **Submissions are restricted to Suno.com URLs and file attachments only.**
+The **Collab Warz Bot** fully automates the management of a weekly music collaboration competition on Discord. It handles announcements, phases (submission/voting), reminders, and can even generate creative themes using AI. **Submissions are restricted to Suno.com URLs only.**
 
 ### Automatic Weekly Cycle
 - **Monday 9:00 AM** : 🎵 Submissions start + new theme
@@ -72,11 +72,11 @@ These commands are available to **all users** without admin permissions:
    https://suno.com/song/your-song-id
    ```
 3. **Vote during voting phase** (Friday noon to Sunday): **https://collabwarz.soundgarden.app**
-4. **Only Suno.com links or audio file attachments are accepted** - other platforms are not allowed
+4. **Only Suno.com links are accepted** - other platforms and file attachments are not allowed
 
 ### ⚠️ Platform Restrictions
-- ✅ **Accepted**: Suno.com URLs and direct audio file attachments
-- ❌ **Rejected**: SoundCloud, YouTube, Bandcamp, Spotify, Google Drive links
+- ✅ **Accepted**: Suno.com URLs only
+- ❌ **Rejected**: SoundCloud, YouTube, Bandcamp, Spotify, Google Drive links, file attachments
 
 ---
 
@@ -1092,8 +1092,7 @@ The bot automatically moderates the submission channel to ensure clean, organize
 ### 🎵 Suno-Only Policy (Platform Restrictions)
 
 #### ✅ **Accepted Platforms**
-- **Suno.com URLs** - Both short format (`/s/...`) and full song format (`/song/...`)
-- **Audio file attachments** - Direct upload to Discord
+- **Suno.com URLs only** - Both short format (`/s/...`) and full song format (`/song/...`)
 
 #### ❌ **Rejected Platforms**
 - **SoundCloud** - Not accepted
@@ -1101,7 +1100,8 @@ The bot automatically moderates the submission channel to ensure clean, organize
 - **Bandcamp** - Not accepted
 - **Spotify** - Not accepted
 - **Google Drive** - Not accepted
-- **Any other platform** - Only Suno.com and direct attachments allowed
+- **File attachments** - Not accepted
+- **Any other platform** - Only Suno.com allowed
 
 #### 🛡️ **Automatic Enforcement**
 - **Immediate rejection** of forbidden platforms with clear error messages
@@ -1935,7 +1935,7 @@ The bot monitors team participation and automatically cancels weeks with insuffi
 
 **How it works**:
 1. **Friday noon**: Bot checks for minimum required teams
-2. **Count submissions**: Messages with attachments or music platform links
+2. **Count submissions**: Messages with Suno.com links
 3. **Cancel if insufficient**: Announces cancellation and schedules restart
 4. **Monday restart**: Automatic restart with new theme
 
@@ -1948,11 +1948,10 @@ The bot monitors team participation and automatically cancels weeks with insuffi
 
 ### Submission Detection
 The bot counts teams based on messages containing:
-- **File attachments** (audio files, etc.)
-- **Suno.com URLs only** (other music platforms are forbidden)
+- **Suno.com URLs only** (other music platforms and file attachments are forbidden)
 
-**⚠️ Forbidden Platforms**: SoundCloud, YouTube, Bandcamp, Spotify, Google Drive
-**✅ Allowed**: File attachments and Suno.com URLs only
+**⚠️ Forbidden Platforms**: SoundCloud, YouTube, Bandcamp, Spotify, Google Drive, file attachments
+**✅ Allowed**: Suno.com URLs only
 
 ### Suno.com URL Validation
 For Suno.com submissions, URLs must follow valid formats:
@@ -1991,7 +1990,7 @@ The bot can validate Discord submissions to ensure proper team formation and pre
 ```
 Team name: Amazing Duo
 @YourPartner check out our track!
-[attachment or music platform link]
+[Suno.com link only]
 ```
 
 ### Validation Rules
@@ -1999,7 +1998,7 @@ Team name: Amazing Duo
 2. **Partner Mention Required**: Must @mention collaboration partner  
 3. **One Submission Per Team**: Each team name can only be used once per week
 4. **One Team Per Person**: Each person can only be in one team per week
-5. **Content Required**: Must have attachment or music platform link
+5. **Content Required**: Must have valid Suno.com link
 
 ### Error Messages
 Invalid submissions receive automatic error messages:
@@ -2494,11 +2493,6 @@ app.listen(3000, () => {
 
 #### Valid Discord Submissions
 ```
-✅ VALID: Attachment submission
-Team name: Beat Makers  
-@alice our track is attached! 🎵
-[Attached: collaboration.mp3]
-
 ✅ VALID: Suno.com submission (short format)
 Team name: AI Creators
 @charlie check our AI-generated collaboration!
