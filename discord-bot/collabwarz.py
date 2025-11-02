@@ -79,6 +79,16 @@ class CollabWarz(commands.Cog):
             "individual_votes": {},     # Track individual votes {week: {user_id: team_name}}
             "session_token_required": True,   # Require Discord session tokens for voting
             "biweekly_mode": False,     # Enable bi-weekly competitions (every 2 weeks)
+            
+            # Comprehensive normalized data structures
+            "artists_db": {},           # {user_id: {name, suno_profile, discord_rank, stats, teams, songs}}
+            "teams_db": {},             # {team_id: {name, members, stats, songs_by_week}}
+            "songs_db": {},             # {song_id: {title, artists, team_id, week, suno_data, vote_stats}}
+            "weeks_db": {},             # {week_key: {theme, date, status, teams, songs, winner, vote_totals}}
+            "next_unique_ids": {        # Track next available IDs for normalization
+                "team_id": 1,
+                "song_id": 1
+            }
         }
         
         self.config.register_guild(**default_guild)
@@ -328,6 +338,256 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         # Week 2, 4, 6, etc. are off weeks
         return iso_week % 2 == 1
     
+    # ========== COMPREHENSIVE DATA MANAGEMENT SYSTEM ==========
+    
+    async def _get_or_create_artist(self, guild, user_id: int, user_name: str = None) -> dict:
+        """Get or create artist entry in normalized database"""
+        artists_db = await self.config.guild(guild).artists_db()
+        user_id_str = str(user_id)
+        
+        if user_id_str not in artists_db:
+            # Create new artist entry
+            member = guild.get_member(user_id)
+            display_name = user_name or (member.display_name if member else f"User {user_id}")
+            
+            artists_db[user_id_str] = {
+                "name": display_name,
+                "suno_profile": None,  # To be filled when discovered
+                "discord_rank": "Seed",  # Default rank
+                "stats": {
+                    "participations": 0,
+                    "victories": 0,
+                    "petals": 0,
+                    "last_updated": datetime.now().isoformat()
+                },
+                "team_history": [],  # List of {team_id, week_key, role}
+                "song_history": []   # List of song_ids this artist contributed to
+            }
+            await self.config.guild(guild).artists_db.set(artists_db)
+        
+        return artists_db[user_id_str]
+    
+    async def _get_or_create_team(self, guild, team_name: str, member_ids: list, week_key: str) -> int:
+        """Get or create team entry and return team_id"""
+        teams_db = await self.config.guild(guild).teams_db()
+        next_ids = await self.config.guild(guild).next_unique_ids()
+        
+        # Check if exact team composition exists
+        member_ids_set = set(str(uid) for uid in member_ids)
+        for team_id, team_data in teams_db.items():
+            if set(team_data["members"]) == member_ids_set and team_data["name"] == team_name:
+                return int(team_id)
+        
+        # Create new team
+        team_id = next_ids["team_id"]
+        teams_db[str(team_id)] = {
+            "name": team_name,
+            "members": [str(uid) for uid in member_ids],
+            "stats": {
+                "participations": 0,
+                "victories": 0,
+                "first_appearance": week_key,
+                "last_appearance": week_key
+            },
+            "songs_by_week": {}  # {week_key: [song_ids]}
+        }
+        
+        # Update next ID
+        next_ids["team_id"] += 1
+        await self.config.guild(guild).teams_db.set(teams_db)
+        await self.config.guild(guild).next_unique_ids.set(next_ids)
+        
+        return team_id
+    
+    async def _record_song_submission(self, guild, team_id: int, week_key: str, suno_url: str, title: str = None) -> int:
+        """Record a song submission and return song_id"""
+        songs_db = await self.config.guild(guild).songs_db()
+        teams_db = await self.config.guild(guild).teams_db()
+        next_ids = await self.config.guild(guild).next_unique_ids()
+        
+        # Create new song entry
+        song_id = next_ids["song_id"]
+        
+        # Extract Suno song ID for metadata
+        suno_song_id = self._extract_suno_song_id(suno_url)
+        
+        songs_db[str(song_id)] = {
+            "title": title or f"Song {song_id}",
+            "suno_url": suno_url,
+            "suno_song_id": suno_song_id,
+            "team_id": team_id,
+            "artists": teams_db[str(team_id)]["members"].copy(),
+            "week_key": week_key,
+            "submission_date": datetime.now().isoformat(),
+            "suno_metadata": {},  # To be filled by Suno API
+            "vote_stats": {
+                "total_votes": 0,
+                "final_position": None,
+                "won_week": False
+            }
+        }
+        
+        # Update team's song history
+        if week_key not in teams_db[str(team_id)]["songs_by_week"]:
+            teams_db[str(team_id)]["songs_by_week"][week_key] = []
+        teams_db[str(team_id)]["songs_by_week"][week_key].append(song_id)
+        
+        # Update artist song histories
+        artists_db = await self.config.guild(guild).artists_db()
+        for artist_id in teams_db[str(team_id)]["members"]:
+            if artist_id in artists_db:
+                artists_db[artist_id]["song_history"].append(song_id)
+        
+        # Update next ID
+        next_ids["song_id"] += 1
+        
+        # Save all changes
+        await self.config.guild(guild).songs_db.set(songs_db)
+        await self.config.guild(guild).teams_db.set(teams_db)
+        await self.config.guild(guild).artists_db.set(artists_db)
+        await self.config.guild(guild).next_unique_ids.set(next_ids)
+        
+        return song_id
+    
+    async def _update_week_data(self, guild, week_key: str, theme: str, status: str = "active") -> None:
+        """Update or create week data entry"""
+        weeks_db = await self.config.guild(guild).weeks_db()
+        
+        if week_key not in weeks_db:
+            weeks_db[week_key] = {
+                "theme": theme,
+                "start_date": datetime.now().isoformat(),
+                "status": status,  # active, voting, completed, cancelled
+                "teams": [],      # List of team_ids that participated
+                "songs": [],      # List of song_ids submitted
+                "total_votes": 0,
+                "winner_team_id": None,
+                "winner_song_id": None,
+                "vote_breakdown": {},  # {song_id: vote_count}
+                "participants": []     # List of user_ids who participated
+            }
+        else:
+            # Update existing week
+            weeks_db[week_key]["theme"] = theme
+            weeks_db[week_key]["status"] = status
+        
+        await self.config.guild(guild).weeks_db.set(weeks_db)
+    
+    async def _finalize_week_results(self, guild, week_key: str, winner_team_id: int, winner_song_id: int, vote_results: dict) -> None:
+        """Finalize week results and update all related statistics"""
+        weeks_db = await self.config.guild(guild).weeks_db()
+        teams_db = await self.config.guild(guild).teams_db()
+        songs_db = await self.config.guild(guild).songs_db()
+        artists_db = await self.config.guild(guild).artists_db()
+        
+        # Update week data
+        if week_key in weeks_db:
+            weeks_db[week_key].update({
+                "status": "completed",
+                "winner_team_id": winner_team_id,
+                "winner_song_id": winner_song_id,
+                "vote_breakdown": vote_results,
+                "total_votes": sum(vote_results.values()),
+                "completion_date": datetime.now().isoformat()
+            })
+        
+        # Update song vote statistics
+        for song_id_str, votes in vote_results.items():
+            if song_id_str in songs_db:
+                songs_db[song_id_str]["vote_stats"]["total_votes"] = votes
+                songs_db[song_id_str]["vote_stats"]["won_week"] = (int(song_id_str) == winner_song_id)
+        
+        # Update team statistics
+        if str(winner_team_id) in teams_db:
+            teams_db[str(winner_team_id)]["stats"]["victories"] += 1
+        
+        # Update all participating team stats
+        for team_id_str in teams_db:
+            team_data = teams_db[team_id_str]
+            if week_key in team_data["songs_by_week"]:
+                team_data["stats"]["participations"] += 1
+                team_data["stats"]["last_appearance"] = week_key
+        
+        # Update artist statistics
+        for artist_id_str in artists_db:
+            # Check if this artist participated this week
+            participated = False
+            for team_id_str, team_data in teams_db.items():
+                if (artist_id_str in team_data["members"] and 
+                    week_key in team_data["songs_by_week"]):
+                    participated = True
+                    # Add team history entry
+                    team_entry = {
+                        "team_id": int(team_id_str),
+                        "team_name": team_data["name"],
+                        "week_key": week_key,
+                        "won": (int(team_id_str) == winner_team_id)
+                    }
+                    artists_db[artist_id_str]["team_history"].append(team_entry)
+                    break
+            
+            if participated:
+                artists_db[artist_id_str]["stats"]["participations"] += 1
+                if any(team["won"] for team in artists_db[artist_id_str]["team_history"] 
+                       if team["week_key"] == week_key):
+                    artists_db[artist_id_str]["stats"]["victories"] += 1
+        
+        # Save all changes
+        await self.config.guild(guild).weeks_db.set(weeks_db)
+        await self.config.guild(guild).teams_db.set(teams_db)
+        await self.config.guild(guild).songs_db.set(songs_db)
+        await self.config.guild(guild).artists_db.set(artists_db)
+    
+    async def _update_artist_suno_profile(self, guild, user_id: int, suno_url: str) -> None:
+        """Update artist's Suno profile URL"""
+        artists_db = await self.config.guild(guild).artists_db()
+        user_id_str = str(user_id)
+        
+        if user_id_str in artists_db:
+            artists_db[user_id_str]["suno_profile"] = suno_url
+            await self.config.guild(guild).artists_db.set(artists_db)
+    
+    async def _update_artist_discord_rank(self, guild, user_id: int, rank: str) -> None:
+        """Update artist's Discord rank (Seed, Sprout, Flower, Rosegarden, Eden)"""
+        valid_ranks = ["Seed", "Sprout", "Flower", "Rosegarden", "Eden"]
+        if rank not in valid_ranks:
+            return
+        
+        artists_db = await self.config.guild(guild).artists_db()
+        user_id_str = str(user_id)
+        
+        if user_id_str in artists_db:
+            artists_db[user_id_str]["discord_rank"] = rank
+            await self.config.guild(guild).artists_db.set(artists_db)
+    
+    async def _update_artist_petals(self, guild, user_id: int) -> None:
+        """Sync artist's petal count from YAGPDB"""
+        try:
+            petal_count = await self._get_user_rep_count(guild, user_id)
+            artists_db = await self.config.guild(guild).artists_db()
+            user_id_str = str(user_id)
+            
+            if user_id_str in artists_db:
+                artists_db[user_id_str]["stats"]["petals"] = petal_count
+                artists_db[user_id_str]["stats"]["last_updated"] = datetime.now().isoformat()
+                await self.config.guild(guild).artists_db.set(artists_db)
+        except Exception as e:
+            print(f"Error updating petals for user {user_id}: {e}")
+    
+    def _extract_suno_song_id(self, suno_url: str) -> str:
+        """Extract Suno song ID from URL for metadata purposes"""
+        if not suno_url:
+            return ""
+        
+        # Suno URLs typically look like: https://suno.com/song/abc123def-456ghi-789jkl
+        import re
+        pattern = r'suno\.com/song/([a-f0-9\-]+)'
+        match = re.search(pattern, suno_url)
+        return match.group(1) if match else ""
+    
+    
+    # ========== END COMPREHENSIVE DATA MANAGEMENT ==========
+    
     def _get_current_week(self) -> str:
         """Get current week identifier (alias for _get_current_week_key for consistency)"""
         return self._get_current_week_key()
@@ -494,6 +754,18 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             app.router.add_get('/api/public/voting', self._handle_public_voting)
             app.router.add_post('/api/public/vote', self._handle_public_vote)
             app.router.add_get('/api/public/leaderboard', self._handle_public_leaderboard)
+            # Comprehensive Data API routes (new normalized database access)
+            app.router.add_get('/api/public/artists', self._handle_public_artists)
+            app.router.add_get('/api/public/artists/{user_id}', self._handle_public_artist_detail)
+            app.router.add_get('/api/public/teams', self._handle_public_teams)
+            app.router.add_get('/api/public/teams/{team_id}', self._handle_public_team_detail)
+            app.router.add_get('/api/public/songs', self._handle_public_songs)
+            app.router.add_get('/api/public/songs/{song_id}', self._handle_public_song_detail)
+            app.router.add_get('/api/public/weeks', self._handle_public_weeks)
+            app.router.add_get('/api/public/weeks/{week_key}', self._handle_public_week_detail)
+            app.router.add_get('/api/public/stats/artist/{user_id}', self._handle_public_artist_stats)
+            app.router.add_get('/api/public/stats/leaderboard', self._handle_public_stats_leaderboard)
+            
             app.router.add_options('/api/public/{path:.*}', self._handle_options_request)
             
             # Admin API routes
@@ -1834,6 +2106,667 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             print(f"Error getting public leaderboard: {e}")
             return web.json_response({"error": "Failed to get leaderboard"}, status=500)
     
+    # ========== COMPREHENSIVE DATA API ENDPOINTS ==========
+    
+    async def _handle_public_artists(self, request):
+        """Get all artists with basic info"""
+        try:
+            guild = await self._get_api_guild()
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            artists_db = await self.config.guild(guild).artists_db()
+            
+            # Format artists for public API
+            artists_list = []
+            for user_id, artist_data in artists_db.items():
+                # Get current Discord member info
+                member = guild.get_member(int(user_id))
+                
+                artist_info = {
+                    "user_id": user_id,
+                    "name": artist_data["name"],
+                    "discord_rank": artist_data["discord_rank"],
+                    "suno_profile": artist_data["suno_profile"],
+                    "stats": {
+                        "participations": artist_data["stats"]["participations"],
+                        "victories": artist_data["stats"]["victories"],
+                        "petals": artist_data["stats"]["petals"],
+                        "win_rate": (artist_data["stats"]["victories"] / artist_data["stats"]["participations"] * 100) if artist_data["stats"]["participations"] > 0 else 0
+                    },
+                    "member_info": {
+                        "username": member.name if member else None,
+                        "display_name": member.display_name if member else artist_data["name"],
+                        "avatar_url": str(member.display_avatar.url) if member and member.display_avatar else None,
+                        "is_online": member.status.name if member else "offline"
+                    } if member else None
+                }
+                artists_list.append(artist_info)
+            
+            # Sort by victories, then participations
+            artists_list.sort(key=lambda x: (x["stats"]["victories"], x["stats"]["participations"]), reverse=True)
+            
+            return web.json_response({
+                "artists": artists_list,
+                "total_count": len(artists_list),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting artists: {e}")
+            return web.json_response({"error": "Failed to get artists"}, status=500)
+    
+    async def _handle_public_artist_detail(self, request):
+        """Get detailed info for specific artist"""
+        try:
+            guild = await self._get_api_guild()
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            user_id = request.match_info['user_id']
+            artists_db = await self.config.guild(guild).artists_db()
+            teams_db = await self.config.guild(guild).teams_db()
+            songs_db = await self.config.guild(guild).songs_db()
+            
+            if user_id not in artists_db:
+                return web.json_response({"error": "Artist not found"}, status=404)
+            
+            artist_data = artists_db[user_id]
+            member = guild.get_member(int(user_id))
+            
+            # Get detailed team history with song info
+            detailed_team_history = []
+            for team_entry in artist_data["team_history"]:
+                team_id = team_entry["team_id"]
+                if str(team_id) in teams_db:
+                    team_data = teams_db[str(team_id)]
+                    
+                    # Get songs for this week
+                    week_songs = []
+                    week_key = team_entry["week_key"]
+                    if week_key in team_data["songs_by_week"]:
+                        for song_id in team_data["songs_by_week"][week_key]:
+                            if str(song_id) in songs_db:
+                                song_data = songs_db[str(song_id)]
+                                week_songs.append({
+                                    "id": song_id,
+                                    "title": song_data["title"],
+                                    "suno_url": song_data["suno_url"],
+                                    "votes": song_data["vote_stats"]["total_votes"]
+                                })
+                    
+                    detailed_team_history.append({
+                        "team_id": team_id,
+                        "team_name": team_entry["team_name"],
+                        "week_key": week_key,
+                        "won": team_entry["won"],
+                        "songs": week_songs,
+                        "teammates": [aid for aid in team_data["members"] if aid != user_id]
+                    })
+            
+            # Get song history with details
+            detailed_song_history = []
+            for song_id in artist_data["song_history"]:
+                if str(song_id) in songs_db:
+                    song_data = songs_db[str(song_id)]
+                    detailed_song_history.append({
+                        "id": song_id,
+                        "title": song_data["title"],
+                        "suno_url": song_data["suno_url"],
+                        "week_key": song_data["week_key"],
+                        "team_id": song_data["team_id"],
+                        "votes": song_data["vote_stats"]["total_votes"],
+                        "won_week": song_data["vote_stats"]["won_week"]
+                    })
+            
+            return web.json_response({
+                "artist": {
+                    "user_id": user_id,
+                    "name": artist_data["name"],
+                    "discord_rank": artist_data["discord_rank"],
+                    "suno_profile": artist_data["suno_profile"],
+                    "stats": artist_data["stats"],
+                    "team_history": detailed_team_history,
+                    "song_history": detailed_song_history,
+                    "member_info": {
+                        "username": member.name if member else None,
+                        "display_name": member.display_name if member else artist_data["name"],
+                        "avatar_url": str(member.display_avatar.url) if member and member.display_avatar else None,
+                        "is_online": member.status.name if member else "offline"
+                    } if member else None
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting artist detail: {e}")
+            return web.json_response({"error": "Failed to get artist detail"}, status=500)
+    
+    async def _handle_public_teams(self, request):
+        """Get all teams with basic info"""
+        try:
+            guild = await self._get_api_guild()
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            teams_db = await self.config.guild(guild).teams_db()
+            artists_db = await self.config.guild(guild).artists_db()
+            
+            teams_list = []
+            for team_id, team_data in teams_db.items():
+                # Get member names
+                member_names = []
+                for member_id in team_data["members"]:
+                    if member_id in artists_db:
+                        member_names.append(artists_db[member_id]["name"])
+                    else:
+                        member = guild.get_member(int(member_id))
+                        member_names.append(member.display_name if member else f"User-{member_id}")
+                
+                teams_list.append({
+                    "id": int(team_id),
+                    "name": team_data["name"],
+                    "members": team_data["members"],
+                    "member_names": member_names,
+                    "stats": team_data["stats"],
+                    "total_songs": sum(len(songs) for songs in team_data["songs_by_week"].values())
+                })
+            
+            # Sort by victories, then participations
+            teams_list.sort(key=lambda x: (x["stats"]["victories"], x["stats"]["participations"]), reverse=True)
+            
+            return web.json_response({
+                "teams": teams_list,
+                "total_count": len(teams_list),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting teams: {e}")
+            return web.json_response({"error": "Failed to get teams"}, status=500)
+    
+    async def _handle_public_team_detail(self, request):
+        """Get detailed info for specific team"""
+        try:
+            guild = await self._get_api_guild()
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            team_id = request.match_info['team_id']
+            teams_db = await self.config.guild(guild).teams_db()
+            songs_db = await self.config.guild(guild).songs_db()
+            artists_db = await self.config.guild(guild).artists_db()
+            
+            if team_id not in teams_db:
+                return web.json_response({"error": "Team not found"}, status=404)
+            
+            team_data = teams_db[team_id]
+            
+            # Get detailed member info
+            detailed_members = []
+            for member_id in team_data["members"]:
+                member = guild.get_member(int(member_id))
+                artist_data = artists_db.get(member_id, {})
+                
+                detailed_members.append({
+                    "user_id": member_id,
+                    "name": artist_data.get("name", member.display_name if member else f"User-{member_id}"),
+                    "discord_rank": artist_data.get("discord_rank", "Seed"),
+                    "suno_profile": artist_data.get("suno_profile"),
+                    "member_info": {
+                        "username": member.name if member else None,
+                        "display_name": member.display_name if member else None,
+                        "avatar_url": str(member.display_avatar.url) if member and member.display_avatar else None
+                    } if member else None
+                })
+            
+            # Get songs by week with details
+            songs_by_week = {}
+            for week_key, song_ids in team_data["songs_by_week"].items():
+                week_songs = []
+                for song_id in song_ids:
+                    if str(song_id) in songs_db:
+                        song_data = songs_db[str(song_id)]
+                        week_songs.append({
+                            "id": song_id,
+                            "title": song_data["title"],
+                            "suno_url": song_data["suno_url"],
+                            "submission_date": song_data["submission_date"],
+                            "votes": song_data["vote_stats"]["total_votes"],
+                            "won_week": song_data["vote_stats"]["won_week"]
+                        })
+                songs_by_week[week_key] = week_songs
+            
+            return web.json_response({
+                "team": {
+                    "id": int(team_id),
+                    "name": team_data["name"],
+                    "members": detailed_members,
+                    "stats": team_data["stats"],
+                    "songs_by_week": songs_by_week
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting team detail: {e}")
+            return web.json_response({"error": "Failed to get team detail"}, status=500)
+    
+    async def _handle_public_songs(self, request):
+        """Get all songs with basic info"""
+        try:
+            guild = await self._get_api_guild()
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            songs_db = await self.config.guild(guild).songs_db()
+            teams_db = await self.config.guild(guild).teams_db()
+            artists_db = await self.config.guild(guild).artists_db()
+            
+            songs_list = []
+            for song_id, song_data in songs_db.items():
+                # Get team name
+                team_name = "Unknown Team"
+                if str(song_data["team_id"]) in teams_db:
+                    team_name = teams_db[str(song_data["team_id"])]["name"]
+                
+                # Get artist names
+                artist_names = []
+                for artist_id in song_data["artists"]:
+                    if artist_id in artists_db:
+                        artist_names.append(artists_db[artist_id]["name"])
+                    else:
+                        member = guild.get_member(int(artist_id))
+                        artist_names.append(member.display_name if member else f"User-{artist_id}")
+                
+                songs_list.append({
+                    "id": int(song_id),
+                    "title": song_data["title"],
+                    "suno_url": song_data["suno_url"],
+                    "team_id": song_data["team_id"],
+                    "team_name": team_name,
+                    "artists": song_data["artists"],
+                    "artist_names": artist_names,
+                    "week_key": song_data["week_key"],
+                    "submission_date": song_data["submission_date"],
+                    "votes": song_data["vote_stats"]["total_votes"],
+                    "won_week": song_data["vote_stats"]["won_week"]
+                })
+            
+            # Sort by submission date (newest first)
+            songs_list.sort(key=lambda x: x["submission_date"], reverse=True)
+            
+            return web.json_response({
+                "songs": songs_list,
+                "total_count": len(songs_list),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting songs: {e}")
+            return web.json_response({"error": "Failed to get songs"}, status=500)
+    
+    async def _handle_public_song_detail(self, request):
+        """Get detailed info for specific song"""
+        try:
+            guild = await self._get_api_guild()
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            song_id = request.match_info['song_id']
+            songs_db = await self.config.guild(guild).songs_db()
+            teams_db = await self.config.guild(guild).teams_db()
+            artists_db = await self.config.guild(guild).artists_db()
+            
+            if song_id not in songs_db:
+                return web.json_response({"error": "Song not found"}, status=404)
+            
+            song_data = songs_db[song_id]
+            
+            # Get detailed team info
+            team_info = None
+            if str(song_data["team_id"]) in teams_db:
+                team_data = teams_db[str(song_data["team_id"])]
+                team_info = {
+                    "id": song_data["team_id"],
+                    "name": team_data["name"],
+                    "stats": team_data["stats"]
+                }
+            
+            # Get detailed artist info
+            detailed_artists = []
+            for artist_id in song_data["artists"]:
+                member = guild.get_member(int(artist_id))
+                artist_data = artists_db.get(artist_id, {})
+                
+                detailed_artists.append({
+                    "user_id": artist_id,
+                    "name": artist_data.get("name", member.display_name if member else f"User-{artist_id}"),
+                    "discord_rank": artist_data.get("discord_rank", "Seed"),
+                    "suno_profile": artist_data.get("suno_profile"),
+                    "member_info": {
+                        "username": member.name if member else None,
+                        "display_name": member.display_name if member else None,
+                        "avatar_url": str(member.display_avatar.url) if member and member.display_avatar else None
+                    } if member else None
+                })
+            
+            return web.json_response({
+                "song": {
+                    "id": int(song_id),
+                    "title": song_data["title"],
+                    "suno_url": song_data["suno_url"],
+                    "suno_song_id": song_data["suno_song_id"],
+                    "team": team_info,
+                    "artists": detailed_artists,
+                    "week_key": song_data["week_key"],
+                    "submission_date": song_data["submission_date"],
+                    "suno_metadata": song_data["suno_metadata"],
+                    "vote_stats": song_data["vote_stats"]
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting song detail: {e}")
+            return web.json_response({"error": "Failed to get song detail"}, status=500)
+    
+    async def _handle_public_weeks(self, request):
+        """Get all competition weeks with basic info"""
+        try:
+            guild = await self._get_api_guild()
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            weeks_db = await self.config.guild(guild).weeks_db()
+            
+            weeks_list = []
+            for week_key, week_data in weeks_db.items():
+                weeks_list.append({
+                    "week_key": week_key,
+                    "theme": week_data["theme"],
+                    "status": week_data["status"],
+                    "start_date": week_data["start_date"],
+                    "completion_date": week_data.get("completion_date"),
+                    "total_teams": len(week_data["teams"]),
+                    "total_songs": len(week_data["songs"]),
+                    "total_participants": len(week_data["participants"]),
+                    "total_votes": week_data["total_votes"],
+                    "winner_team_id": week_data.get("winner_team_id"),
+                    "winner_song_id": week_data.get("winner_song_id")
+                })
+            
+            # Sort by start date (newest first)
+            weeks_list.sort(key=lambda x: x["start_date"], reverse=True)
+            
+            return web.json_response({
+                "weeks": weeks_list,
+                "total_count": len(weeks_list),
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting weeks: {e}")
+            return web.json_response({"error": "Failed to get weeks"}, status=500)
+    
+    async def _handle_public_week_detail(self, request):
+        """Get detailed info for specific week"""
+        try:
+            guild = await self._get_api_guild()
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            week_key = request.match_info['week_key']
+            weeks_db = await self.config.guild(guild).weeks_db()
+            teams_db = await self.config.guild(guild).teams_db()
+            songs_db = await self.config.guild(guild).songs_db()
+            artists_db = await self.config.guild(guild).artists_db()
+            
+            if week_key not in weeks_db:
+                return web.json_response({"error": "Week not found"}, status=404)
+            
+            week_data = weeks_db[week_key]
+            
+            # Get detailed team info
+            detailed_teams = []
+            for team_id in week_data["teams"]:
+                if str(team_id) in teams_db:
+                    team_data = teams_db[str(team_id)]
+                    
+                    # Get member names
+                    member_names = []
+                    for member_id in team_data["members"]:
+                        if member_id in artists_db:
+                            member_names.append(artists_db[member_id]["name"])
+                        else:
+                            member = guild.get_member(int(member_id))
+                            member_names.append(member.display_name if member else f"User-{member_id}")
+                    
+                    detailed_teams.append({
+                        "id": team_id,
+                        "name": team_data["name"],
+                        "members": team_data["members"],
+                        "member_names": member_names,
+                        "is_winner": team_id == week_data.get("winner_team_id")
+                    })
+            
+            # Get detailed song info
+            detailed_songs = []
+            for song_id in week_data["songs"]:
+                if str(song_id) in songs_db:
+                    song_data = songs_db[str(song_id)]
+                    
+                    # Get artist names
+                    artist_names = []
+                    for artist_id in song_data["artists"]:
+                        if artist_id in artists_db:
+                            artist_names.append(artists_db[artist_id]["name"])
+                        else:
+                            member = guild.get_member(int(artist_id))
+                            artist_names.append(member.display_name if member else f"User-{artist_id}")
+                    
+                    detailed_songs.append({
+                        "id": song_id,
+                        "title": song_data["title"],
+                        "suno_url": song_data["suno_url"],
+                        "team_id": song_data["team_id"],
+                        "artists": song_data["artists"],
+                        "artist_names": artist_names,
+                        "votes": song_data["vote_stats"]["total_votes"],
+                        "is_winner": song_id == week_data.get("winner_song_id")
+                    })
+            
+            # Sort songs by votes (descending)
+            detailed_songs.sort(key=lambda x: x["votes"], reverse=True)
+            
+            return web.json_response({
+                "week": {
+                    "week_key": week_key,
+                    "theme": week_data["theme"],
+                    "status": week_data["status"],
+                    "start_date": week_data["start_date"],
+                    "completion_date": week_data.get("completion_date"),
+                    "teams": detailed_teams,
+                    "songs": detailed_songs,
+                    "participants": week_data["participants"],
+                    "total_votes": week_data["total_votes"],
+                    "vote_breakdown": week_data["vote_breakdown"],
+                    "winner_team_id": week_data.get("winner_team_id"),
+                    "winner_song_id": week_data.get("winner_song_id")
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting week detail: {e}")
+            return web.json_response({"error": "Failed to get week detail"}, status=500)
+    
+    async def _handle_public_artist_stats(self, request):
+        """Get comprehensive statistics for specific artist"""
+        try:
+            guild = await self._get_api_guild()
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            user_id = request.match_info['user_id']
+            artists_db = await self.config.guild(guild).artists_db()
+            
+            if user_id not in artists_db:
+                return web.json_response({"error": "Artist not found"}, status=404)
+            
+            artist_data = artists_db[user_id]
+            
+            # Calculate advanced statistics
+            win_rate = (artist_data["stats"]["victories"] / artist_data["stats"]["participations"] * 100) if artist_data["stats"]["participations"] > 0 else 0
+            
+            # Analyze team history for patterns
+            teammates_frequency = {}
+            victories_by_teammate = {}
+            
+            for team_entry in artist_data["team_history"]:
+                teammate_ids = [tid for tid in team_entry.get("teammates", []) if tid != user_id]
+                
+                for teammate_id in teammate_ids:
+                    teammates_frequency[teammate_id] = teammates_frequency.get(teammate_id, 0) + 1
+                    if team_entry["won"]:
+                        victories_by_teammate[teammate_id] = victories_by_teammate.get(teammate_id, 0) + 1
+            
+            # Get teammate details
+            frequent_teammates = []
+            for teammate_id, frequency in sorted(teammates_frequency.items(), key=lambda x: x[1], reverse=True)[:5]:
+                teammate_data = artists_db.get(teammate_id, {})
+                member = guild.get_member(int(teammate_id))
+                
+                frequent_teammates.append({
+                    "user_id": teammate_id,
+                    "name": teammate_data.get("name", member.display_name if member else f"User-{teammate_id}"),
+                    "collaborations": frequency,
+                    "joint_victories": victories_by_teammate.get(teammate_id, 0),
+                    "joint_win_rate": (victories_by_teammate.get(teammate_id, 0) / frequency * 100) if frequency > 0 else 0
+                })
+            
+            return web.json_response({
+                "artist_stats": {
+                    "user_id": user_id,
+                    "name": artist_data["name"],
+                    "basic_stats": artist_data["stats"],
+                    "advanced_stats": {
+                        "win_rate": win_rate,
+                        "total_songs": len(artist_data["song_history"]),
+                        "total_teams": len(artist_data["team_history"]),
+                        "unique_teammates": len(teammates_frequency),
+                        "average_votes_per_song": 0  # Would calculate from song vote data
+                    },
+                    "frequent_teammates": frequent_teammates
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting artist stats: {e}")
+            return web.json_response({"error": "Failed to get artist stats"}, status=500)
+    
+    async def _handle_public_stats_leaderboard(self, request):
+        """Get comprehensive statistics and leaderboards"""
+        try:
+            guild = await self._get_api_guild()
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            artists_db = await self.config.guild(guild).artists_db()
+            teams_db = await self.config.guild(guild).teams_db()
+            songs_db = await self.config.guild(guild).songs_db()
+            weeks_db = await self.config.guild(guild).weeks_db()
+            
+            # Artist leaderboards
+            artists_by_wins = sorted(
+                [(uid, data) for uid, data in artists_db.items()], 
+                key=lambda x: x[1]["stats"]["victories"], 
+                reverse=True
+            )[:10]
+            
+            artists_by_participations = sorted(
+                [(uid, data) for uid, data in artists_db.items()], 
+                key=lambda x: x[1]["stats"]["participations"], 
+                reverse=True
+            )[:10]
+            
+            artists_by_petals = sorted(
+                [(uid, data) for uid, data in artists_db.items()], 
+                key=lambda x: x[1]["stats"]["petals"], 
+                reverse=True
+            )[:10]
+            
+            # Team leaderboards
+            teams_by_wins = sorted(
+                [(tid, data) for tid, data in teams_db.items()], 
+                key=lambda x: x[1]["stats"]["victories"], 
+                reverse=True
+            )[:10]
+            
+            # Format leaderboards
+            def format_artist_entry(user_id, artist_data):
+                member = guild.get_member(int(user_id))
+                return {
+                    "user_id": user_id,
+                    "name": artist_data["name"],
+                    "stats": artist_data["stats"],
+                    "member_info": {
+                        "display_name": member.display_name if member else artist_data["name"],
+                        "avatar_url": str(member.display_avatar.url) if member and member.display_avatar else None
+                    } if member else None
+                }
+            
+            def format_team_entry(team_id, team_data):
+                return {
+                    "id": int(team_id),
+                    "name": team_data["name"],
+                    "stats": team_data["stats"],
+                    "member_count": len(team_data["members"])
+                }
+            
+            # Calculate overall statistics
+            total_artists = len(artists_db)
+            total_teams = len(teams_db)
+            total_songs = len(songs_db)
+            total_weeks = len(weeks_db)
+            
+            completed_weeks = sum(1 for w in weeks_db.values() if w["status"] == "completed")
+            total_votes = sum(w["total_votes"] for w in weeks_db.values())
+            
+            return web.json_response({
+                "leaderboards": {
+                    "artists_by_wins": [format_artist_entry(uid, data) for uid, data in artists_by_wins],
+                    "artists_by_participations": [format_artist_entry(uid, data) for uid, data in artists_by_participations],
+                    "artists_by_petals": [format_artist_entry(uid, data) for uid, data in artists_by_petals],
+                    "teams_by_wins": [format_team_entry(tid, data) for tid, data in teams_by_wins]
+                },
+                "overall_stats": {
+                    "total_artists": total_artists,
+                    "total_teams": total_teams,
+                    "total_songs": total_songs,
+                    "total_weeks": total_weeks,
+                    "completed_weeks": completed_weeks,
+                    "total_votes": total_votes,
+                    "average_votes_per_week": total_votes / completed_weeks if completed_weeks > 0 else 0
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+        except Exception as e:
+            print(f"Error getting stats leaderboard: {e}")
+            return web.json_response({"error": "Failed to get stats leaderboard"}, status=500)
+    
+    async def _get_api_guild(self):
+        """Helper to get the guild with API enabled"""
+        for guild in self.bot.guilds:
+            api_enabled = await self.config.guild(guild).api_server_enabled()
+            if api_enabled:
+                return guild
+        return None
+    
+    # ========== END COMPREHENSIVE DATA API ENDPOINTS ==========
+    
     async def _start_api_server_task(self, guild):
         """Start the API server as a background task"""
         try:
@@ -1970,6 +2903,44 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 message.author.id, 
                 team_info["partner_id"]
             )
+            
+            # ===== COMPREHENSIVE DATA TRACKING =====
+            week_key = await self._get_competition_week_key(guild)
+            
+            # Ensure artists exist in database
+            await self._get_or_create_artist(guild, message.author.id, message.author.display_name)
+            await self._get_or_create_artist(guild, team_info["partner_id"])
+            
+            # Create or get team in normalized database
+            team_id = await self._get_or_create_team(
+                guild, 
+                team_info["team_name"], 
+                [message.author.id, team_info["partner_id"]], 
+                week_key
+            )
+            
+            # Record song submission
+            song_id = await self._record_song_submission(
+                guild, 
+                team_id, 
+                week_key, 
+                suno_urls[0],  # Use first Suno URL
+                None  # Title will be extracted later if needed
+            )
+            
+            # Update week data to include this team and song
+            weeks_db = await self.config.guild(guild).weeks_db()
+            if week_key in weeks_db:
+                if team_id not in weeks_db[week_key]["teams"]:
+                    weeks_db[week_key]["teams"].append(team_id)
+                if song_id not in weeks_db[week_key]["songs"]:
+                    weeks_db[week_key]["songs"].append(song_id)
+                if message.author.id not in weeks_db[week_key]["participants"]:
+                    weeks_db[week_key]["participants"].append(message.author.id)
+                if team_info["partner_id"] not in weeks_db[week_key]["participants"]:
+                    weeks_db[week_key]["participants"].append(team_info["partner_id"])
+                await self.config.guild(guild).weeks_db.set(weeks_db)
+            # ===== END DATA TRACKING =====
             
             # Get partner mention for response
             partner = guild.get_member(team_info["partner_id"])
@@ -2322,6 +3293,37 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             }
             
             await self.config.guild(guild).weekly_winners.set(weekly_winners)
+            
+            # ===== COMPREHENSIVE DATA TRACKING =====
+            # Find the winning team and song in normalized database
+            teams_db = await self.config.guild(guild).teams_db()
+            songs_db = await self.config.guild(guild).songs_db()
+            
+            winning_team_id = None
+            winning_song_id = None
+            
+            # Find team by name and members
+            for team_id, team_data in teams_db.items():
+                if (team_data["name"] == team_name and 
+                    set(str(uid) for uid in member_ids) == set(team_data["members"])):
+                    winning_team_id = int(team_id)
+                    
+                    # Find the song for this week
+                    if week_key in team_data["songs_by_week"]:
+                        for song_id in team_data["songs_by_week"][week_key]:
+                            if str(song_id) in songs_db and songs_db[str(song_id)]["week_key"] == week_key:
+                                winning_song_id = song_id
+                                break
+                    break
+            
+            # If we found the team and song, finalize results
+            if winning_team_id and winning_song_id:
+                # Get vote counts from current system (placeholder - would integrate with real vote system)
+                vote_results = {str(winning_song_id): 0}  # Would get real vote counts
+                
+                # Finalize all week results
+                await self._finalize_week_results(guild, week_key, winning_team_id, winning_song_id, vote_results)
+            # ===== END DATA TRACKING =====
             
             return rep_results
             
@@ -3651,6 +4653,188 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         embed.set_footer(text="Theme will be applied automatically on the next Monday morning")
         
         await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="syncdata")
+    async def sync_existing_data(self, ctx):
+        """🔄 Sync existing competition data into comprehensive tracking system"""
+        
+        embed = discord.Embed(
+            title="🔄 Sync Existing Data",
+            description="This will migrate existing competition data into the new comprehensive tracking system.",
+            color=discord.Color.orange()
+        )
+        
+        embed.add_field(
+            name="⚠️ What this does:",
+            value=(
+                "• Converts existing team submissions to normalized database\n"
+                "• Creates artist profiles from competition history\n"
+                "• Builds song database from past submissions\n"
+                "• Populates week data from competition history\n"
+                "• **Safe operation** - does not modify existing data"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🔄 Data Sources:",
+            value=(
+                "• `team_members` config (existing teams)\n"
+                "• `competition_history` (past results)\n"
+                "• `weekly_winners` (winner records)\n"
+                "• Current Discord member data"
+            ),
+            inline=False
+        )
+        
+        embed.set_footer(text="React with 🔄 to start sync or ❌ to cancel")
+        
+        message = await ctx.send(embed=embed)
+        await message.add_reaction("🔄")
+        await message.add_reaction("❌")
+        
+        def check(reaction, user):
+            return (user == ctx.author and 
+                   reaction.message.id == message.id and 
+                   str(reaction.emoji) in ["🔄", "❌"])
+        
+        try:
+            reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+            
+            if str(reaction.emoji) == "🔄":
+                await self._perform_data_sync(ctx, message)
+            else:
+                cancelled_embed = discord.Embed(
+                    title="❌ Cancelled",
+                    description="Data sync cancelled.",
+                    color=discord.Color.gray()
+                )
+                await message.edit(embed=cancelled_embed, view=None)
+                
+        except asyncio.TimeoutError:
+            timeout_embed = discord.Embed(
+                title="⏰ Timeout",
+                description="Data sync timed out.",
+                color=discord.Color.gray()
+            )
+            await message.edit(embed=timeout_embed, view=None)
+    
+    async def _perform_data_sync(self, ctx, message):
+        """Perform the actual data synchronization"""
+        try:
+            guild = ctx.guild
+            
+            progress_embed = discord.Embed(
+                title="🔄 Syncing Data...",
+                description="Migrating existing data to comprehensive tracking system.",
+                color=discord.Color.blue()
+            )
+            await message.edit(embed=progress_embed)
+            
+            # Initialize counters
+            artists_created = 0
+            teams_created = 0
+            songs_created = 0
+            weeks_created = 0
+            
+            # Get existing data
+            team_members = await self.config.guild(guild).team_members()
+            competition_history = await self.config.guild(guild).competition_history()
+            weekly_winners = await self.config.guild(guild).weekly_winners()
+            
+            # Sync team members first
+            for week_key, week_teams in team_members.items():
+                # Update or create week data
+                theme = f"Week {week_key}"  # Default theme
+                await self._update_week_data(guild, week_key, theme, "completed")
+                weeks_created += 1
+                
+                for team_name, member_ids in week_teams.items():
+                    if len(member_ids) >= 2:  # Valid team
+                        # Create artists
+                        for member_id in member_ids:
+                            await self._get_or_create_artist(guild, member_id)
+                            artists_created += 1
+                        
+                        # Create team
+                        team_id = await self._get_or_create_team(guild, team_name, member_ids, week_key)
+                        teams_created += 1
+                        
+                        # Create placeholder song (we don't have URLs from old system)
+                        song_id = await self._record_song_submission(
+                            guild, team_id, week_key, 
+                            f"https://suno.com/legacy/{team_id}_{week_key}",
+                            f"{team_name} - {week_key}"
+                        )
+                        songs_created += 1
+            
+            # Sync winner data
+            for week_key, winner_data in weekly_winners.items():
+                if "team_name" in winner_data and "members" in winner_data:
+                    team_name = winner_data["team_name"]
+                    member_ids = winner_data["members"]
+                    
+                    # Find the team and song
+                    teams_db = await self.config.guild(guild).teams_db()
+                    for team_id, team_data in teams_db.items():
+                        if (team_data["name"] == team_name and 
+                            set(str(uid) for uid in member_ids) == set(team_data["members"])):
+                            
+                            # Find song for this week
+                            if week_key in team_data["songs_by_week"]:
+                                for song_id in team_data["songs_by_week"][week_key]:
+                                    # Mark as winner (simplified vote results)
+                                    vote_results = {str(song_id): 10}  # Placeholder votes
+                                    await self._finalize_week_results(guild, week_key, int(team_id), song_id, vote_results)
+                                    break
+                            break
+            
+            # Final success message
+            success_embed = discord.Embed(
+                title="✅ Data Sync Complete!",
+                description="Successfully migrated existing data to comprehensive tracking system.",
+                color=discord.Color.green()
+            )
+            
+            success_embed.add_field(
+                name="📊 Migration Results",
+                value=(
+                    f"**Artists Created:** {artists_created}\n"
+                    f"**Teams Processed:** {teams_created}\n"
+                    f"**Songs Recorded:** {songs_created}\n"
+                    f"**Weeks Processed:** {weeks_created}"
+                ),
+                inline=False
+            )
+            
+            success_embed.add_field(
+                name="🚀 What's Now Available",
+                value=(
+                    "• Comprehensive artist profiles and statistics\n"
+                    "• Team history and collaboration tracking\n"
+                    "• Song database with competition context\n"
+                    "• Rich API endpoints for frontend access\n"
+                    "• Advanced leaderboards and analytics"
+                ),
+                inline=False
+            )
+            
+            success_embed.add_field(
+                name="🔗 API Access",
+                value="Use `[p]cw testpublicapi` to see available endpoints",
+                inline=False
+            )
+            
+            await message.edit(embed=success_embed)
+            
+        except Exception as e:
+            error_embed = discord.Embed(
+                title="❌ Sync Failed",
+                description=f"Error during data sync: {str(e)}",
+                color=discord.Color.red()
+            )
+            await message.edit(embed=error_embed)
+            print(f"Data sync error: {e}")
     
     @collabwarz.command(name="status")
     async def show_status(self, ctx):
