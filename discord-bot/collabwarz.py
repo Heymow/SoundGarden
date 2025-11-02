@@ -191,8 +191,7 @@ class CollabWarz(commands.Cog):
             
             team_count = 0
             async for message in channel.history(after=week_start, limit=None):
-                if message.attachments or any(url in message.content.lower() 
-                                            for url in ['soundcloud', 'youtube', 'bandcamp', 'spotify', 'drive.google']):
+                if message.attachments or 'suno.com' in message.content.lower():
                     team_count += 1
             
             return team_count
@@ -413,7 +412,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         error_msg += "```\n"
         error_msg += "Team name: Amazing Duo\n"
         error_msg += "@YourPartner check out our track!\n"
-        error_msg += "[attachment or music platform link]\n"
+        error_msg += "[Suno.com link or audio file attachment]\n"
         error_msg += "```\n"
         error_msg += "💡 **Alternative:** Submit via our website: **https://collabwarz.soundgarden.app**\n"
         error_msg += "ℹ️ **Need help?** Use `!info` for submission guide or `!status` for competition status"
@@ -2979,7 +2978,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             deadline_full = deadline
         
         templates = {
-            "submission_start": f"🎵 **Collab Warz - NEW WEEK STARTS!** 🎵\n\n✨ **This week's theme:** **{theme}** ✨\n\n📝 **Submission Phase:** Monday to Friday noon\n🗳️ **Voting Phase:** Friday noon to Sunday\n\nTeam up with someone and create magic together! 🤝\n\n**📋 How to Submit (Discord):**\nIn ONE message, include:\n• `Team name: YourTeamName`\n• Tag your partner: `@username`\n• Your song link (Suno, SoundCloud, etc.)\n\n**🌐 Alternative:** Submit & vote on our website:\n**https://collabwarz.soundgarden.app**\n\n**💡 Need Help?** Use `!info` for submission guide or `!status` for current competition status\n\n⏰ **Submissions deadline:** {deadline_full}",
+            "submission_start": f"🎵 **Collab Warz - NEW WEEK STARTS!** 🎵\n\n✨ **This week's theme:** **{theme}** ✨\n\n📝 **Submission Phase:** Monday to Friday noon\n🗳️ **Voting Phase:** Friday noon to Sunday\n\nTeam up with someone and create magic together! 🤝\n\n**📋 How to Submit (Discord):**\nIn ONE message, include:\n• `Team name: YourTeamName`\n• Tag your partner: `@username`\n• Your Suno.com link or audio file attachment\n\n**🌐 Alternative:** Submit & vote on our website:\n**https://collabwarz.soundgarden.app**\n\n**💡 Need Help?** Use `!info` for submission guide or `!status` for current competition status\n\n⏰ **Submissions deadline:** {deadline_full}",
             
             "voting_start": f"🗳️ **VOTING IS NOW OPEN!** 🗳️\n\n🎵 **Theme:** **{theme}**\n\nThe submissions are in! Time to listen and vote for your favorites! 🎧\n\n**🌐 Listen & Vote:** https://collabwarz.soundgarden.app\n\n**💡 Commands:** Use `!info` for competition guide or `!status` for detailed status\n\nEvery vote counts - support the artists! 💫\n\n⏰ **Voting closes:** {deadline_full}",
             
@@ -3630,7 +3629,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "**In ONE message, include:**\n"
                 "• `Team name: YourTeamName`\n"
                 "• Tag your partner: `@username`\n"
-                "• Your song link (Suno, SoundCloud, etc.)\n\n"
+                "• Your Suno.com link or audio file attachment\n\n"
                 "**Example:**\n"
                 "```\nTeam name: Sonic Wizards\n"
                 "@john Check out our collab!\n"
@@ -4222,7 +4221,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "Users must include:\n"
                 "• `Team name: YourTeamName`\n"
                 "• @mention of their partner\n"
-                "• Attachment or music platform link\n\n"
+                "• Suno.com link or audio file attachment\n\n"
                 "Invalid submissions will receive error messages."
             )
         else:
@@ -5911,7 +5910,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "https://suno.com/s/kFacPCnBlw9n9oEP",
                 "https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26",
                 "https://suno.com/invalid/url",
-                "https://soundcloud.com/track/123"
+                "https://example.com/not-suno"
             ]
             
             test_results = []
