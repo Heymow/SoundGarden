@@ -5,6 +5,7 @@ import NavTabs from "./components/NavTabs";
 import AudioPlayer from "./components/AudioPlayer";
 import Current from "./pages/Current";
 import History from "./pages/History";
+import Artists from "./pages/Artists";
 
 function AppContent() {
   const { user, loginWithDiscord, logout } = useAuth();
@@ -20,6 +21,10 @@ function AppContent() {
 
   return (
     <div className="app-root">
+      <div className="main-banner">
+        <h1 className="main-banner-title">SoundGarden</h1>
+      </div>
+
       <header className="app-header">
         <h1 className="site-title">SoundGarden's Collab Warz</h1>
         <div className="auth-actions">
@@ -45,11 +50,12 @@ function AppContent() {
           <Route path="/" element={<Navigate to="/current" replace />} />
           <Route path="/current" element={<Current onPlaySong={handlePlaySong} />} />
           <Route path="/history" element={<History onPlaySong={handlePlaySong} />} />
+          <Route path="/artists" element={<Artists />} />
         </Routes>
       </main>
 
       <footer className="app-footer">
-        <small>© SoundGarden · Collab Warz · Powered by Suno AI</small>
+        <small>© Heymow - SoundGarden · Collab Warz</small>
       </footer>
 
       <AudioPlayer 

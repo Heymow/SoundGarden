@@ -1,12 +1,16 @@
 import React from 'react';
 
-export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn }) {
+export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, onLoginRequired }) {
   const handleImageClick = () => {
     window.open(song.sunoUrl, '_blank');
   };
 
   const handleVoteClick = () => {
-    if (isLoggedIn && phase === 'voting' && !hasVoted) {
+    if (!isLoggedIn) {
+      onLoginRequired && onLoginRequired();
+      return;
+    }
+    if (phase === 'voting' && !hasVoted) {
       onVote(song.id);
     }
   };
@@ -34,6 +38,16 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn }) 
         </div>
         
         <div className="song-actions">
+          {phase === 'voting' && (
+            <button 
+              className={`btn-vote ${hasVoted ? 'voted' : ''}`}
+              onClick={handleVoteClick}
+              disabled={hasVoted}
+            >
+              {hasVoted ? '✓ Voted' : '🎤 Vote'}
+            </button>
+          )}
+          
           <a 
             href={song.sunoUrl} 
             target="_blank" 
@@ -42,16 +56,6 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn }) 
           >
             🎵 Listen on Suno
           </a>
-          
-          {phase === 'voting' && (
-            <button 
-              className={`btn-vote ${hasVoted ? 'voted' : ''}`}
-              onClick={handleVoteClick}
-              disabled={!isLoggedIn || hasVoted}
-            >
-              {hasVoted ? '✓ Voted' : '🎤 Vote'}
-            </button>
-          )}
           
           {phase === 'voting' && song.votes !== undefined && (
             <span className="vote-count">{song.votes} votes</span>

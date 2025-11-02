@@ -16,6 +16,12 @@ export default function NavTabs() {
       >
         History
       </NavLink>
+      <NavLink
+        to="/artists"
+        className={({ isActive }) => (isActive ? "tab active" : "tab")}
+      >
+        Artists
+      </NavLink>
     </nav>
   );
 }

@@ -147,3 +147,185 @@ export const challengeHistory = [
     totalSubmissions: 9
   }
 ];
+
+// Mock artists data
+export const artistsData = [
+  {
+    id: 'a1',
+    name: 'Alice',
+    participations: 5,
+    victories: 1,
+    petals: 120,
+    rank: 'Flower',
+    sunoProfile: 'https://suno.com/@alice_music',
+    teams: ['Alice & Bob', 'Alice & Carol'],
+    songs: [
+      {
+        title: 'Starlight Journey',
+        theme: 'Cosmic Dreams',
+        week: 'Week 44, 2025',
+        team: 'Alice & Bob',
+        votes: 15,
+        isWinner: false,
+        sunoUrl: 'https://suno.com/song/mock-id-1'
+      },
+      {
+        title: 'Digital Horizons',
+        theme: 'Future Tech',
+        week: 'Week 40, 2025',
+        team: 'Alice & Carol',
+        votes: 32,
+        isWinner: true,
+        sunoUrl: 'https://suno.com/song/mock-id-alice-2'
+      }
+    ]
+  },
+  {
+    id: 'a2',
+    name: 'Bob',
+    participations: 4,
+    victories: 0,
+    petals: 85,
+    rank: 'Sprout',
+    sunoProfile: 'https://suno.com/@bob_beats',
+    teams: ['Alice & Bob', 'Bob & Eve'],
+    songs: [
+      {
+        title: 'Starlight Journey',
+        theme: 'Cosmic Dreams',
+        week: 'Week 44, 2025',
+        team: 'Alice & Bob',
+        votes: 15,
+        isWinner: false,
+        sunoUrl: 'https://suno.com/song/mock-id-1'
+      }
+    ]
+  },
+  {
+    id: 'a3',
+    name: 'Carol',
+    participations: 6,
+    victories: 2,
+    petals: 195,
+    rank: 'Rosegarden',
+    sunoProfile: 'https://suno.com/@carol_tunes',
+    teams: ['Carol & Dave', 'Alice & Carol'],
+    songs: [
+      {
+        title: 'Nebula Whispers',
+        theme: 'Cosmic Dreams',
+        week: 'Week 44, 2025',
+        team: 'Carol & Dave',
+        votes: 23,
+        isWinner: false,
+        sunoUrl: 'https://suno.com/song/mock-id-2'
+      }
+    ]
+  },
+  {
+    id: 'a4',
+    name: 'Dave',
+    participations: 3,
+    victories: 0,
+    petals: 65,
+    rank: 'Sprout',
+    sunoProfile: 'https://suno.com/@dave_synth',
+    teams: ['Carol & Dave'],
+    songs: [
+      {
+        title: 'Nebula Whispers',
+        theme: 'Cosmic Dreams',
+        week: 'Week 44, 2025',
+        team: 'Carol & Dave',
+        votes: 23,
+        isWinner: false,
+        sunoUrl: 'https://suno.com/song/mock-id-2'
+      }
+    ]
+  },
+  {
+    id: 'a5',
+    name: 'Eve',
+    participations: 7,
+    victories: 3,
+    petals: 245,
+    rank: 'Eden',
+    sunoProfile: 'https://suno.com/@eve_rhythms',
+    teams: ['Eve & Frank', 'Bob & Eve'],
+    songs: [
+      {
+        title: 'Galactic Vibes',
+        theme: 'Cosmic Dreams',
+        week: 'Week 44, 2025',
+        team: 'Eve & Frank',
+        votes: 18,
+        isWinner: false,
+        sunoUrl: 'https://suno.com/song/mock-id-3'
+      }
+    ]
+  },
+  {
+    id: 'a6',
+    name: 'Frank',
+    participations: 2,
+    victories: 0,
+    petals: 45,
+    rank: 'Seed',
+    sunoProfile: 'https://suno.com/@frank_sounds',
+    teams: ['Eve & Frank'],
+    songs: [
+      {
+        title: 'Galactic Vibes',
+        theme: 'Cosmic Dreams',
+        week: 'Week 44, 2025',
+        team: 'Eve & Frank',
+        votes: 18,
+        isWinner: false,
+        sunoUrl: 'https://suno.com/song/mock-id-3'
+      }
+    ]
+  },
+  {
+    id: 'a7',
+    name: 'Grace',
+    participations: 8,
+    victories: 3,
+    petals: 280,
+    rank: 'Eden',
+    sunoProfile: 'https://suno.com/@grace_vocals',
+    teams: ['Grace & Henry'],
+    songs: [
+      {
+        title: 'City of Shadows',
+        theme: 'Urban Legends',
+        week: 'Week 43, 2025',
+        team: 'Grace & Henry',
+        votes: 45,
+        isWinner: true,
+        sunoUrl: 'https://suno.com/song/winner-mock-id'
+      }
+    ]
+  },
+  {
+    id: 'a8',
+    name: 'Henry',
+    participations: 5,
+    victories: 2,
+    petals: 165,
+    rank: 'Rosegarden',
+    sunoProfile: 'https://suno.com/@henry_prod',
+    teams: ['Grace & Henry'],
+    songs: [
+      {
+        title: 'City of Shadows',
+        theme: 'Urban Legends',
+        week: 'Week 43, 2025',
+        team: 'Grace & Henry',
+        votes: 45,
+        isWinner: true,
+        sunoUrl: 'https://suno.com/song/winner-mock-id'
+      }
+    ]
+  }
+];
+

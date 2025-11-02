@@ -15,19 +15,6 @@ export default function WinnerBanner({ winner, theme, onPlay }) {
           </p>
           <p className="winner-votes">🎵 {winner.votes} votes</p>
         </div>
-        
-        <div className="winner-middle">
-          <button 
-            className="winner-play-btn"
-            onClick={() => onPlay && onPlay(winner)}
-            aria-label="Play winning song"
-          >
-            ▶
-          </button>
-          <div className="winner-progress-bar">
-            <div className="winner-progress-fill" style={{ width: '0%' }} />
-          </div>
-        </div>
 
         <div 
           className="winner-image" 
@@ -35,7 +22,16 @@ export default function WinnerBanner({ winner, theme, onPlay }) {
           style={{ cursor: 'pointer' }}
         >
           <img src={winner.imageUrl || 'https://via.placeholder.com/150'} alt={winner.title} />
-          <div className="play-overlay">▶</div>
+          <button 
+            className="winner-play-overlay"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPlay && onPlay(winner);
+            }}
+            aria-label="Play winning song"
+          >
+            ▶
+          </button>
         </div>
       </div>
     </div>

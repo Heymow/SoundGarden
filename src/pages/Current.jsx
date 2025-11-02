@@ -90,6 +90,7 @@ export default function Current({ onPlaySong }) {
               onVote={handleVote}
               hasVoted={votedSongId === song.id}
               isLoggedIn={!!user}
+              onLoginRequired={loginWithDiscord}
             />
           ))}
         </div>
