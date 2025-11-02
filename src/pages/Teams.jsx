@@ -68,7 +68,7 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong }) {
         </button>
         
         <div className="team-detail">
-          {/* Main Team Banner - simplified without subtitle */}
+          {/* Main Team Banner - Simplified without subtitle */}
           <div className="team-detail-banner">
             <h1 className="team-detail-banner-title">🌿 {selectedTeam.name}</h1>
           </div>

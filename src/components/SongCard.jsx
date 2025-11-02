@@ -40,7 +40,21 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
         style={{ cursor: 'pointer' }}
       >
         <img src={song.imageUrl || 'https://via.placeholder.com/200'} alt={song.title} />
-        <div className="play-overlay" onClick={handlePlayClick}>▶</div>
+        <div 
+          className="play-overlay" 
+          onClick={handlePlayClick}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handlePlayClick(e);
+            }
+          }}
+          tabIndex={0}
+          role="button"
+          aria-label={`Play ${song.title}`}
+        >
+          ▶
+        </div>
       </div>
       
       <div className="song-details">

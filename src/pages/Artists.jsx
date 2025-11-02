@@ -19,10 +19,9 @@ export default function Artists({ selectedArtist, setSelectedArtist, onNavigateT
     setSelectedArtist(null);
   };
 
-  // Get Suno avatar URL from profile URL
-  const getAvatarUrl = (sunoProfile) => {
-    // Extract username from profile URL and construct avatar URL
-    // For now, use a placeholder - in production this would fetch from Suno API
+  // Get Suno avatar URL - uses placeholder for now
+  // In production, this would fetch actual avatar from Suno API
+  const getAvatarUrl = () => {
     return 'https://via.placeholder.com/80';
   };
 
@@ -54,7 +53,7 @@ export default function Artists({ selectedArtist, setSelectedArtist, onNavigateT
             {selectedArtist.sunoProfile && (
               <div className="artist-avatar">
                 <img 
-                  src={getAvatarUrl(selectedArtist.sunoProfile)} 
+                  src={getAvatarUrl()} 
                   alt={`${selectedArtist.name}'s avatar`}
                   style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover' }}
                 />

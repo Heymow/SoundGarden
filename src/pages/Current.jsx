@@ -49,7 +49,7 @@ export default function Current({ onPlaySong, onNavigateToTeam, onNavigateToArti
   };
 
   const handleJoinDiscord = () => {
-    // Discord server invite link
+    // Discord server invite link - consider moving to config/env in production
     window.open('https://discord.gg/soundgarden', '_blank');
   };
 
