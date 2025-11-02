@@ -2540,13 +2540,13 @@ https://suno.com/s/solo456
 Team name: Old School
 @alice our track on SoundCloud!
 https://soundcloud.com/track/123
-→ Bot response: "❌ Only Suno.com URLs are accepted. Forbidden platforms: SoundCloud, YouTube, Bandcamp, Spotify, Google Drive"
+→ Bot response: "❌ Only Suno.com URLs are accepted."
 
 ❌ INVALID: Forbidden platform (YouTube)
 Team name: Video Track
 @bob check our YouTube upload!
 https://youtube.com/watch?v=123
-→ Bot response: "❌ Only Suno.com URLs are accepted. Please use Suno.com or attach your audio file directly."
+→ Bot response: "❌ Only Suno.com URLs are accepted. Please use a Suno.com link."
 
 ❌ INVALID: Invalid Suno.com URL format
 Team name: AI Experiment
