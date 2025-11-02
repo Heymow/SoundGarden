@@ -5,6 +5,7 @@ import NavTabs from "./components/NavTabs";
 import AudioPlayer from "./components/AudioPlayer";
 import Current from "./pages/Current";
 import History from "./pages/History";
+import Artists from "./pages/Artists";
 
 function AppContent() {
   const { user, loginWithDiscord, logout } = useAuth();
@@ -27,14 +28,6 @@ function AppContent() {
       <header className="app-header">
         <h1 className="site-title">SoundGarden's Collab Warz</h1>
         <div className="auth-actions">
-          <a 
-            href="https://discord.gg/g4wtWhCUV9" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="btn-discord"
-          >
-            💬 Join Discord Server
-          </a>
           {user ? (
             <div className="user-menu">
               <span className="username">{user.username}</span>
@@ -57,6 +50,7 @@ function AppContent() {
           <Route path="/" element={<Navigate to="/current" replace />} />
           <Route path="/current" element={<Current onPlaySong={handlePlaySong} />} />
           <Route path="/history" element={<History onPlaySong={handlePlaySong} />} />
+          <Route path="/artists" element={<Artists />} />
         </Routes>
       </main>
 
