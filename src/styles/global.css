@@ -180,8 +180,8 @@ body{
 .winner-image{
   position:relative;
   width:180px;
-  height:auto;
-  min-height: 100%;
+  flex: 1;
+  min-height: 160px;
   border-radius:8px;
   overflow:hidden;
   flex-shrink:0;
@@ -1053,13 +1053,9 @@ body{
   border-color: rgba(74,222,128,0.5);
   transform: translateY(-1px);
 }
+/* Legacy class for backward compatibility */
 .clickable-chip {
   cursor: pointer;
-}
-.clickable-chip:hover {
-  background: rgba(74,222,128,0.25);
-  border-color: rgba(74,222,128,0.5);
-  transform: translateY(-1px);
 }
 .song-team-chip-container {
   margin-top: 4px;
