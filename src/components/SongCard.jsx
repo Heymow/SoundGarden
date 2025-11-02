@@ -38,15 +38,6 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
         </div>
         
         <div className="song-actions">
-          <a 
-            href={song.sunoUrl} 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="btn-suno"
-          >
-            🎵 Listen on Suno
-          </a>
-          
           {phase === 'voting' && (
             <button 
               className={`btn-vote ${hasVoted ? 'voted' : ''}`}
@@ -56,6 +47,15 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
               {hasVoted ? '✓ Voted' : '🎤 Vote'}
             </button>
           )}
+          
+          <a 
+            href={song.sunoUrl} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="btn-suno"
+          >
+            🎵 Listen on Suno
+          </a>
           
           {phase === 'voting' && song.votes !== undefined && (
             <span className="vote-count">{song.votes} votes</span>
