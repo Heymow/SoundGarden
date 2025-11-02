@@ -1,7 +1,7 @@
 {
   "author": ["SoundGarden"],
-  "description": "Automated announcements for SoundGarden's Collab Warz music competition with AI-powered message generation, flexible weekly/bi-weekly scheduling, and integrated voting system",
-  "install_msg": "Thanks for installing CollabWarz! Use `[p]cw status` to get started. Set your announcement channel with `[p]cw setchannel #channel-name`. Enable bi-weekly mode with `[p]cw biweekly` for 2-week cycles.",
+  "description": "Automated announcements for SoundGarden's Collab Warz music competition with AI-powered message generation, flexible weekly/bi-weekly scheduling (alternating weeks), and integrated voting system",
+  "install_msg": "Thanks for installing CollabWarz! Use `[p]cw status` to get started. Set your announcement channel with `[p]cw setchannel #channel-name`. Enable bi-weekly mode with `[p]cw biweekly` for alternating competition/off weeks.",
   "short": "Collab Warz competition announcements",
   "tags": ["music", "competition", "announcements", "automation", "ai"],
   "type": "COG",

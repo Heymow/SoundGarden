@@ -38,12 +38,11 @@ The **Collab Warz Bot** fully automates the management of a weekly music collabo
 - **Sunday 9 PM+** : 🤖 AI theme generation for next week
 
 #### 🗓️ **Bi-Weekly Mode** (Optional)
-- **Week 1 Monday** : 🎵 Submissions start + new theme
-- **Week 1 Friday** : 🔔 Submission reminder  
-- **Week 2 Monday** : 🗳️ Voting starts (submissions end) *OR* ⚠️ Cycle cancelled if insufficient teams
-- **Week 2 Saturday** : 🔔 Voting reminder
-- **Week 2 Sunday** : 🏆 Winner announcement
-- **Week 2 Sunday 9 PM+** : 🤖 AI theme generation for next cycle
+- **Week 1 (Odd weeks)** : Normal Collab Warz (Mon-Fri submissions, Fri-Sun voting, Sun winner)
+- **Week 2 (Even weeks)** : � Off week (no competition, phase set to inactive)
+- **Week 3 (Odd weeks)** : 🎵 Competition resumes with new theme
+- **Week 4 (Even weeks)** : 💤 Off week (no competition)
+- **Pattern continues** : Alternating active/inactive weeks
 
 ### Key Features
 - ✅ **Complete automation** of competition cycle
@@ -1275,18 +1274,21 @@ Each phase change includes:
 The bot supports **bi-weekly mode** for communities that prefer longer, 2-week competition cycles instead of the default weekly format.
 
 ### Bi-Weekly Schedule
-**🗓️ Competition Cycle:** Every 2 weeks (14 days)
+**🗓️ Alternating Pattern:** Competition week, then off week
 
-#### Week 1 - Submission Phase
-- **Monday 9:00 AM**: 🎵 New cycle starts, submissions open + new theme
-- **Friday Evening**: 🔔 Submission reminder ("Voting starts next Monday")
-- **Weekend**: Submissions continue (extended time for creativity)
-
-#### Week 2 - Voting Phase  
-- **Monday**: 🗳️ Voting opens (submissions close)
+#### Active Weeks (Odd weeks: 1, 3, 5, etc.)
+- **Monday 9:00 AM**: 🎵 Competition starts, submissions open + new theme
+- **Thursday Evening**: 🔔 Submission reminder ("Submissions end Friday noon")
+- **Friday 12:00 PM**: 🗳️ Voting opens (submissions close)
 - **Saturday Evening**: 🔔 Voting reminder ("Voting ends tomorrow")
 - **Sunday Evening**: 🏆 Winner announcement
-- **Sunday 9 PM+**: 🤖 AI theme generation for next cycle
+- **Sunday 9 PM+**: 🤖 AI theme generation for next competition
+
+#### Off Weeks (Even weeks: 2, 4, 6, etc.)
+- **Entire week**: 💤 No competition running (phase set to "inactive")
+- **No submissions**: Users informed competition is paused
+- **No voting**: Break period for community
+- **Preparation time**: For next week's competition
 
 ### Enabling Bi-Weekly Mode
 
@@ -1302,43 +1304,44 @@ The bot supports **bi-weekly mode** for communities that prefer longer, 2-week c
 
 | Feature | Weekly Mode | Bi-Weekly Mode |
 |---------|-------------|----------------|
-| **Cycle Length** | 7 days | 14 days |
-| **Submission Time** | Mon-Fri noon (4.5 days) | Full Week 1 (7 days) |
-| **Voting Time** | Fri noon-Sun (2.5 days) | Full Week 2 (7 days) |
-| **Competition ID** | `2024-W42` | `2024-C21` (Cycle 21) |
-| **Frequency** | Every week | Every 2 weeks |
+| **Active Weeks** | Every week | Odd weeks only (1, 3, 5, etc.) |
+| **Off Weeks** | None | Even weeks (2, 4, 6, etc.) |
+| **Submission Time** | Mon-Fri noon (4.5 days) | Mon-Fri noon (4.5 days) |
+| **Voting Time** | Fri noon-Sun (2.5 days) | Fri noon-Sun (2.5 days) |
+| **Competition ID** | `2024-W42` | `2024-W43` (same format) |
+| **Break Between** | None | 1 week off |
 
 ### Benefits of Bi-Weekly Mode
 
 **🎵 For Creators:**
-- More time for complex collaborations
-- Less pressure, higher quality submissions
+- Regular break weeks prevent burnout
+- More time to prepare between competitions
 - Better work-life balance for participants
 
 **👥 For Communities:**
-- Higher participation rates
-- More polished final products
-- Less admin overhead
+- Sustainable for smaller, busy communities
+- Higher quality participation when active
+- Less admin overhead with regular breaks
 
 **🗓️ For Planning:**
-- Aligns with bi-weekly meeting schedules
+- Predictable schedule (odd weeks = competition)
 - Easier to coordinate with other events
-- More sustainable for smaller communities
+- More sustainable long-term engagement
 
 ### Switching Between Modes
 
 **⚠️ Important Notes:**
 - Active competitions continue under their original mode
-- New mode takes effect on the next cycle start
-- Competition tracking IDs will change (Week vs Cycle)
+- New mode takes effect immediately for phase management
+- Off weeks will be set to "inactive" phase automatically
 - Historical data remains intact under original format
 
 **Example Transition:**
 ```bash
-# Currently in Week 43 (weekly mode)
+# Currently in Week 42 (weekly mode) - even week
 [p]cw biweekly                  # Enable bi-weekly mode
-# Week 43 completes normally
-# Next Monday starts Cycle 22 (bi-weekly mode)
+# Week 42 becomes inactive (even week = off week)
+# Week 43 will start normally (odd week = competition week)
 ```
 
 ## Members API Server
