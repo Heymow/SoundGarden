@@ -6,11 +6,14 @@ import SongCard from "../components/SongCard";
 import SubmitModal from "../components/SubmitModal";
 import { currentChallenge, previousChallenge } from "../data/mockData";
 
-export default function Current({ onPlaySong }) {
+export default function Current({ onPlaySong, onNavigateToTeam, onNavigateToArtist }) {
   const { user, loginWithDiscord } = useAuth();
   const [songs, setSongs] = useState(currentChallenge.songs);
   const [votedSongId, setVotedSongId] = useState(null);
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
+
+  // Check if user is on Discord server - for now, assume false until we have real data
+  const isOnDiscordServer = user?.onDiscordServer || false;
 
   const handleVote = (songId) => {
     if (!user) {
@@ -45,12 +48,18 @@ export default function Current({ onPlaySong }) {
     alert('Song submitted successfully!');
   };
 
+  const handleJoinDiscord = () => {
+    // Discord server invite link
+    window.open('https://discord.gg/soundgarden', '_blank');
+  };
+
   return (
     <section className="page current-page">
       <WinnerBanner 
         winner={previousChallenge.winner} 
         theme={previousChallenge.theme}
         onPlay={onPlaySong}
+        onNavigateToTeam={onNavigateToTeam}
       />
 
       <PhaseInfo
@@ -59,6 +68,17 @@ export default function Current({ onPlaySong }) {
         submissionDeadline={currentChallenge.submissionDeadline}
         votingDeadline={currentChallenge.votingDeadline}
       />
+
+      {(!user || !isOnDiscordServer) && (
+        <div className="action-bar">
+          <button 
+            className="btn-discord"
+            onClick={handleJoinDiscord}
+          >
+            💬 Join Discord Server
+          </button>
+        </div>
+      )}
 
       {currentChallenge.phase === 'submission' && (
         <div className="action-bar">
@@ -91,6 +111,9 @@ export default function Current({ onPlaySong }) {
               hasVoted={votedSongId === song.id}
               isLoggedIn={!!user}
               onLoginRequired={loginWithDiscord}
+              onPlaySong={onPlaySong}
+              onNavigateToTeam={onNavigateToTeam}
+              onNavigateToArtist={onNavigateToArtist}
             />
           ))}
         </div>

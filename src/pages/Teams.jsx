@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { teamsData } from '../data/mockData';
 
-export default function Teams() {
+export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTeam, setSelectedTeam] = useState(null);
   const [showDropdown, setShowDropdown] = useState(false);
 
   const filteredTeams = teamsData.filter(team =>
@@ -69,10 +68,9 @@ export default function Teams() {
         </button>
         
         <div className="team-detail">
-          {/* Main Team Banner - matching main-banner style */}
+          {/* Main Team Banner - simplified without subtitle */}
           <div className="team-detail-banner">
             <h1 className="team-detail-banner-title">🌿 {selectedTeam.name}</h1>
-            <p className="team-detail-banner-subtitle">SUNO AI MUSIC COMMUNITY</p>
           </div>
 
           {/* Team Statistics */}
@@ -127,6 +125,20 @@ export default function Teams() {
                         {song.week} • Theme: {song.theme} • {song.votes} votes
                       </div>
                     </div>
+                    <button 
+                      className="victory-play-btn"
+                      onClick={() => onPlaySong && onPlaySong({
+                        id: `victory-${idx}`,
+                        title: song.title,
+                        participants: song.participants,
+                        imageUrl: 'https://via.placeholder.com/200',
+                        audioUrl: 'https://cdn.suno.com/audio/mock.mp3',
+                        sunoUrl: song.sunoUrl
+                      })}
+                      aria-label={`Play ${song.title}`}
+                    >
+                      ▶
+                    </button>
                     <a 
                       href={song.sunoUrl} 
                       target="_blank" 
@@ -153,9 +165,25 @@ export default function Teams() {
                     <div className="songs-grid">
                       {songs.map((song, songIdx) => (
                         <div key={songIdx} className="song-card-compact">
-                          <div className="song-card-title">
-                            {song.title}
-                            {song.isWinner && <span> 🏆</span>}
+                          <div className="song-card-compact-header">
+                            <div className="song-card-title">
+                              {song.title}
+                              {song.isWinner && <span> 🏆</span>}
+                            </div>
+                            <button 
+                              className="song-play-btn-compact"
+                              onClick={() => onPlaySong && onPlaySong({
+                                id: `song-${weekIdx}-${songIdx}`,
+                                title: song.title,
+                                participants: song.participants,
+                                imageUrl: 'https://via.placeholder.com/200',
+                                audioUrl: 'https://cdn.suno.com/audio/mock.mp3',
+                                sunoUrl: song.sunoUrl
+                              })}
+                              aria-label={`Play ${song.title}`}
+                            >
+                              ▶
+                            </button>
                           </div>
                           <div className="song-card-theme">Theme: {song.theme}</div>
                           <div className="song-card-votes">{song.votes} votes</div>

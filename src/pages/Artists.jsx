@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { artistsData } from '../data/mockData';
 
-export default function Artists() {
+export default function Artists({ selectedArtist, setSelectedArtist, onNavigateToTeam }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedArtist, setSelectedArtist] = useState(null);
   const [showDropdown, setShowDropdown] = useState(false);
 
   const filteredArtists = artistsData.filter(artist =>
@@ -20,6 +19,13 @@ export default function Artists() {
     setSelectedArtist(null);
   };
 
+  // Get Suno avatar URL from profile URL
+  const getAvatarUrl = (sunoProfile) => {
+    // Extract username from profile URL and construct avatar URL
+    // For now, use a placeholder - in production this would fetch from Suno API
+    return 'https://via.placeholder.com/80';
+  };
+
   if (selectedArtist) {
     return (
       <section className="page artists-page">
@@ -29,19 +35,30 @@ export default function Artists() {
         
         <div className="artist-detail">
           <div className="artist-detail-header">
-            <div className={`artist-rank-badge rank-${selectedArtist.rank.toLowerCase()}`}>
-              {selectedArtist.rank}
+            <div>
+              <div className={`artist-rank-badge rank-${selectedArtist.rank.toLowerCase()}`}>
+                {selectedArtist.rank}
+              </div>
+              <h2 className="artist-detail-name">{selectedArtist.name}</h2>
+              {selectedArtist.sunoProfile && (
+                <a 
+                  href={selectedArtist.sunoProfile} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="btn-suno-profile"
+                >
+                  🎵 Suno Profile
+                </a>
+              )}
             </div>
-            <h2 className="artist-detail-name">{selectedArtist.name}</h2>
             {selectedArtist.sunoProfile && (
-              <a 
-                href={selectedArtist.sunoProfile} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="btn-suno-profile"
-              >
-                🎵 Suno Profile
-              </a>
+              <div className="artist-avatar">
+                <img 
+                  src={getAvatarUrl(selectedArtist.sunoProfile)} 
+                  alt={`${selectedArtist.name}'s avatar`}
+                  style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover' }}
+                />
+              </div>
             )}
           </div>
 
@@ -65,7 +82,14 @@ export default function Artists() {
               <h3>Teams</h3>
               <div className="teams-list">
                 {selectedArtist.teams.map((team, idx) => (
-                  <span key={idx} className="team-tag">{team}</span>
+                  <span 
+                    key={idx} 
+                    className="team-tag team-tag-compact"
+                    onClick={() => onNavigateToTeam && onNavigateToTeam(team)}
+                    style={{ cursor: onNavigateToTeam ? 'pointer' : 'default' }}
+                  >
+                    {team}
+                  </span>
                 ))}
               </div>
             </div>
@@ -84,7 +108,18 @@ export default function Artists() {
                     <p className="history-theme">Theme: {song.theme}</p>
                     <div className="history-winner">
                       <div className="winner-details">
-                        <p className="winner-team">Team: {song.team}</p>
+                        <p className="winner-team">
+                          Team: {onNavigateToTeam ? (
+                            <span 
+                              onClick={() => onNavigateToTeam(song.team)}
+                              style={{ cursor: 'pointer', textDecoration: 'underline', color: 'var(--accent)' }}
+                            >
+                              {song.team}
+                            </span>
+                          ) : (
+                            song.team
+                          )}
+                        </p>
                         <p className="winner-stats">{song.votes} votes{song.isWinner ? ' • 🏆 Winner' : ''}</p>
                       </div>
                     </div>

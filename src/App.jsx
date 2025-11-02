@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import NavTabs from "./components/NavTabs";
 import AudioPlayer from "./components/AudioPlayer";
@@ -7,10 +7,14 @@ import Current from "./pages/Current";
 import History from "./pages/History";
 import Artists from "./pages/Artists";
 import Teams from "./pages/Teams";
+import { artistsData, teamsData } from "./data/mockData";
 
 function AppContent() {
   const { user, loginWithDiscord, logout } = useAuth();
   const [currentSong, setCurrentSong] = useState(null);
+  const [selectedArtist, setSelectedArtist] = useState(null);
+  const [selectedTeam, setSelectedTeam] = useState(null);
+  const navigate = useNavigate();
 
   const handlePlaySong = (song) => {
     setCurrentSong(song);
@@ -18,6 +22,22 @@ function AppContent() {
 
   const handleClosePlayer = () => {
     setCurrentSong(null);
+  };
+
+  const handleNavigateToArtist = (artistName) => {
+    const artist = artistsData.find(a => a.name === artistName);
+    if (artist) {
+      setSelectedArtist(artist);
+      navigate('/artists');
+    }
+  };
+
+  const handleNavigateToTeam = (teamName) => {
+    const team = teamsData.find(t => t.name === teamName);
+    if (team) {
+      setSelectedTeam(team);
+      navigate('/teams');
+    }
   };
 
   return (
@@ -50,10 +70,10 @@ function AppContent() {
       <main className="app-main">
         <Routes>
           <Route path="/" element={<Navigate to="/current" replace />} />
-          <Route path="/current" element={<Current onPlaySong={handlePlaySong} />} />
-          <Route path="/history" element={<History onPlaySong={handlePlaySong} />} />
-          <Route path="/artists" element={<Artists />} />
-          <Route path="/teams" element={<Teams />} />
+          <Route path="/current" element={<Current onPlaySong={handlePlaySong} onNavigateToTeam={handleNavigateToTeam} onNavigateToArtist={handleNavigateToArtist} />} />
+          <Route path="/history" element={<History onPlaySong={handlePlaySong} onNavigateToTeam={handleNavigateToTeam} />} />
+          <Route path="/artists" element={<Artists selectedArtist={selectedArtist} setSelectedArtist={setSelectedArtist} onNavigateToTeam={handleNavigateToTeam} />} />
+          <Route path="/teams" element={<Teams selectedTeam={selectedTeam} setSelectedTeam={setSelectedTeam} onPlaySong={handlePlaySong} />} />
         </Routes>
       </main>
 
