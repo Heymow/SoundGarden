@@ -22,6 +22,12 @@ export default function NavTabs() {
       >
         Artists
       </NavLink>
+      <NavLink
+        to="/teams"
+        className={({ isActive }) => (isActive ? "tab active" : "tab")}
+      >
+        Teams
+      </NavLink>
     </nav>
   );
 }

@@ -6,6 +6,7 @@ import AudioPlayer from "./components/AudioPlayer";
 import Current from "./pages/Current";
 import History from "./pages/History";
 import Artists from "./pages/Artists";
+import Teams from "./pages/Teams";
 
 function AppContent() {
   const { user, loginWithDiscord, logout } = useAuth();
@@ -51,6 +52,7 @@ function AppContent() {
           <Route path="/current" element={<Current onPlaySong={handlePlaySong} />} />
           <Route path="/history" element={<History onPlaySong={handlePlaySong} />} />
           <Route path="/artists" element={<Artists />} />
+          <Route path="/teams" element={<Teams />} />
         </Routes>
       </main>
 
