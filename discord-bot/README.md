@@ -9,15 +9,19 @@
    - [Public Frontend API](#public-frontend-api)
    - [Admin Panel API](#admin-panel-api)
    - [Members Directory API](#members-directory-api)
-6. [Frontend Development Guide](#frontend-development-guide)
-7. [Admin Commands](#admin-commands)
-8. [Competition Phase Management](#competition-phase-management)
-9. [Message Moderation System](#message-moderation-system)
-10. [Confirmation System](#confirmation-system)
-11. [AI Theme Generation](#ai-theme-generation)
-12. [Week Management](#week-management)
-13. [Testing & Debugging](#testing--debugging)
-14. [Troubleshooting](#troubleshooting)
+6. [Comprehensive Data API](#comprehensive-data-api)
+   - [Data Structure](#data-structure)
+   - [Comprehensive Data API Endpoints](#comprehensive-data-api-endpoints)
+   - [Data Management Commands](#data-management-commands)
+7. [Frontend Development Guide](#frontend-development-guide)
+8. [Admin Commands](#admin-commands)
+9. [Competition Phase Management](#competition-phase-management)
+10. [Message Moderation System](#message-moderation-system)
+11. [Confirmation System](#confirmation-system)
+12. [AI Theme Generation](#ai-theme-generation)
+13. [Week Management](#week-management)
+14. [Testing & Debugging](#testing--debugging)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -774,6 +778,214 @@ Get guild member directory (optional authentication)
     ]
 }
 ```
+
+## Comprehensive Data API
+
+### Overview
+
+The enhanced Collab Warz system includes a comprehensive data tracking system that provides:
+- **Normalized data storage** for Artists, Teams, Songs, and Weeks
+- **Comprehensive tracking** of all competition data without redundancy  
+- **Rich API endpoints** for frontend consumption
+- **Historical analysis** and statistics
+- **Artist career tracking** across all competitions
+
+### Data Structure
+
+#### Artists Database (`artists_db`)
+```json
+{
+  "user_id": {
+    "name": "Display name",
+    "suno_profile": "https://suno.com/@username",
+    "discord_rank": "Seed|Sprout|Flower|Rosegarden|Eden",
+    "stats": {
+      "participations": 10,
+      "victories": 3,
+      "petals": 1250,
+      "last_updated": "2024-01-15T10:30:00"
+    },
+    "team_history": [
+      {
+        "team_id": 123,
+        "team_name": "Amazing Duo", 
+        "week_key": "2024-W03",
+        "won": true
+      }
+    ],
+    "song_history": [456, 789, 101]
+  }
+}
+```
+
+#### Teams Database (`teams_db`)
+```json
+{
+  "team_id": {
+    "name": "Team Name",
+    "members": ["user_id_1", "user_id_2"],
+    "stats": {
+      "participations": 5,
+      "victories": 2,
+      "first_appearance": "2024-W01",
+      "last_appearance": "2024-W05"
+    },
+    "songs_by_week": {
+      "2024-W03": [456, 789],
+      "2024-W05": [101]
+    }
+  }
+}
+```
+
+#### Songs Database (`songs_db`)
+```json
+{
+  "song_id": {
+    "title": "Song Title",
+    "suno_url": "https://suno.com/song/abc123",
+    "suno_song_id": "abc123def-456ghi-789jkl",
+    "team_id": 123,
+    "artists": ["user_id_1", "user_id_2"],
+    "week_key": "2024-W03",
+    "submission_date": "2024-01-15T10:30:00",
+    "suno_metadata": {},
+    "vote_stats": {
+      "total_votes": 25,
+      "final_position": 1,
+      "won_week": true
+    }
+  }
+}
+```
+
+#### Weeks Database (`weeks_db`)
+```json
+{
+  "week_key": {
+    "theme": "Competition Theme",
+    "start_date": "2024-01-15T00:00:00",
+    "status": "active|voting|completed|cancelled",
+    "teams": [123, 456],
+    "songs": [789, 101],
+    "total_votes": 150,
+    "winner_team_id": 123,
+    "winner_song_id": 789,
+    "vote_breakdown": {"789": 25, "101": 15},
+    "participants": ["user_id_1", "user_id_2", "user_id_3"]
+  }
+}
+```
+
+### Comprehensive Data API Endpoints
+
+#### Public Artist Endpoints
+
+**`GET /api/public/artists`** - Get all artists with basic information.
+
+**Response:**
+```json
+{
+  "artists": [
+    {
+      "user_id": "123456789",
+      "name": "Artist Name",
+      "discord_rank": "Flower",
+      "suno_profile": "https://suno.com/@artist",
+      "stats": {
+        "participations": 10,
+        "victories": 3,
+        "petals": 1250,
+        "win_rate": 30.0
+      },
+      "member_info": {
+        "username": "artist_user",
+        "display_name": "Artist Name",
+        "avatar_url": "https://cdn.discordapp.com/...",
+        "is_online": "online"
+      }
+    }
+  ],
+  "total_count": 25,
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+**`GET /api/public/artists/{user_id}`** - Get detailed information for a specific artist.
+
+**Response includes:**
+- Complete team history with song details
+- Full song discography with vote results
+- Discord member information
+- Career statistics
+
+**`GET /api/public/stats/artist/{user_id}`** - Get comprehensive statistics for an artist.
+
+**Response includes:**
+- Advanced statistics (win rate, song count, etc.)
+- Frequent teammates analysis
+- Collaboration patterns
+- Victory statistics by teammate
+
+#### Public Team Endpoints
+
+**`GET /api/public/teams`** - Get all teams with basic information.
+
+**`GET /api/public/teams/{team_id}`** - Get detailed information for a specific team including:
+- Detailed member profiles
+- Songs by week with vote results
+- Team statistics and history
+
+#### Public Song Endpoints
+
+**`GET /api/public/songs`** - Get all songs with basic information including:
+- Team and artist details
+- Vote statistics
+- Week information
+
+**`GET /api/public/songs/{song_id}`** - Get detailed information for a specific song including:
+- Complete team and artist profiles
+- Suno metadata
+- Vote statistics and competition context
+
+#### Public Week Endpoints
+
+**`GET /api/public/weeks`** - Get all competition weeks with basic information.
+
+**`GET /api/public/weeks/{week_key}`** - Get detailed information for a specific week including:
+- Complete team and song listings
+- Vote breakdowns
+- Winner information
+- Participant details
+
+#### Statistics Endpoints
+
+**`GET /api/public/stats/leaderboard`** - Get comprehensive leaderboards and statistics:
+- Artists by victories, participations, petals
+- Teams by victories
+- Overall competition statistics
+
+### Data Management Commands
+
+**`[p]cw syncdata`** - Migrate existing competition data into the comprehensive tracking system
+- Safe operation that doesn't modify existing data
+- Converts historical teams, songs, and winners
+- Creates artist profiles from past participation
+
+### Integration Features
+
+**Bi-Weekly Mode Compatible**: Works seamlessly with alternating week competitions
+
+**Real-Time Updates**: 
+- Artist profiles updated with each submission
+- Team statistics tracked automatically
+- Song metadata recorded with vote results
+- Week data compiled throughout competition lifecycle
+
+**Winner Declaration Integration**: 
+- Automatically updates all related statistics
+- Tracks victory counts and patterns
+- Updates artist and team records
 
 ## Frontend Development Guide
 
@@ -1593,6 +1805,202 @@ These commands are available to **all users** without requiring admin permission
 !status
 
 # These work anywhere, anytime - no special permissions needed!
+```
+
+### Comprehensive Data React Examples
+
+#### Artist Profile Hook and Component
+```javascript
+import { useState, useEffect } from 'react';
+
+function useArtist(userId) {
+  const [artist, setArtist] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/public/artists/${userId}`)
+      .then(res => res.json())
+      .then(data => {
+        setArtist(data.artist);
+        setLoading(false);
+      });
+  }, [userId]);
+
+  return { artist, loading };
+}
+
+function ArtistProfile({ userId }) {
+  const { artist, loading } = useArtist(userId);
+
+  if (loading) return <div>Loading...</div>;
+
+  return (
+    <div className="artist-profile">
+      <div className="artist-header">
+        <img src={artist.member_info?.avatar_url} alt={artist.name} />
+        <h1>{artist.name}</h1>
+        <span className="rank">{artist.discord_rank}</span>
+      </div>
+      
+      <div className="stats">
+        <div>Victories: {artist.stats.victories}</div>
+        <div>Participations: {artist.stats.participations}</div>
+        <div>Win Rate: {(artist.stats.victories / artist.stats.participations * 100).toFixed(1)}%</div>
+        <div>Petals: {artist.stats.petals}</div>
+      </div>
+
+      <div className="song-history">
+        <h2>Songs</h2>
+        {artist.song_history.map(song => (
+          <div key={song.id} className="song-item">
+            <a href={song.suno_url} target="_blank">
+              {song.title}
+            </a>
+            <span>Week: {song.week_key}</span>
+            <span>Votes: {song.votes}</span>
+            {song.won_week && <span className="winner">🏆</span>}
+          </div>
+        ))}
+      </div>
+
+      <div className="team-history">
+        <h2>Team History</h2>
+        {artist.team_history.map(team => (
+          <div key={`${team.team_id}-${team.week_key}`} className="team-item">
+            <span>{team.team_name}</span>
+            <span>Week: {team.week_key}</span>
+            {team.won && <span className="winner">🏆</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+#### Leaderboard Component
+```javascript
+function Leaderboard() {
+  const [leaderboard, setLeaderboard] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/public/stats/leaderboard')
+      .then(res => res.json())
+      .then(data => setLeaderboard(data));
+  }, []);
+
+  if (!leaderboard) return <div>Loading...</div>;
+
+  return (
+    <div className="leaderboard">
+      <h2>Top Artists by Victories</h2>
+      {leaderboard.leaderboards.artists_by_wins.map((artist, index) => (
+        <div key={artist.user_id} className="leaderboard-item">
+          <span className="position">#{index + 1}</span>
+          <img src={artist.member_info?.avatar_url} alt={artist.name} />
+          <span className="name">{artist.name}</span>
+          <span className="victories">{artist.stats.victories} wins</span>
+          <span className="participations">{artist.stats.participations} entries</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+#### Song Browser Component
+```javascript
+function SongBrowser() {
+  const [songs, setSongs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/public/songs')
+      .then(res => res.json())
+      .then(data => {
+        setSongs(data.songs);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) return <div>Loading songs...</div>;
+
+  return (
+    <div className="song-browser">
+      <h2>All Songs</h2>
+      <div className="songs-grid">
+        {songs.map(song => (
+          <div key={song.id} className="song-card">
+            <h3>{song.title}</h3>
+            <div className="artists">
+              by {song.artist_names.join(' & ')}
+            </div>
+            <div className="team">Team: {song.team_name}</div>
+            <div className="week">Week: {song.week_key}</div>
+            <div className="votes">Votes: {song.votes}</div>
+            {song.won_week && <div className="winner-badge">🏆 Winner</div>}
+            <a href={song.suno_url} target="_blank" className="listen-btn">
+              Listen on Suno
+            </a>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+#### Week Detail Component
+```javascript
+function WeekDetail({ weekKey }) {
+  const [week, setWeek] = useState(null);
+
+  useEffect(() => {
+    fetch(`/api/public/weeks/${weekKey}`)
+      .then(res => res.json())
+      .then(data => setWeek(data.week));
+  }, [weekKey]);
+
+  if (!week) return <div>Loading...</div>;
+
+  return (
+    <div className="week-detail">
+      <h1>Week {weekKey}</h1>
+      <h2>Theme: {week.theme}</h2>
+      
+      <div className="week-stats">
+        <span>Status: {week.status}</span>
+        <span>Teams: {week.teams.length}</span>
+        <span>Songs: {week.songs.length}</span>
+        <span>Total Votes: {week.total_votes}</span>
+      </div>
+
+      {week.winner_team_id && (
+        <div className="winner-section">
+          <h3>🏆 Winner</h3>
+          {week.songs.find(s => s.is_winner) && (
+            <div className="winning-song">
+              <h4>{week.songs.find(s => s.is_winner).title}</h4>
+              <p>by {week.songs.find(s => s.is_winner).artist_names.join(' & ')}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="songs-results">
+        <h3>All Submissions</h3>
+        {week.songs.map(song => (
+          <div key={song.id} className={`song-result ${song.is_winner ? 'winner' : ''}`}>
+            <span className="title">{song.title}</span>
+            <span className="artists">{song.artist_names.join(' & ')}</span>
+            <span className="votes">{song.votes} votes</span>
+            <a href={song.suno_url} target="_blank">Listen</a>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 ```
 
 ---
