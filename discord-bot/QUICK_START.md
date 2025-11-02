@@ -77,6 +77,14 @@ Follow the interactive wizard to configure your bot.
 | `[p]cw history` | Competition history |
 | `[p]cw teams stats @user` | User statistics |
 
+### 📢 Public Commands (No Prefix Required)
+| Command | Description |
+|---------|-------------|
+| `!info` | Quick bot information and current competition status |
+| `!status` | Current phase, theme, and deadline information |
+
+*Note: Public commands work in any channel without the bot prefix `[p]`*
+
 ---
 
 ## Automatic Scheduling
@@ -110,12 +118,19 @@ https://suno.com/song/your-track-id
 ```
 
 ### Validation & Restrictions
-- **Suno.com URLs ONLY**: Other platforms automatically rejected
-- Team name with "Team name:" prefix
-- Partner mention (@) required
-- Both members must be in Discord server
-- **Automatic moderation**: Invalid messages deleted with feedback
-- **Admin exemptions**: Admins can post anything anytime
+- **🎵 Suno.com URLs ONLY**: Other platforms automatically rejected with immediate feedback
+- **🏷️ Team name format**: "Team name:" prefix required
+- **👥 Partner mention**: @ mention of partner required
+- **🛡️ Guild membership**: Both members must be in Discord server
+- **🤖 Automatic moderation**: Invalid messages deleted with helpful feedback
+- **👑 Admin exemptions**: Admins can post anything anytime for demonstrations
+
+### 🎯 Suno-Only Policy Enforcement
+- **Platform Detection**: Automatic URL analysis and rejection of non-Suno links
+- **Immediate Feedback**: Users receive instant explanations when submissions are rejected
+- **Educational Messages**: Clear guidance on proper Suno.com link format
+- **Zero Tolerance**: No exceptions for non-Suno platforms (maintains fair competition)
+- **Admin Override**: Admins can demonstrate with any platform when needed
 
 ---
 
@@ -135,46 +150,50 @@ https://suno.com/song/your-track-id
 [p]cw checkvotes
 ```
 
-### � Simple Vote Security
-**Session Token Authentication:**
-- 🔐 **WEB INTERFACE PREFERRED**: Official website with Discord OAuth
-- 🎫 **SESSION TOKENS**: Discord authentication for vote validation
-- � **GUILD VALIDATION**: Only server members can vote
-- 🚫 **NO DOUBLE VOTING**: Individual vote tracking prevents duplicates
+### 🔒 JWT Authentication & Vote Security
+**Modern JWT Security (Recommended):**
+- 🔐 **JWT Tokens**: Cryptographically signed authentication
+- 🎫 **Discord OAuth Integration**: Secure user validation
+- 👤 **Guild Membership Verification**: Server-only voting
+- 🚫 **Duplicate Prevention**: Individual vote tracking
+- ⏰ **Token Expiration**: Time-limited authentication
 
-**� Simple Security Setup:**
+**🔧 JWT Security Setup:**
 ```
-[p]cw sessionauth enable         # Enable Discord session token validation
-[p]cw sessionauth status         # Check current authentication status
-[p]cw apiserver start           # Start API server for frontend integration
-```
-
-**Admin Monitoring:**
-```
-[p]cw votestats                 # View voting statistics and results
-[p]cw clearvotes                # Remove duplicate votes if detected
-[p]cw adjustvotes "Team Alpha" -2  # Manual vote adjustment if needed
+[p]cw jwtauth enable            # Enable JWT authentication system
+[p]cw jwtauth secret generate   # Generate cryptographic signing key
+[p]cw jwtauth expiry 3600      # Set token expiry (1 hour recommended)
+[p]cw jwtauth status           # Check JWT configuration
+[p]cw apiserver start          # Start API server for frontend integration
 ```
 
-**🔒 Simple Security Features:**
-- 🎫 **Discord OAuth Required** (when session auth enabled)
-- 👤 **Guild Membership Check** (automatic validation)
-- 🚫 **Duplicate Vote Prevention** (individual tracking)
-- 📊 **Vote Statistics** (monitoring and transparency)
-
-**💡 Philosophy: Simple & Effective**
-Session token + guild membership = sufficient security:
-- ✅ Prevents unauthorized voting (Discord OAuth)
-- ✅ Prevents double voting (individual tracking)
-- ✅ Easy to implement (no complex configuration)
-- ✅ Easy to debug (clear error messages)
-- ❌ Over-engineering avoided = maintainable code
+**Admin Monitoring & Security:**
 ```
-[p]cw zerotolerance              # 🚫 ACTIVATE maximum security instantly
-[p]cw security iplimit 1         # 1 vote per minute per IP (RECOMMENDED)  
-[p]cw security userlimit 1       # 1 attempt per user (RECOMMENDED)
-[p]cw security failedlimit 1     # 0 failed attempts tolerated (RECOMMENDED)
-[p]cw security patterns on       # Pattern detection (REQUIRED)
+[p]cw votestats                # View voting statistics and results
+[p]cw clearvotes               # Remove duplicate votes if detected
+[p]cw adjustvotes "Team Alpha" -2  # Manual vote adjustment
+[p]cw jwtauth tokens           # List active JWT tokens
+[p]cw jwtauth revoke [user_id] # Revoke specific user's tokens
+[p]cw security report          # Comprehensive security analysis
+```
+
+**🔒 JWT Security Features:**
+- 🔑 **Cryptographic Signatures**: Tamper-proof authentication tokens
+- ⚡ **Fast Validation**: Local verification without Discord API calls
+- �️ **Guild Membership Check**: Automatic server validation
+- 🚫 **Duplicate Vote Prevention**: Individual user tracking
+- 📊 **Comprehensive Logging**: Full audit trail and monitoring
+- ⏰ **Token Expiration**: Configurable time limits for security
+
+**💡 Security Philosophy: Cryptographically Secure**
+JWT tokens provide enterprise-grade security:
+- ✅ Tamper-proof authentication (cryptographic signatures)
+- ✅ Fast validation (no external API calls required)
+- ✅ Time-limited access (configurable expiration)
+- ✅ Full audit trail (comprehensive logging)
+- ✅ Zero-trust verification (every request validated)
+```
+# JWT security commands are listed above in the JWT Security Setup section
 ```
 
 **Admin Monitoring & Response:**
@@ -258,6 +277,22 @@ Web interface eliminates ALL legitimate error sources:
 [p]cw admintoken status        # Check token status & ownership
 ```
 
+### Enhanced Admin Moderation API
+The bot includes comprehensive moderation endpoints for remote administration:
+
+```
+# Competition Management
+[p]cw api endpoints            # List all available admin endpoints
+[p]cw api test moderation      # Test moderation API functionality
+
+# Remote Actions (via Admin API)
+# - Force phase transitions (submission → voting → results)
+# - Remove submissions/teams with audit logging
+# - Bulk vote operations with security validation
+# - Emergency competition cancellation
+# - Real-time configuration updates
+```
+
 ### Available APIs
 - **Public API**: Competition data, submissions, voting results, history, leaderboard
   - 🎵 **Song Metadata**: Titles, audio URLs, cover art, Suno profiles
@@ -329,6 +364,29 @@ Team name: Team Name
 https://suno.com/song/track-id
 ```
 
+### 💬 Enhanced User Messaging Features
+**Automatic Feedback System:**
+- **❌ Invalid Format**: Clear explanation of required submission format
+- **🚫 Wrong Platform**: Immediate notification about Suno-only policy
+- **👤 Missing Partner**: Guidance on proper @ mention requirement  
+- **⏰ Wrong Phase**: Information about current competition phase
+- **✅ Success Confirmation**: Positive feedback when submission is accepted
+
+**Message Examples:**
+```
+❌ Invalid submission format. Please use:
+Team name: Your Team Name
+@partner mention your partner
+https://suno.com/song/your-song-id
+
+🚫 Only Suno.com links are accepted for fair competition.
+Your Spotify/YouTube link has been removed.
+
+👤 Please @ mention your partner in the submission.
+
+⏰ Submissions are currently closed. Voting phase is active!
+```
+
 ### ❌ Song metadata not appearing
 **Cause**: Suno integration disabled or API issues
 **Solution**:
@@ -359,6 +417,25 @@ https://suno.com/song/track-id
 ```
 [p]cw admintoken revoke
 [p]cw admintoken generate
+```
+
+### ❌ JWT authentication not working
+**Cause**: JWT system not properly configured
+**Solution**:
+```
+[p]cw jwtauth status          # Check current configuration
+[p]cw jwtauth secret generate # Generate new signing key
+[p]cw jwtauth enable         # Enable JWT system
+[p]cw apiserver restart      # Restart API with new settings
+```
+
+### ❌ Users can't vote (JWT errors)
+**Cause**: Expired or invalid JWT tokens
+**Solution**:
+```
+[p]cw jwtauth tokens         # Check active tokens
+[p]cw jwtauth expiry 7200    # Extend token lifetime (2 hours)
+[p]cw jwtauth revoke [user]  # Force user to re-authenticate
 ```
 
 ---
@@ -451,12 +528,19 @@ https://suno.com/song/track-id
 - **Additional Admins**: Full bot control, added via `addadmin`  
 - **Permission-Based**: Users with Administrator/Manage Messages/Manage Guild permissions automatically get admin access
 
+### Security & Authentication
+- [ ] JWT authentication enabled (`[p]cw jwtauth enable`)
+- [ ] JWT signing key generated (`[p]cw jwtauth secret generate`)
+- [ ] JWT token expiry configured (`[p]cw jwtauth expiry 3600`)
+- [ ] Public commands tested (`!info` and `!status` work without prefix)
+
 ### Optional Features
 - [ ] AI API configured for theme generation (`[p]cw setai`)
 - [ ] Integrated API server started (`[p]cw apiserver start`)
 - [ ] Admin token generated for web panel (`[p]cw admintoken generate`)
 - [ ] YAGPDB integration for rep rewards
 - [ ] Admin confirmations enabled (`[p]cw confirmation`)
+- [ ] Enhanced admin moderation API endpoints configured
 
 ### Final Tests
 - [ ] Complete status check: `[p]cw status`
@@ -468,6 +552,10 @@ https://suno.com/song/track-id
 🎉 **Your Collab Warz bot is ready for competitions!**
 
 ### Next Steps
-1. **For Users**: Share submission format and Suno.com requirement
-2. **For Developers**: Use README.md for complete API documentation
-3. **For Admins**: Configure frontend voting system integration
+1. **For Users**: Share submission format, Suno.com requirement, and public commands (`!info`, `!status`)
+2. **For Developers**: Use README.md for complete API documentation including JWT authentication
+3. **For Admins**: Configure frontend voting system integration with JWT security
+
+---
+
+*Quick Start Guide last updated: December 2024 - Includes JWT authentication, public commands, enhanced moderation API, and Suno-only policy enforcement*

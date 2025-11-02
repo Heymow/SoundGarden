@@ -46,10 +46,41 @@ The **Collab Warz Bot** fully automates the management of a weekly music collabo
 - ✅ **Discord timestamps** showing relative time in user's timezone
 - ✅ **Automatic week cancellation** when insufficient teams participate
 - ✅ **Suno.com URL validation** with restriction to Suno platform only
+- ✅ **Public user commands** (!info and !status) for easy access to help
+- ✅ **JWT security system** for secure admin panel authentication
+- ✅ **Admin moderation endpoints** for complete back office management
+- ✅ **Enhanced user messaging** with submission format guidance and command visibility
 
 ---
 
-## Installation & Configuration
+## Quick Start for Users
+
+### 🎵 Public Commands (Anyone Can Use)
+These commands are available to **all users** without admin permissions:
+
+```bash
+!info     # Competition guide & submission format help
+!status   # Current competition status & detailed information
+```
+
+### 🎯 How to Participate
+1. **Join during submission phase** (Monday to Friday noon)
+2. **Submit your collaboration** in ONE Discord message:
+   ```
+   Team name: Amazing Duo
+   @YourPartner check out our collab!
+   https://suno.com/song/your-song-id
+   ```
+3. **Vote during voting phase** (Friday noon to Sunday): **https://collabwarz.soundgarden.app**
+4. **Only Suno.com links or audio file attachments are accepted** - other platforms are not allowed
+
+### ⚠️ Platform Restrictions
+- ✅ **Accepted**: Suno.com URLs and direct audio file attachments
+- ❌ **Rejected**: SoundCloud, YouTube, Bandcamp, Spotify, Google Drive links
+
+---
+
+## Admin Installation & Configuration
 
 ### 1. Prerequisites
 ```bash
@@ -270,7 +301,8 @@ The Collab Warz bot provides a comprehensive REST API ecosystem enabling both **
 ```bash
 [p]cw apiserver start                    # Start the API server
 [p]cw apiconfig cors https://yoursite.com # Configure CORS
-[p]cw admintoken generate               # Generate admin token (sent via DM)
+[p]cw admintoken generate               # Generate legacy admin token (sent via DM)
+[p]cw admintoken generate-jwt           # Generate secure JWT token (RECOMMENDED)
 [p]cw testpublicapi                    # Test all endpoints
 ```
 
@@ -506,7 +538,8 @@ Secure administrative API for building admin panels with **Bearer token authenti
 - � **Discord Admin Validation** - Only configured Discord admins can generate/use tokens
 - �📧 **DM Token Delivery** - Tokens sent privately via Discord
 - 🔄 **Token Management** - Generate, revoke, check status anytime
-- 🛡️ **CORS Protection** - Configurable allowed origins
+- � **JWT Security** - Cryptographically signed tokens with expiration (RECOMMENDED)
+- �🛡️ **CORS Protection** - Configurable allowed origins
 - � **Admin Tracking** - Tokens tied to specific Discord admin users
 - ⚠️ **Auto-Validation** - Revoked admin status automatically blocks API access
 
@@ -515,7 +548,10 @@ Secure administrative API for building admin panels with **Bearer token authenti
 # Set up Discord admin first (required)
 [p]cw setadmin @YourDiscordUser
 
-# Generate secure admin token (sent via DM) - Only configured admins can do this
+# Generate JWT token (RECOMMENDED - cryptographically signed with expiration)
+[p]cw admintoken generate-jwt
+
+# OR generate legacy token (32-byte random token)
 [p]cw admintoken generate
 
 # Check token status and ownership
@@ -1053,6 +1089,26 @@ The bot automatically moderates the submission channel to ensure clean, organize
 - **Phase information** provided (voting/inactive)
 - **Clear timeline** for next submission window
 
+### 🎵 Suno-Only Policy (Platform Restrictions)
+
+#### ✅ **Accepted Platforms**
+- **Suno.com URLs** - Both short format (`/s/...`) and full song format (`/song/...`)
+- **Audio file attachments** - Direct upload to Discord
+
+#### ❌ **Rejected Platforms**
+- **SoundCloud** - Not accepted
+- **YouTube** - Not accepted  
+- **Bandcamp** - Not accepted
+- **Spotify** - Not accepted
+- **Google Drive** - Not accepted
+- **Any other platform** - Only Suno.com and direct attachments allowed
+
+#### 🛡️ **Automatic Enforcement**
+- **Immediate rejection** of forbidden platforms with clear error messages
+- **URL validation** ensures proper Suno.com format
+- **User guidance** provided for correct submission format
+- **Website alternative** (https://collabwarz.soundgarden.app) always offered
+
 ### Admin Exemptions
 **Admins bypass all restrictions:**
 - ✅ Can post any message anytime
@@ -1420,6 +1476,37 @@ async function fetchMembers() {
         return [];
     }
 }
+```
+
+---
+
+## Public Commands (Everyone Can Use)
+
+These commands are available to **all users** without requiring admin permissions:
+
+### User Help Commands
+```bash
+!info     # Competition guide & detailed submission format help
+!status   # Current competition status & detailed information
+```
+
+### Key Features
+- ✅ **No admin permissions required** - Anyone can use these commands
+- ✅ **Always available** - Work in any channel, any time
+- ✅ **Comprehensive help** - Complete submission format guidance
+- ✅ **Real-time status** - Current theme, phase, deadlines, and team count
+- ✅ **Website integration** - Direct links to https://collabwarz.soundgarden.app
+- ✅ **Command discovery** - All error messages and announcements promote these commands
+
+### Usage Examples
+```bash
+# Get help with submission format
+!info
+
+# Check current competition status
+!status
+
+# These work anywhere, anytime - no special permissions needed!
 ```
 
 ---
@@ -2638,4 +2725,4 @@ services:
 
 ---
 
-*This documentation covers all current bot features based on code as of November 1, 2025.*
+*This documentation covers all current bot features including JWT security, public commands (!info and !status), Suno-only policy, admin moderation endpoints, and enhanced user messaging - updated November 2, 2025.*
