@@ -3122,6 +3122,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             value=(
                 "`[p]cw setai endpoint key` - Configure AI API\n"
                 "`[p]cw generatetheme` - Generate theme for next week\n"
+                "`[p]cw setnexttheme \"Theme\"` - Manually set next week's theme\n"
                 "`[p]cw confirmtheme [guild_id]` - Approve AI theme\n"
                 "`[p]cw denytheme [guild_id]` - Reject AI theme\n"
                 "🔄 **Auto-generated Sundays for next week**"
@@ -3431,6 +3432,58 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         
         await ctx.send(f"❌ AI theme denied. Next week will use current theme: **{current_theme}**")
     
+    @collabwarz.command(name="setnexttheme")
+    async def set_next_theme(self, ctx, *, theme: str):
+        """Set the theme for next week (will be applied on Monday)"""
+        # Check if user is admin
+        if not await self._is_user_admin(ctx.guild, ctx.author):
+            await ctx.send("❌ You need admin permissions to set next week's theme")
+            return
+        
+        # Check current theme to show in confirmation
+        current_theme = await self.config.guild(ctx.guild).current_theme()
+        existing_next_theme = await self.config.guild(ctx.guild).next_week_theme()
+        
+        # Set the next week theme
+        await self.config.guild(ctx.guild).next_week_theme.set(theme)
+        
+        # Clear any pending theme confirmation since admin manually set it
+        await self.config.guild(ctx.guild).pending_theme_confirmation.set(None)
+        
+        embed = discord.Embed(
+            title="🎨 Next Week Theme Set",
+            color=discord.Color.green()
+        )
+        
+        embed.add_field(
+            name="📝 Current Theme",
+            value=f"*{current_theme}* (this week)",
+            inline=False
+        )
+        
+        if existing_next_theme:
+            embed.add_field(
+                name="🔄 Previous Next Week Theme",
+                value=f"~~{existing_next_theme}~~ (replaced)",
+                inline=False
+            )
+        
+        embed.add_field(
+            name="🎵 New Next Week Theme",
+            value=f"**{theme}**",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📅 When Applied",
+            value="• **Monday 9:00 AM UTC**: Theme will automatically become active\n• **Before Monday**: You can change it again with `[p]cw setnexttheme`\n• **Overrides**: Any AI-generated themes for next week",
+            inline=False
+        )
+        
+        embed.set_footer(text="Theme will be applied automatically on the next Monday morning")
+        
+        await ctx.send(embed=embed)
+    
     @collabwarz.command(name="status")
     async def show_status(self, ctx):
         """Show current Collab Warz configuration"""
@@ -3457,6 +3510,17 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         embed.add_field(name="Current Phase", value=f"**{phase.title()}**", inline=True)
         embed.add_field(name="Expected Phase", value=f"**{expected_phase.title()}**", inline=True)
         
+        # Next week theme status
+        next_week_theme = await self.config.guild(ctx.guild).next_week_theme()
+        theme_generation_done = await self.config.guild(ctx.guild).theme_generation_done()
+        
+        next_theme_status = "⚠️ Not set"
+        if next_week_theme:
+            next_theme_status = f"**{next_week_theme}** ✅"
+        elif theme_generation_done:
+            next_theme_status = "🔄 Pending confirmation"
+        
+        embed.add_field(name="Next Week Theme", value=next_theme_status, inline=True)
         embed.add_field(name="Auto-Announce", value="✅ Enabled" if auto else "❌ Disabled", inline=True)
         embed.add_field(name="Week Number", value=f"**{current_week}**", inline=True)
         embed.add_field(name="Winner Announced", value="✅ Yes" if winner_announced else "❌ No", inline=True)

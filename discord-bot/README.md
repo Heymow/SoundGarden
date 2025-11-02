@@ -1527,10 +1527,7 @@ The bot supports **multiple administrator levels** for flexible team management:
 
 # Multiple admin management
 [p]cw addadmin @user            # Add additional admin
-[p]cw removeadmin @user         # Remove additional admin  
-[p]cw listadmins                # List all configured admins
-
-# View comprehensive admin status
+[p]cw removeadmin @user         # Remove additional admin
 [p]cw listadmins                # Shows primary, additional, and permission-based admins
 ```
 
@@ -1811,7 +1808,8 @@ Web interface voting eliminates ALL legitimate reasons for errors:
 
 ### Manual Generation
 ```bash
-[p]cw generatetheme             # Generate theme for next week
+[p]cw generatetheme             # Generate AI theme for next week
+[p]cw setnexttheme "Theme"      # Manually set next week's theme
 [p]cw confirmtheme [guild_id]   # Approve AI theme
 [p]cw denytheme [guild_id]      # Reject AI theme
 ```
@@ -1825,6 +1823,23 @@ Web interface voting eliminates ALL legitimate reasons for errors:
   - Announcements: Default 150 tokens
 - **Model**: Any OpenAI-compatible model name
   - Examples: `gpt-4`, `gpt-3.5-turbo`, `claude-3-sonnet`, `llama3`
+
+### Manual Theme Setting
+```bash
+[p]cw setnexttheme "Underwater Adventure"  # Set theme for next week
+[p]cw status                               # Check next week's theme
+```
+
+**Benefits of Manual Themes:**
+- **Immediate**: Set theme anytime during the week
+- **Override**: Replaces any AI-generated themes
+- **Flexibility**: Change multiple times before Monday
+- **No confirmation**: Applied directly without DM workflow
+
+**When Applied:**
+- **Monday 9:00 AM UTC**: Manual theme becomes active
+- **Visible in status**: Shows in `[p]cw status` command
+- **Survives restarts**: Persisted until applied or replaced
 
 ### Smart Logic
 - **Admin priority**: Manual theme > automatic theme

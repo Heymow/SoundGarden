@@ -57,6 +57,7 @@ Follow the interactive wizard to configure your bot.
 | `[p]cw toggle` | Enable/disable automation |
 | `[p]cw settheme "New Theme"` | Set competition theme |
 | `[p]cw generatetheme` | Generate AI theme for next week |
+| `[p]cw setnexttheme "Theme"` | Manually set next week's theme |
 | `[p]cw setphase submission/voting` | Change phase manually |
 | `[p]cw pause [reason]` | Pause competition temporarily |
 | `[p]cw resume` | Resume paused competition |
@@ -445,7 +446,8 @@ Your Spotify/YouTube link has been removed.
 ### AI Theme Generation
 ```
 [p]cw setai https://api.openai.com/v1 YOUR_API_KEY
-[p]cw generatetheme         # Generate theme for next week
+[p]cw generatetheme         # Generate AI theme for next week
+[p]cw setnexttheme "Theme"  # Manually set next week's theme
 [p]cw confirmtheme         # Confirm pending AI theme
 [p]cw denytheme           # Reject AI theme
 ```
