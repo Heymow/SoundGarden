@@ -329,3 +329,189 @@ export const artistsData = [
   }
 ];
 
+// Mock teams data
+export const teamsData = [
+  {
+    id: 't1',
+    name: 'Alice & Bob',
+    members: [
+      { name: 'Alice', sunoProfile: 'https://suno.com/@alice_music' },
+      { name: 'Bob', sunoProfile: 'https://suno.com/@bob_beats' }
+    ],
+    participations: 5,
+    victories: 1,
+    compositions: [
+      {
+        title: 'Starlight Journey',
+        theme: 'Cosmic Dreams',
+        week: 'Week 44, 2025',
+        weekNumber: 44,
+        year: 2025,
+        votes: 15,
+        isWinner: false,
+        sunoUrl: 'https://suno.com/song/mock-id-1',
+        participants: ['Alice', 'Bob']
+      },
+      {
+        title: 'Digital Horizons',
+        theme: 'Future Tech',
+        week: 'Week 40, 2025',
+        weekNumber: 40,
+        year: 2025,
+        votes: 32,
+        isWinner: true,
+        sunoUrl: 'https://suno.com/song/mock-id-alice-2',
+        participants: ['Alice', 'Bob']
+      }
+    ]
+  },
+  {
+    id: 't2',
+    name: 'Carol & Dave',
+    members: [
+      { name: 'Carol', sunoProfile: 'https://suno.com/@carol_tunes' },
+      { name: 'Dave', sunoProfile: 'https://suno.com/@dave_synth' }
+    ],
+    participations: 6,
+    victories: 2,
+    compositions: [
+      {
+        title: 'Nebula Whispers',
+        theme: 'Cosmic Dreams',
+        week: 'Week 44, 2025',
+        weekNumber: 44,
+        year: 2025,
+        votes: 23,
+        isWinner: false,
+        sunoUrl: 'https://suno.com/song/mock-id-2',
+        participants: ['Carol', 'Dave']
+      },
+      {
+        title: 'Sunset Dreams',
+        theme: 'Summer Vibes',
+        week: 'Week 39, 2025',
+        weekNumber: 39,
+        year: 2025,
+        votes: 41,
+        isWinner: true,
+        sunoUrl: 'https://suno.com/song/mock-carol-dave-2',
+        participants: ['Carol', 'Dave']
+      }
+    ]
+  },
+  {
+    id: 't3',
+    name: 'Eve & Frank',
+    members: [
+      { name: 'Eve', sunoProfile: 'https://suno.com/@eve_rhythms' },
+      { name: 'Frank', sunoProfile: 'https://suno.com/@frank_sounds' }
+    ],
+    participations: 7,
+    victories: 3,
+    compositions: [
+      {
+        title: 'Galactic Vibes',
+        theme: 'Cosmic Dreams',
+        week: 'Week 44, 2025',
+        weekNumber: 44,
+        year: 2025,
+        votes: 18,
+        isWinner: false,
+        sunoUrl: 'https://suno.com/song/mock-id-3',
+        participants: ['Eve', 'Frank']
+      },
+      {
+        title: 'Midnight Echo',
+        theme: 'Night Tales',
+        week: 'Week 38, 2025',
+        weekNumber: 38,
+        year: 2025,
+        votes: 38,
+        isWinner: true,
+        sunoUrl: 'https://suno.com/song/mock-eve-frank-2',
+        participants: ['Eve', 'Frank']
+      }
+    ]
+  },
+  {
+    id: 't4',
+    name: 'Grace & Henry',
+    members: [
+      { name: 'Grace', sunoProfile: 'https://suno.com/@grace_vocals' },
+      { name: 'Henry', sunoProfile: 'https://suno.com/@henry_prod' }
+    ],
+    participations: 8,
+    victories: 3,
+    compositions: [
+      {
+        title: 'City of Shadows',
+        theme: 'Urban Legends',
+        week: 'Week 43, 2025',
+        weekNumber: 43,
+        year: 2025,
+        votes: 45,
+        isWinner: true,
+        sunoUrl: 'https://suno.com/song/winner-mock-id',
+        participants: ['Grace', 'Henry']
+      },
+      {
+        title: 'Electric Dreams',
+        theme: 'Retro Future',
+        week: 'Week 41, 2025',
+        weekNumber: 41,
+        year: 2025,
+        votes: 41,
+        isWinner: true,
+        sunoUrl: 'https://suno.com/song/mock-grace-henry-2',
+        participants: ['Grace', 'Henry']
+      }
+    ]
+  },
+  {
+    id: 't5',
+    name: 'Bob & Eve',
+    members: [
+      { name: 'Bob', sunoProfile: 'https://suno.com/@bob_beats' },
+      { name: 'Eve', sunoProfile: 'https://suno.com/@eve_rhythms' }
+    ],
+    participations: 3,
+    victories: 0,
+    compositions: [
+      {
+        title: 'Rhythm Nation',
+        theme: 'Dance Floor',
+        week: 'Week 37, 2025',
+        weekNumber: 37,
+        year: 2025,
+        votes: 22,
+        isWinner: false,
+        sunoUrl: 'https://suno.com/song/mock-bob-eve-1',
+        participants: ['Bob', 'Eve']
+      }
+    ]
+  },
+  {
+    id: 't6',
+    name: 'Alice & Carol',
+    members: [
+      { name: 'Alice', sunoProfile: 'https://suno.com/@alice_music' },
+      { name: 'Carol', sunoProfile: 'https://suno.com/@carol_tunes' }
+    ],
+    participations: 2,
+    victories: 1,
+    compositions: [
+      {
+        title: 'Harmony Waves',
+        theme: 'Ocean Depths',
+        week: 'Week 42, 2025',
+        weekNumber: 42,
+        year: 2025,
+        votes: 38,
+        isWinner: true,
+        sunoUrl: 'https://suno.com/song/mock-alice-carol-1',
+        participants: ['Alice', 'Carol']
+      }
+    ]
+  }
+];
+

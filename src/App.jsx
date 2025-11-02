@@ -6,6 +6,7 @@ import AudioPlayer from "./components/AudioPlayer";
 import Current from "./pages/Current";
 import History from "./pages/History";
 import Artists from "./pages/Artists";
+import Teams from "./pages/Teams";
 
 function AppContent() {
   const { user, loginWithDiscord, logout } = useAuth();
@@ -22,7 +23,8 @@ function AppContent() {
   return (
     <div className="app-root">
       <div className="main-banner">
-        <h1 className="main-banner-title">SoundGarden</h1>
+        <h1 className="main-banner-title">🌿 SoundGarden</h1>
+        <p className="main-banner-subtitle">SUNO AI MUSIC COMMUNITY</p>
       </div>
 
       <header className="app-header">
@@ -51,6 +53,7 @@ function AppContent() {
           <Route path="/current" element={<Current onPlaySong={handlePlaySong} />} />
           <Route path="/history" element={<History onPlaySong={handlePlaySong} />} />
           <Route path="/artists" element={<Artists />} />
+          <Route path="/teams" element={<Teams />} />
         </Routes>
       </main>
 
