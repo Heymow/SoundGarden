@@ -88,7 +88,8 @@ class CollabWarz(commands.Cog):
             "next_unique_ids": {        # Track next available IDs for normalization
                 "team_id": 1,
                 "song_id": 1
-            }
+            },
+            "unmatched_suno_authors": {}  # Track Suno authors that couldn't be matched to Discord members
         }
         
         self.config.register_guild(**default_guild)
@@ -411,15 +412,24 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         # Extract Suno song ID for metadata
         suno_song_id = self._extract_suno_song_id(suno_url)
         
+        # Fetch Suno metadata immediately to identify author and update profiles
+        suno_metadata = await self._fetch_suno_metadata(suno_song_id, guild)
+        
+        # Determine primary author and update artist profiles
+        primary_author_id = await self._identify_and_update_song_author(
+            guild, team_id, suno_metadata
+        )
+        
         songs_db[str(song_id)] = {
-            "title": title or f"Song {song_id}",
+            "title": title or suno_metadata.get("title", f"Song {song_id}"),
             "suno_url": suno_url,
             "suno_song_id": suno_song_id,
             "team_id": team_id,
             "artists": teams_db[str(team_id)]["members"].copy(),
+            "primary_author_id": primary_author_id,  # Track which team member's profile this is from
             "week_key": week_key,
             "submission_date": datetime.now().isoformat(),
-            "suno_metadata": {},  # To be filled by Suno API
+            "suno_metadata": suno_metadata,  # Store immediately fetched metadata
             "vote_stats": {
                 "total_votes": 0,
                 "final_position": None,
@@ -607,6 +617,123 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         match = re.search(pattern, url)
         return match.group(1) if match else None
     
+    async def _identify_and_update_song_author(self, guild, team_id: int, suno_metadata: dict) -> str:
+        """
+        Identify which team member is the author of the Suno song and update their profile
+        
+        Args:
+            guild: Discord guild
+            team_id: ID of the team that submitted the song
+            suno_metadata: Metadata fetched from Suno API
+            
+        Returns:
+            user_id of the primary author, or None if not identified
+        """
+        if not suno_metadata or not suno_metadata.get("author_handle"):
+            return None
+            
+        teams_db = await self.config.guild(guild).teams_db()
+        artists_db = await self.config.guild(guild).artists_db()
+        
+        if str(team_id) not in teams_db:
+            return None
+            
+        team_members = teams_db[str(team_id)]["members"]
+        author_handle = suno_metadata["author_handle"]
+        author_profile_url = f"https://suno.com/@{author_handle}"
+        
+        # Strategy 1: Check if any team member already has this exact Suno profile
+        for member_id in team_members:
+            if member_id in artists_db:
+                existing_profile = artists_db[member_id].get("suno_profile")
+                if existing_profile == author_profile_url:
+                    print(f"✅ Matched song author @{author_handle} to existing profile: {member_id}")
+                    return member_id
+        
+        # Strategy 2: Check if any team member has a similar handle (case-insensitive, username variations)
+        for member_id in team_members:
+            member = guild.get_member(int(member_id))
+            if member:
+                # Check against Discord username variations
+                username_variations = [
+                    member.name.lower(),
+                    member.display_name.lower(),
+                    member.name.lower().replace("_", ""),
+                    member.display_name.lower().replace("_", ""),
+                    member.name.lower().replace("-", ""),
+                    member.display_name.lower().replace("-", "")
+                ]
+                
+                if author_handle.lower() in username_variations:
+                    # High confidence match - update their profile
+                    if member_id in artists_db:
+                        artists_db[member_id]["suno_profile"] = author_profile_url
+                        await self.config.guild(guild).artists_db.set(artists_db)
+                        print(f"🎯 Auto-linked Suno profile @{author_handle} to {member.display_name} ({member_id})")
+                        return member_id
+        
+        # Strategy 3: Check if it's a partial match or contains Discord name
+        best_match_id = None
+        best_match_score = 0
+        
+        for member_id in team_members:
+            member = guild.get_member(int(member_id))
+            if member:
+                # Check if Discord name is contained in Suno handle or vice versa
+                discord_name = member.display_name.lower()
+                suno_handle_lower = author_handle.lower()
+                
+                # Calculate similarity score
+                score = 0
+                if discord_name in suno_handle_lower:
+                    score = len(discord_name) / len(suno_handle_lower)
+                elif suno_handle_lower in discord_name:
+                    score = len(suno_handle_lower) / len(discord_name)
+                
+                if score > best_match_score and score > 0.5:  # At least 50% similarity
+                    best_match_score = score
+                    best_match_id = member_id
+        
+        # If we found a good partial match, suggest it but don't auto-link
+        if best_match_id and best_match_score > 0.7:  # High confidence threshold
+            member = guild.get_member(int(best_match_id))
+            if member and best_match_id in artists_db:
+                # Only auto-link if they don't already have a different Suno profile
+                existing_profile = artists_db[best_match_id].get("suno_profile")
+                if not existing_profile:
+                    artists_db[best_match_id]["suno_profile"] = author_profile_url
+                    await self.config.guild(guild).artists_db.set(artists_db)
+                    print(f"🔗 Suggested Suno link @{author_handle} to {member.display_name} ({best_match_id}) - {best_match_score:.1%} similarity")
+                    return best_match_id
+                else:
+                    print(f"⚠️ Possible match for @{author_handle} is {member.display_name}, but they already have profile: {existing_profile}")
+        
+        # Strategy 4: No clear match - create a note for manual review
+        print(f"❓ Could not auto-match Suno author @{author_handle} to team members: {[guild.get_member(int(mid)).display_name if guild.get_member(int(mid)) else mid for mid in team_members]}")
+        
+        # Store unmatched author info for potential future matching
+        unmatched_authors = await self.config.guild(guild).unmatched_suno_authors()
+        if not unmatched_authors:
+            unmatched_authors = {}
+        
+        if author_handle not in unmatched_authors:
+            unmatched_authors[author_handle] = {
+                "profile_url": author_profile_url,
+                "author_name": suno_metadata.get("author_name", "Unknown"),
+                "first_seen": datetime.now().isoformat(),
+                "team_appearances": []
+            }
+        
+        unmatched_authors[author_handle]["team_appearances"].append({
+            "team_id": team_id,
+            "team_members": team_members,
+            "date": datetime.now().isoformat()
+        })
+        
+        await self.config.guild(guild).unmatched_suno_authors.set(unmatched_authors)
+        
+        return None  # No match found
+    
     async def _fetch_suno_metadata(self, song_id: str, guild: discord.Guild) -> dict:
         """Fetch song metadata from Suno API
         
@@ -765,6 +892,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             app.router.add_get('/api/public/weeks/{week_key}', self._handle_public_week_detail)
             app.router.add_get('/api/public/stats/artist/{user_id}', self._handle_public_artist_stats)
             app.router.add_get('/api/public/stats/leaderboard', self._handle_public_stats_leaderboard)
+            app.router.add_get('/api/public/user/{user_id}/membership', self._handle_public_user_membership)
             
             app.router.add_options('/api/public/{path:.*}', self._handle_options_request)
             
@@ -2764,6 +2892,67 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             if api_enabled:
                 return guild
         return None
+    
+    async def _handle_public_user_membership(self, request):
+        """Check if a user is a member of the Discord server"""
+        try:
+            guild = await self._get_api_guild()
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            user_id = request.match_info['user_id']
+            
+            # Validate user_id is numeric
+            try:
+                user_id_int = int(user_id)
+            except ValueError:
+                return web.json_response({"error": "Invalid user ID format"}, status=400)
+            
+            # Check if user is a member of the guild
+            member = guild.get_member(user_id_int)
+            is_member = member is not None
+            
+            response_data = {
+                "user_id": user_id,
+                "is_member": is_member,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            # If they are a member, include basic member info
+            if is_member:
+                response_data["member_info"] = {
+                    "username": member.name,
+                    "display_name": member.display_name,
+                    "avatar_url": str(member.display_avatar.url) if member.display_avatar else None,
+                    "joined_at": member.joined_at.isoformat() if member.joined_at else None,
+                    "status": member.status.name,
+                    "roles": [role.name for role in member.roles if role.name != "@everyone"]
+                }
+                
+                # Check if they're in the artists database
+                artists_db = await self.config.guild(guild).artists_db()
+                if user_id in artists_db:
+                    artist_data = artists_db[user_id]
+                    response_data["collab_warz_profile"] = {
+                        "name": artist_data["name"],
+                        "discord_rank": artist_data["discord_rank"],
+                        "suno_profile": artist_data["suno_profile"],
+                        "stats": artist_data["stats"]
+                    }
+            else:
+                # Not a member - check if we have historical data
+                artists_db = await self.config.guild(guild).artists_db()
+                if user_id in artists_db:
+                    response_data["historical_participant"] = True
+                    response_data["note"] = "User has participated in Collab Warz but is no longer in the server"
+                else:
+                    response_data["historical_participant"] = False
+            
+            return web.json_response(response_data)
+            
+        except Exception as e:
+            print(f"Error checking user membership: {e}")
+            return web.json_response({"error": "Failed to check user membership"}, status=500)
     
     # ========== END COMPREHENSIVE DATA API ENDPOINTS ==========
     
@@ -4835,6 +5024,192 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             )
             await message.edit(embed=error_embed)
             print(f"Data sync error: {e}")
+    
+    @collabwarz.command(name="reviewsuno")
+    async def review_suno_matches(self, ctx):
+        """🔍 Review unmatched Suno authors and manually link them to Discord members"""
+        
+        unmatched_authors = await self.config.guild(ctx.guild).unmatched_suno_authors()
+        
+        if not unmatched_authors:
+            embed = discord.Embed(
+                title="✅ All Suno Authors Matched",
+                description="No unmatched Suno authors found! All song authors have been successfully linked to Discord profiles.",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        embed = discord.Embed(
+            title="🔍 Unmatched Suno Authors Review",
+            description=f"Found **{len(unmatched_authors)}** Suno authors that couldn't be auto-matched to Discord members.",
+            color=discord.Color.orange()
+        )
+        
+        # Show first few unmatched authors
+        count = 0
+        for handle, data in list(unmatched_authors.items())[:5]:
+            count += 1
+            
+            # Get team member names for latest appearance
+            latest_appearance = data["team_appearances"][-1] if data["team_appearances"] else {}
+            member_names = []
+            if latest_appearance:
+                for member_id in latest_appearance.get("team_members", []):
+                    member = ctx.guild.get_member(int(member_id))
+                    member_names.append(member.display_name if member else f"User-{member_id}")
+            
+            embed.add_field(
+                name=f"{count}. @{handle}",
+                value=(
+                    f"**Name:** {data.get('author_name', 'Unknown')}\n"
+                    f"**Profile:** [Suno Profile]({data['profile_url']})\n"
+                    f"**Appearances:** {len(data['team_appearances'])}\n"
+                    f"**Latest Team:** {', '.join(member_names) if member_names else 'Unknown'}\n"
+                    f"**First Seen:** {data['first_seen'][:10]}"
+                ),
+                inline=True
+            )
+        
+        if len(unmatched_authors) > 5:
+            embed.add_field(
+                name=f"➕ And {len(unmatched_authors) - 5} more...",
+                value="Use commands below to manage matches",
+                inline=False
+            )
+        
+        embed.add_field(
+            name="🔧 Management Commands",
+            value=(
+                "`[p]cw linksunouser @handle @discord_user` - Link Suno author to Discord member\n"
+                "`[p]cw clearunmatched @handle` - Remove from unmatched list\n"
+                "`[p]cw clearallunmatched` - Clear entire unmatched list"
+            ),
+            inline=False
+        )
+        
+        embed.set_footer(text="💡 Tip: Artists can also self-link by setting their Suno profile in their artist data")
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="linksunouser")
+    async def link_suno_user(self, ctx, suno_handle: str, discord_user: discord.Member):
+        """🔗 Manually link a Suno author to a Discord member"""
+        
+        # Remove @ if provided
+        suno_handle = suno_handle.lstrip('@')
+        
+        unmatched_authors = await self.config.guild(ctx.guild).unmatched_suno_authors()
+        
+        if suno_handle not in unmatched_authors:
+            embed = discord.Embed(
+                title="❌ Suno Author Not Found",
+                description=f"Suno author `@{suno_handle}` is not in the unmatched list.",
+                color=discord.Color.red()
+            )
+            embed.add_field(
+                name="💡 Note",
+                value="This author may have already been matched or never submitted a song.",
+                inline=False
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        # Update artist profile with Suno link
+        await self._update_artist_suno_profile(ctx.guild, discord_user.id, f"https://suno.com/@{suno_handle}")
+        
+        # Remove from unmatched list
+        author_data = unmatched_authors.pop(suno_handle)
+        await self.config.guild(ctx.guild).unmatched_suno_authors.set(unmatched_authors)
+        
+        embed = discord.Embed(
+            title="✅ Suno Profile Linked Successfully",
+            color=discord.Color.green()
+        )
+        
+        embed.add_field(
+            name="🎵 Suno Author",
+            value=f"**@{suno_handle}** ({author_data.get('author_name', 'Unknown')})",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="👤 Discord Member",
+            value=f"{discord_user.mention}\n({discord_user.display_name})",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📊 Historical Data",
+            value=f"**Appearances:** {len(author_data['team_appearances'])}\n**Profile:** [Suno Profile](https://suno.com/@{suno_handle})",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="clearunmatched")
+    async def clear_unmatched_author(self, ctx, suno_handle: str):
+        """🗑️ Remove a Suno author from the unmatched list"""
+        
+        # Remove @ if provided
+        suno_handle = suno_handle.lstrip('@')
+        
+        unmatched_authors = await self.config.guild(ctx.guild).unmatched_suno_authors()
+        
+        if suno_handle not in unmatched_authors:
+            await ctx.send(f"❌ Suno author `@{suno_handle}` not found in unmatched list.")
+            return
+        
+        # Remove the author
+        removed_data = unmatched_authors.pop(suno_handle)
+        await self.config.guild(ctx.guild).unmatched_suno_authors.set(unmatched_authors)
+        
+        embed = discord.Embed(
+            title="🗑️ Unmatched Author Removed",
+            description=f"Removed `@{suno_handle}` from the unmatched authors list.",
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(
+            name="ℹ️ Removed Data",
+            value=(
+                f"**Name:** {removed_data.get('author_name', 'Unknown')}\n"
+                f"**Appearances:** {len(removed_data['team_appearances'])}\n"
+                f"**First Seen:** {removed_data['first_seen'][:10]}"
+            ),
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+    
+    @collabwarz.command(name="clearallunmatched")
+    async def clear_all_unmatched(self, ctx):
+        """🗑️ Clear the entire unmatched Suno authors list"""
+        
+        unmatched_authors = await self.config.guild(ctx.guild).unmatched_suno_authors()
+        
+        if not unmatched_authors:
+            await ctx.send("✅ No unmatched authors to clear.")
+            return
+        
+        count = len(unmatched_authors)
+        
+        # Clear the list
+        await self.config.guild(ctx.guild).unmatched_suno_authors.set({})
+        
+        embed = discord.Embed(
+            title="🗑️ All Unmatched Authors Cleared",
+            description=f"Removed **{count}** unmatched Suno authors from the tracking list.",
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(
+            name="ℹ️ Note",
+            value="Future song submissions will attempt to match authors again. Previously matched profiles remain linked.",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
     
     @collabwarz.command(name="status")
     async def show_status(self, ctx):
@@ -7131,7 +7506,13 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 f"• `{base_url}/voting` - Voting results\n"
                 f"• `{base_url}/history` - Competition history\n"
                 f"• `{base_url}/leaderboard` - Member statistics\n"
-                f"• `{base_url.replace('/public', '')}/members` - Member directory"
+                f"• `{base_url.replace('/public', '')}/members` - Member directory\n"
+                f"• `{base_url}/user/{{user_id}}/membership` - Check user membership\n"
+                f"• `{base_url}/artists` - All artists data\n"
+                f"• `{base_url}/teams` - All teams data\n"
+                f"• `{base_url}/songs` - All songs data\n"
+                f"• `{base_url}/weeks` - All weeks data\n"
+                f"• `{base_url}/stats/leaderboard` - Comprehensive statistics"
             ),
             inline=False
         )
@@ -8121,6 +8502,41 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 await self.config.guild(guild).next_week_theme.set(new_theme)
                 await message.author.send(f"✅ Custom theme '{new_theme}' set for next week in {guild.name}. It will be applied on Monday.")
                 break
+    
+    async def _update_artist_suno_profile(self, guild, user_id, suno_url):
+        """Update an artist's Suno profile URL"""
+        artists_db = await self.config.guild(guild).artists_db()
+        
+        # Find or create artist entry
+        artist_entry = None
+        for artist_data in artists_db.values():
+            if artist_data["discord_user_id"] == user_id:
+                artist_entry = artist_data
+                break
+        
+        if artist_entry:
+            # Update existing artist
+            artist_entry["suno_profile"] = suno_url
+        else:
+            # Create new artist entry
+            member = guild.get_member(user_id)
+            if not member:
+                return False
+                
+            artist_id = f"artist_{len(artists_db) + 1}"
+            artists_db[artist_id] = {
+                "discord_user_id": user_id,
+                "discord_username": member.name,
+                "display_name": member.display_name,
+                "suno_profile": suno_url,
+                "submission_count": 0,
+                "total_votes": 0,
+                "wins": 0,
+                "created_at": datetime.utcnow().isoformat()
+            }
+        
+        await self.config.guild(guild).artists_db.set(artists_db)
+        return True
 
 
 async def setup(bot: Red):

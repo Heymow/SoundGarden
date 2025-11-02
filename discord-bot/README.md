@@ -965,6 +965,48 @@ The enhanced Collab Warz system includes a comprehensive data tracking system th
 - Teams by victories
 - Overall competition statistics
 
+#### User Membership Endpoints
+
+**`GET /api/public/user/{user_id}/membership`** - Check if a user is a member of the Discord server.
+
+**Response for members:**
+```json
+{
+  "user_id": "123456789",
+  "is_member": true,
+  "member_info": {
+    "username": "artist_user",
+    "display_name": "Artist Name",
+    "avatar_url": "https://cdn.discordapp.com/...",
+    "joined_at": "2024-01-15T10:30:00",
+    "status": "online",
+    "roles": ["Sprout", "Active Member"]
+  },
+  "collab_warz_profile": {
+    "name": "Artist Name",
+    "discord_rank": "Sprout",
+    "suno_profile": "https://suno.com/@artist",
+    "stats": {
+      "participations": 5,
+      "victories": 2,
+      "petals": 850
+    }
+  },
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+**Response for non-members:**
+```json
+{
+  "user_id": "987654321",
+  "is_member": false,
+  "historical_participant": true,
+  "note": "User has participated in Collab Warz but is no longer in the server",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
 ### Data Management Commands
 
 **`[p]cw syncdata`** - Migrate existing competition data into the comprehensive tracking system
@@ -1998,6 +2040,126 @@ function WeekDetail({ weekKey }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+```
+
+#### User Membership Check Component
+```javascript
+function useUserMembership(userId) {
+  const [membership, setMembership] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
+    
+    fetch(`/api/public/user/${userId}/membership`)
+      .then(res => res.json())
+      .then(data => {
+        setMembership(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Error checking membership:', err);
+        setLoading(false);
+      });
+  }, [userId]);
+
+  return { membership, loading };
+}
+
+function UserMembershipStatus({ userId }) {
+  const { membership, loading } = useUserMembership(userId);
+
+  if (loading) return <div>Checking membership...</div>;
+  if (!membership) return <div>Unable to check membership</div>;
+
+  return (
+    <div className="user-membership">
+      {membership.is_member ? (
+        <div className="member-info">
+          <div className="status-badge member">✅ Server Member</div>
+          <div className="member-details">
+            <img src={membership.member_info.avatar_url} alt={membership.member_info.display_name} />
+            <div>
+              <h3>{membership.member_info.display_name}</h3>
+              <p>@{membership.member_info.username}</p>
+              <p>Joined: {new Date(membership.member_info.joined_at).toLocaleDateString()}</p>
+              <p>Status: {membership.member_info.status}</p>
+              {membership.member_info.roles.length > 0 && (
+                <div className="roles">
+                  Roles: {membership.member_info.roles.join(', ')}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {membership.collab_warz_profile && (
+            <div className="collab-warz-info">
+              <h4>Collab Warz Profile</h4>
+              <p>Rank: {membership.collab_warz_profile.discord_rank}</p>
+              <p>Participations: {membership.collab_warz_profile.stats.participations}</p>
+              <p>Victories: {membership.collab_warz_profile.stats.victories}</p>
+              <p>Petals: {membership.collab_warz_profile.stats.petals}</p>
+              {membership.collab_warz_profile.suno_profile && (
+                <a href={membership.collab_warz_profile.suno_profile} target="_blank">
+                  Suno Profile
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="non-member-info">
+          <div className="status-badge non-member">❌ Not a Server Member</div>
+          {membership.historical_participant && (
+            <div className="historical-note">
+              <p>📜 Former participant - has competition history but left the server</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Usage in user profiles or team formation
+function TeamFormation() {
+  const [partnerUserId, setPartnerUserId] = useState('');
+  const { membership: partnerMembership } = useUserMembership(partnerUserId);
+
+  const canFormTeam = partnerMembership?.is_member;
+
+  return (
+    <div className="team-formation">
+      <input 
+        type="text" 
+        placeholder="Enter partner's Discord user ID"
+        value={partnerUserId}
+        onChange={(e) => setPartnerUserId(e.target.value)}
+      />
+      
+      {partnerUserId && (
+        <UserMembershipStatus userId={partnerUserId} />
+      )}
+      
+      {partnerUserId && partnerMembership && (
+        <div className="team-status">
+          {canFormTeam ? (
+            <button className="form-team-btn" disabled={false}>
+              ✅ Can Form Team
+            </button>
+          ) : (
+            <button className="form-team-btn" disabled={true}>
+              ❌ Cannot Form Team - User not in server
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
