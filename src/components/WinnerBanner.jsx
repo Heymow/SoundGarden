@@ -73,7 +73,7 @@ export default function WinnerBanner({ winner, theme, onPlay, onNavigateToTeam }
             e.currentTarget.style.rotate = '0deg';
           }}
         >
-          <img src={winner.imageUrl || 'https://via.placeholder.com/150'} alt={winner.title} style={{ width: "25%", height: "auto" }} />
+          <img src={winner.imageUrl || 'https://via.placeholder.com/150'} alt={winner.title} style={{ width: "25%", height: "auto", minWidth: "200px" }} />
           <button
             className="winner-play-overlay"
             onClick={(e) => {
