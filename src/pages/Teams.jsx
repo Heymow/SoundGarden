@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { teamsData } from '../data/mockData';
 
-export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong }) {
+export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNavigateToArtist }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
 
@@ -94,7 +94,12 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong }) {
               <h3>Team Members</h3>
               <div className="members-list">
                 {selectedTeam.members.map((member, idx) => (
-                  <div key={idx} className="member-card">
+                  <div 
+                    key={idx} 
+                    className="member-card"
+                    onClick={() => onNavigateToArtist && onNavigateToArtist(member.name)}
+                    style={{ cursor: onNavigateToArtist ? 'pointer' : 'default' }}
+                  >
                     <span className="member-name">{member.name}</span>
                     {member.sunoProfile && (
                       <a 
@@ -102,6 +107,7 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong }) {
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="btn-suno-mini"
+                        onClick={(e) => e.stopPropagation()}
                       >
                         🎵 Suno Profile
                       </a>
