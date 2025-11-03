@@ -36,9 +36,9 @@ body{
 
 .main-banner{
   text-align: center;
-  padding: 30px 20px;
+  padding: 14px 20px;
   background: rgba(29, 74, 48, 0.6);
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(5px);
   border-radius: 15px;
   border: 1px solid rgba(74, 124, 89, 0.3);
   box-shadow: 0 4px 20px rgba(0,0,0,0.3);
@@ -51,6 +51,7 @@ body{
   margin-bottom: 10px;
   color: var(--text);
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  letter-spacing:1.8px
 }
 
 .main-banner-subtitle{
@@ -60,6 +61,8 @@ body{
   letter-spacing: 2px;
   text-transform: uppercase;
   margin: 0;
+  padding-left: 60px;
+  margin-top: -10px;
 }
 
 .app-header{
@@ -69,13 +72,13 @@ body{
   flex-wrap:wrap;
   gap:16px;
   background: linear-gradient(135deg, rgba(74,222,128,0.12), rgba(52,211,153,0.08));
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(5px);
   border: 1px solid rgba(74,222,128,0.2);
   border-radius: var(--radius);
-  padding: 20px 24px;
+  padding: 14px 24px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.3);
 }
-.site-title{margin:0;font-size:1.6rem;letter-spacing:0.2px;font-weight:500}
+.site-title{margin:0;font-size:1.6rem;letter-spacing:0.3px;font-weight:500}
 
 /* Auth Actions */
 .auth-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -111,6 +114,8 @@ body{
   display:flex;
   gap:12px;
   padding:8px;
+  padding-bottom: 0px;
+  padding-top: 0px;
   background:transparent;
   border-radius:8px;
 }
@@ -156,10 +161,11 @@ body{
   justify-content: center;
   background:linear-gradient(90deg,var(--accent),var(--accent-2));
   color:var(--bg);
-  padding:6px 12px;
+  padding:7px 12px;
+  padding-top: 4px;
   border-radius:20px;
   font-size:0.95rem;
-  font-weight:600;
+  font-weight:500;
   margin-bottom:12px;
   text-shadow: 0 1px 2px rgba(0,0,0,0.3);
   letter-spacing: 0.3px;
@@ -361,6 +367,7 @@ body{
 }
 .btn-submit{
   padding:12px 24px;
+  padding-top: 10px;
   background:linear-gradient(90deg,var(--accent),var(--accent-2));
   color:var(--bg);
   border:none;
@@ -428,6 +435,7 @@ body{
 }
 .btn-suno,.btn-vote{
   padding:8px 16px;
+  padding-top: 6px;
   border-radius:6px;
   border:none;
   cursor:pointer;
@@ -789,7 +797,7 @@ body{
   cursor: pointer;
   transition: all 0.2s ease;
   flex-shrink: 0;
-  padding: 0;
+  padding: 0 0 3px 3px;
   padding-left: 4px;
 }
 .history-play-btn:hover{
