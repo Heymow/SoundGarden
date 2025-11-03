@@ -34,7 +34,7 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
       }
       grouped[key].songs.push(song);
     });
-    
+
     // Sort by year and week number (descending)
     return Object.values(grouped).sort((a, b) => {
       if (a.year !== b.year) return b.year - a.year;
@@ -45,13 +45,13 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
   if (selectedTeam) {
     const victoriousSongs = (selectedTeam.compositions || []).filter(song => song.isWinner);
     const allSongs = selectedTeam.compositions || [];
-    
+
     // Sort all songs by date descending
     const sortedSongs = [...allSongs].sort((a, b) => {
       if (a.year !== b.year) return b.year - a.year;
       return b.weekNumber - a.weekNumber;
     });
-    
+
     // Group songs by week for display
     const songsByWeek = {};
     sortedSongs.forEach(song => {
@@ -60,13 +60,13 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
       }
       songsByWeek[song.week].push(song);
     });
-    
+
     return (
       <section className="page teams-page">
         <button onClick={handleBackToList} className="btn-back">
           ← Back to Teams
         </button>
-        
+
         <div className="team-detail">
           {/* Main Team Banner - Simplified without subtitle */}
           <div className="team-detail-banner">
@@ -94,17 +94,17 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
               <h3>Team Members</h3>
               <div className="members-list">
                 {selectedTeam.members.map((member, idx) => (
-                  <div 
-                    key={idx} 
+                  <div
+                    key={idx}
                     className="member-card"
                     onClick={() => onNavigateToArtist && onNavigateToArtist(member.name)}
                     style={{ cursor: onNavigateToArtist ? 'pointer' : 'default' }}
                   >
                     <span className="member-name">{member.name}</span>
                     {member.sunoProfile && (
-                      <a 
-                        href={member.sunoProfile} 
-                        target="_blank" 
+                      <a
+                        href={member.sunoProfile}
+                        target="_blank"
                         rel="noopener noreferrer"
                         className="btn-suno-mini"
                         onClick={(e) => e.stopPropagation()}
@@ -131,7 +131,7 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                         {song.week} • Theme: {song.theme} • {song.votes} votes
                       </div>
                     </div>
-                    <button 
+                    <button
                       className="victory-play-btn"
                       onClick={() => onPlaySong && onPlaySong({
                         id: `victory-${idx}`,
@@ -145,9 +145,9 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                     >
                       ▶
                     </button>
-                    <a 
-                      href={song.sunoUrl} 
-                      target="_blank" 
+                    <a
+                      href={song.sunoUrl}
+                      target="_blank"
                       rel="noopener noreferrer"
                       className="btn-suno"
                     >
@@ -176,7 +176,7 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                               {song.title}
                               {song.isWinner && <span> 🏆</span>}
                             </div>
-                            <button 
+                            <button
                               className="song-play-btn-compact"
                               onClick={() => onPlaySong && onPlaySong({
                                 id: `song-${weekIdx}-${songIdx}`,
@@ -193,9 +193,9 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                           </div>
                           <div className="song-card-theme">Theme: {song.theme}</div>
                           <div className="song-card-votes">{song.votes} votes</div>
-                          <a 
-                            href={song.sunoUrl} 
-                            target="_blank" 
+                          <a
+                            href={song.sunoUrl}
+                            target="_blank"
                             rel="noopener noreferrer"
                             className="btn-suno"
                           >
@@ -213,7 +213,7 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
           {/* Total Compositions Summary */}
           <div className="team-summary">
             <p>
-              <strong>{selectedTeam.compositions?.length || 0}</strong> total compositions • 
+              <strong>{selectedTeam.compositions?.length || 0}</strong> total compositions •
               <strong> {selectedTeam.victories}</strong> victories
             </p>
           </div>
@@ -241,7 +241,7 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
           }}
           onFocus={() => setShowDropdown(searchQuery.length > 0)}
         />
-        
+
         {showDropdown && filteredTeams.length > 0 && (
           <div className="team-dropdown">
             {filteredTeams.slice(0, 10).map((team) => (
@@ -257,7 +257,7 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
         )}
       </div>
 
-      <div className="teams-list">
+      <div className="teams-tab-list">
         {teamsData.map((team) => (
           <div
             key={team.id}

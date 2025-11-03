@@ -1026,6 +1026,7 @@ body{
   display:flex;
   gap:8px;
   flex-wrap:wrap;
+
   width: fit-content;
 }
 .team-tag{
@@ -1157,6 +1158,13 @@ body{
   gap:12px;
   margin-top:24px;
 }
+
+.teams-tab-list{
+  display:grid;
+  gap:12px;
+  margin-top:24px;
+}
+
 .team-item{
   background:linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
   border:1px solid rgba(255,255,255,0.05);
