@@ -1,34 +1,29 @@
 // API Configuration
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const BOT_API_BASE_URL =
+  import.meta.env.VITE_BOT_API_URL || "http://localhost:8080";
 
 // Ensure no trailing slash
 export const API_URL = API_BASE_URL.replace(/\/$/, "");
+export const BOT_API_URL = BOT_API_BASE_URL.replace(/\/$/, "");
 
 // API Endpoints
 export const API_ENDPOINTS = {
-  // Auth
+  // Auth (Express server)
   AUTH_DISCORD: `${API_URL}/auth/discord`,
-
-  // Health check
   HEALTH: `${API_URL}/health`,
 
-  // Public API (when Discord bot API is integrated)
-  PUBLIC_API: `${API_URL}/api/public`,
+  // Discord Bot API (RedBot cog)
+  // User membership verification
+  USER_MEMBERSHIP: (userId) =>
+    `${BOT_API_URL}/api/public/user/${userId}/membership`,
 
-  // Artists
-  ARTISTS: `${API_URL}/api/public/artists`,
-
-  // Teams
-  TEAMS: `${API_URL}/api/public/teams`,
-
-  // Songs
-  SONGS: `${API_URL}/api/public/songs`,
-
-  // Weeks
-  WEEKS: `${API_URL}/api/public/weeks`,
-
-  // Statistics
-  STATISTICS: `${API_URL}/api/public/statistics`,
+  // Collab Warz Data
+  ARTISTS: `${BOT_API_URL}/api/public/artists`,
+  TEAMS: `${BOT_API_URL}/api/public/teams`,
+  SONGS: `${BOT_API_URL}/api/public/songs`,
+  WEEKS: `${BOT_API_URL}/api/public/weeks`,
+  STATISTICS: `${BOT_API_URL}/api/public/statistics`,
 };
 
 // Development mode helper
