@@ -126,8 +126,8 @@ export default function Artists({ selectedArtist, setSelectedArtist, onNavigateT
                             id: `artist-song-${idx}`,
                             title: song.title,
                             participants: [selectedArtist.name],
-                            imageUrl: 'https://via.placeholder.com/200',
-                            audioUrl: 'https://cdn.suno.com/audio/mock.mp3',
+                            imageUrl: 'https://picsum.photos/seed/artist-' + idx + '/200/200',
+                            audioUrl: `/test-audio/song-${(idx % 7) + 1}.wav`,
                             sunoUrl: song.sunoUrl
                           })}
                           aria-label={`Play ${song.title}`}

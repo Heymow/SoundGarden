@@ -49,8 +49,8 @@ export default function History({ onPlaySong, onNavigateToTeam }) {
                   onClick={() => onPlaySong && onPlaySong({
                     ...challenge.winner,
                     id: challenge.id,
-                    imageUrl: challenge.winner.imageUrl || 'https://via.placeholder.com/50',
-                    audioUrl: challenge.winner.audioUrl || 'https://cdn.suno.com/audio/mock.mp3'
+                    imageUrl: challenge.winner.imageUrl || 'https://picsum.photos/seed/winner/200/200',
+                    audioUrl: challenge.winner.audioUrl || '/test-audio/song-1.wav'
                   })}
                   aria-label={`Play ${challenge.winner.title}`}
                 >
