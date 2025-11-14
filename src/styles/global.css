@@ -239,10 +239,12 @@ body{
   opacity:0;
   transition:opacity .2s;
   padding: 0;
-  padding-left: 3px;
   line-height: 1;
 }
-.song-image:hover .play-overlay{opacity:1}
+.play-overlay:not(.playing){
+  padding-left: 3px;
+}
+.song-image:hover .play-overlay, .play-overlay.playing{opacity:1}
 .winner-title{margin:0 0 8px 0;color:var(--accent);font-size:1.3rem}
 .winner-theme{margin:4px 0;color:var(--muted);font-size:0.9rem}
 .winner-team{margin:4px 0;color:var(--text);font-weight:500}
@@ -723,6 +725,11 @@ body{
   transition: all 0.2s ease;
   flex-shrink: 0;
   padding: 0;
+}
+.audio-player-play-btn.playing{
+  padding-left: 0;
+}
+.audio-player-play-btn:not(.playing){
   padding-left: 3px;
 }
 .audio-player-play-btn:hover{

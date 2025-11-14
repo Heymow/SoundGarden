@@ -1,67 +1,21 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useAudioPlayer } from '../context/AudioPlayerContext';
 
-export default function AudioPlayer({ currentSong, onClose }) {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+export default function AudioPlayer() {
+  const { currentSong, isPlaying, currentTime, duration, togglePlayPause, closeSong, seekTo } = useAudioPlayer();
   const [isVisible, setIsVisible] = useState(false);
-  const audioRef = useRef(null);
 
   useEffect(() => {
     if (currentSong) {
       setIsVisible(true);
-      if (audioRef.current) {
-        audioRef.current.src = currentSong.audioUrl;
-        audioRef.current.play()
-          .then(() => setIsPlaying(true))
-          .catch(err => {
-            console.log('Autoplay prevented:', err);
-            setIsPlaying(false);
-          });
-      }
     } else {
-      setIsPlaying(false);
       // Fade out then close
       const timeoutId = setTimeout(() => {
         setIsVisible(false);
-        if (onClose) onClose();
       }, 300);
       return () => clearTimeout(timeoutId);
     }
-  }, [currentSong, onClose]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const updateTime = () => setCurrentTime(audio.currentTime);
-    const updateDuration = () => setDuration(audio.duration);
-    const handleEnded = () => {
-      setIsPlaying(false);
-      if (onClose) onClose();
-    };
-
-    audio.addEventListener('timeupdate', updateTime);
-    audio.addEventListener('loadedmetadata', updateDuration);
-    audio.addEventListener('ended', handleEnded);
-
-    return () => {
-      audio.removeEventListener('timeupdate', updateTime);
-      audio.removeEventListener('loadedmetadata', updateDuration);
-      audio.removeEventListener('ended', handleEnded);
-    };
-  }, [onClose]);
-
-  const togglePlayPause = () => {
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause();
-      } else {
-        audioRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    }
-  };
+  }, [currentSong]);
 
   const handleProgressClick = (e) => {
     const progressBar = e.currentTarget;
@@ -69,10 +23,7 @@ export default function AudioPlayer({ currentSong, onClose }) {
     const width = progressBar.offsetWidth;
     const newTime = (clickX / width) * duration;
     
-    if (audioRef.current) {
-      audioRef.current.currentTime = newTime;
-      setCurrentTime(newTime);
-    }
+    seekTo(newTime);
   };
 
   const formatTime = (time) => {
@@ -88,8 +39,6 @@ export default function AudioPlayer({ currentSong, onClose }) {
 
   return (
     <div className={`audio-player ${isVisible ? 'visible' : ''}`}>
-      <audio ref={audioRef} />
-      
       <div className="audio-player-content">
         <div className="audio-player-info">
           <img 
@@ -107,7 +56,7 @@ export default function AudioPlayer({ currentSong, onClose }) {
 
         <div className="audio-player-controls">
           <button 
-            className="audio-player-play-btn"
+            className={`audio-player-play-btn ${isPlaying ? 'playing' : ''}`}
             onClick={togglePlayPause}
             aria-label={isPlaying ? 'Pause' : 'Play'}
           >
@@ -130,12 +79,7 @@ export default function AudioPlayer({ currentSong, onClose }) {
 
           <button 
             className="audio-player-close-btn"
-            onClick={() => {
-              if (audioRef.current) {
-                audioRef.current.pause();
-              }
-              if (onClose) onClose();
-            }}
+            onClick={() => closeSong()}
             aria-label="Close"
           >
             ✕

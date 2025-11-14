@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { AudioPlayerProvider, useAudioPlayer } from "./context/AudioPlayerContext";
 import NavTabs from "./components/NavTabs";
 import AudioPlayer from "./components/AudioPlayer";
 import Current from "./pages/Current";
@@ -40,17 +41,13 @@ function AuthCallbackHandler() {
 
 function AppContent() {
   const { user, loginWithDiscord, logout } = useAuth();
-  const [currentSong, setCurrentSong] = useState(null);
+  const { playSong } = useAudioPlayer();
   const [selectedArtist, setSelectedArtist] = useState(null);
   const [selectedTeam, setSelectedTeam] = useState(null);
   const navigate = useNavigate();
 
   const handlePlaySong = (song) => {
-    setCurrentSong(song);
-  };
-
-  const handleClosePlayer = () => {
-    setCurrentSong(null);
+    playSong(song);
   };
 
   const handleNavigateToArtist = (artistName) => {
@@ -111,10 +108,7 @@ function AppContent() {
         <small>© Heymow - SoundGarden · Collab Warz</small>
       </footer>
 
-      <AudioPlayer
-        currentSong={currentSong}
-        onClose={handleClosePlayer}
-      />
+      <AudioPlayer />
     </div>
   );
 }
@@ -122,7 +116,9 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <AudioPlayerProvider>
+        <AppContent />
+      </AudioPlayerProvider>
     </AuthProvider>
   );
 }
