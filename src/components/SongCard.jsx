@@ -1,6 +1,12 @@
 import React from 'react';
+import { useAudioPlayer } from '../context/AudioPlayerContext';
 
 export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, onLoginRequired, onPlaySong, onNavigateToTeam, onNavigateToArtist }) {
+  const { currentSong, isPlaying, togglePlayPause } = useAudioPlayer();
+  
+  // Check if this song is currently playing
+  const isThisSongPlaying = currentSong?.id === song.id && isPlaying;
+  const isThisSongCurrent = currentSong?.id === song.id;
   const handleImageClick = () => {
     if (onPlaySong) {
       onPlaySong(song);
@@ -11,8 +17,14 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
 
   const handlePlayClick = (e) => {
     e.stopPropagation();
-    if (onPlaySong) {
-      onPlaySong(song);
+    if (isThisSongCurrent) {
+      // If this is the current song, toggle play/pause
+      togglePlayPause();
+    } else {
+      // Otherwise, play this song
+      if (onPlaySong) {
+        onPlaySong(song);
+      }
     }
   };
 
@@ -41,7 +53,7 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
       >
         <img src={song.imageUrl || 'https://via.placeholder.com/200'} alt={song.title} />
         <div 
-          className="play-overlay" 
+          className={`play-overlay ${isThisSongPlaying ? 'playing' : ''}`}
           onClick={handlePlayClick}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -51,9 +63,9 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
           }}
           tabIndex={0}
           role="button"
-          aria-label={`Play ${song.title}`}
+          aria-label={isThisSongPlaying ? `Pause ${song.title}` : `Play ${song.title}`}
         >
-          ▶
+          {isThisSongPlaying ? '⏸' : '▶'}
         </div>
       </div>
       
