@@ -137,8 +137,8 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                         id: `victory-${idx}`,
                         title: song.title,
                         participants: song.participants,
-                        imageUrl: 'https://via.placeholder.com/200',
-                        audioUrl: 'https://cdn.suno.com/audio/mock.mp3',
+                        imageUrl: 'https://picsum.photos/seed/victory-' + idx + '/200/200',
+                        audioUrl: `/test-audio/song-${(idx % 7) + 1}.wav`,
                         sunoUrl: song.sunoUrl
                       })}
                       aria-label={`Play ${song.title}`}
@@ -182,8 +182,8 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                                 id: `song-${weekIdx}-${songIdx}`,
                                 title: song.title,
                                 participants: song.participants,
-                                imageUrl: 'https://via.placeholder.com/200',
-                                audioUrl: 'https://cdn.suno.com/audio/mock.mp3',
+                                imageUrl: 'https://picsum.photos/seed/song-' + weekIdx + '-' + songIdx + '/200/200',
+                                audioUrl: `/test-audio/song-${((weekIdx + songIdx) % 7) + 1}.wav`,
                                 sunoUrl: song.sunoUrl
                               })}
                               aria-label={`Play ${song.title}`}
