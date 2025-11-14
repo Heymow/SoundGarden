@@ -297,7 +297,7 @@ When multiple teams tie for first place:
 - **API Offline**: Week cancelled with explanation
 - **No Votes**: Week cancelled, new cycle starts
 - **Face-off Timeout**: Random selection from tied teams
-- **YAGPDB Offline**: Winner announced, rep distribution flagged for manual handling
+- **AutoReputation Offline**: Winner announced, rep distribution flagged for manual handling
 
 ### Manual Override
 For emergencies only:
@@ -2759,32 +2759,29 @@ Legend: 📋 = Team name match • 👤 = Member name match
 
 ---
 
-## YAGPDB Rep Rewards System
+## AutoReputation Rep Rewards System
 
 ### Automatic Winner Rewards
-Winners of each weekly competition automatically receive rep points (petals) through integration with YAGPDB bot.
+Winners of each weekly competition automatically receive rep points (petals) through integration with the AutoReputation cog.
 
 **Integration Features**:
 - **Automatic rep distribution**: Winners get petals without manual intervention
 - **Real-time totals**: Winner announcements show gained and total petals
-- **Admin channel commands**: YAGPDB commands executed in designated admin channel
+- **Internal API calls**: Direct communication with AutoReputation cog
 - **Flexible amounts**: Configurable reward amounts per winner
 
 ### Configuration Commands
 ```bash
-[p]cw setadminchannel #admin-commands    # Set channel for YAGPDB commands
 [p]cw setrepamount 2                     # Set petals per winner (default: 2)
 [p]cw declarewinner "Team Name" @user1 @user2  # Manually declare winner
 [p]cw winners [weeks]                    # Show recent winners and rep status
 ```
 
 ### How It Works
-1. **Admin declares winner** using `[p]cw declarewinner`
-2. **Bot executes YAGPDB commands** in admin channel:
-   - `-giverep @winner1 2`
-   - `-giverep @winner2 2`
-   - `-rep @winner1` (to get updated total)
-   - `-rep @winner2` (to get updated total)
+1. **Admin declares winner** using `[p]cw declarewinner` or automatic voting system
+2. **Bot uses AutoReputation API** to distribute rewards:
+   - Calls `auto_rep.api_add_points()` for each winner
+   - Calls `auto_rep.api_get_points()` to get updated totals
 3. **Enhanced winner announcement** posted with rep information
 4. **Winners recorded** in permanent history
 
@@ -2821,15 +2818,14 @@ Winners of each weekly competition automatically receive rep points (petals) thr
 *New theme drops Monday morning!* 🚀
 ```
 
-### Admin Channel Setup
-**Requirements**:
-- Both Collab Warz bot and YAGPDB must have access to admin channel
-- YAGPDB must have rep system enabled
-- Admin channel should be private (staff-only recommended)
+### Requirements
+**Prerequisites**:
+- AutoReputation cog must be loaded on the same Redbot instance
+- No channel configuration needed - uses internal API calls
 
-**YAGPDB Commands Used**:
-- `-giverep @user <amount>`: Give rep points to user
-- `-rep @user`: Check user's current rep total
+**API Methods Used**:
+- `api_add_points(guild, user_id, amount, reason, source_cog)`: Add petals to user
+- `api_get_points(guild, user_id)`: Get user's current petal count
 
 ### Winner Management
 ```bash
@@ -2854,17 +2850,16 @@ Legend: ✅ = Rep given • ❌ = Failed • ❓ = Unknown
 ```
 
 ### Error Handling
-- **YAGPDB offline**: Manual rep distribution required
-- **Permission issues**: Check bot permissions in admin channel
-- **Command failures**: Tracked in winner history with failed status
+- **AutoReputation cog not loaded**: Rep distribution fails gracefully
+- **API errors**: Tracked in winner history with failed status
 - **Missing users**: Graceful fallback with user ID display
 
 ### Benefits
 ✅ **Automated rewards**: No manual rep distribution needed  
 ✅ **Transparent totals**: Users see their current rep in announcements  
 ✅ **Audit trail**: Complete history of all rep distributions  
-✅ **Flexible configuration**: Adjustable reward amounts and channels  
-✅ **Integration**: Seamless YAGPDB compatibility  
+✅ **Flexible configuration**: Adjustable reward amounts
+✅ **Integration**: Seamless AutoReputation cog integration via internal API
 
 ---
 

@@ -57,7 +57,7 @@ class CollabWarz(commands.Cog):
             "validate_discord_submissions": True, # Validate Discord submissions format
             "submitted_teams": {},      # Track teams that have submitted this week {week: [teams]}
             "team_members": {},         # Track team compositions {week: {team_name: [user_ids]}}
-            "admin_channel": None,      # Channel for YAGPDB admin commands
+            "admin_channel": None,      # DEPRECATED: No longer used with AutoReputation API
             "rep_reward_amount": 2,     # Amount of rep points to give winners
             "weekly_winners": {},       # Track winners by week {week: {team_name, members, rep_given}}
             "voting_results": {},       # Track voting results {week: {team_name: vote_count}}
@@ -571,7 +571,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             await self.config.guild(guild).artists_db.set(artists_db)
     
     async def _update_artist_petals(self, guild, user_id: int) -> None:
-        """Sync artist's petal count from YAGPDB"""
+        """Sync artist's petal count from AutoReputation cog"""
         try:
             petal_count = await self._get_user_rep_count(guild, user_id)
             artists_db = await self.config.guild(guild).artists_db()
@@ -3386,43 +3386,24 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             )
     
     async def _get_user_rep_count(self, guild, user_id: int) -> int:
-        """Get user's current rep points using YAGPDB command"""
+        """Get user's current rep points using AutoReputation API"""
         try:
-            admin_channel_id = await self.config.guild(guild).admin_channel()
-            if not admin_channel_id:
+            # Get AutoReputation cog
+            auto_rep = self.bot.get_cog('AutoReputation')
+            if not auto_rep:
+                print("AutoReputation cog not found")
                 return 0
             
-            admin_channel = guild.get_channel(admin_channel_id)
-            if not admin_channel:
-                return 0
-            
-            # Send YAGPDB rep check command
             user = guild.get_member(user_id)
             if not user:
                 return 0
             
-            command_msg = f"-rep {user.mention}"
-            await admin_channel.send(command_msg)
+            # Get petals using AutoReputation API
+            result = await auto_rep.api_get_points(guild, user_id)
             
-            # Wait for YAGPDB response and try to parse it
-            def check(message):
-                return (message.channel.id == admin_channel_id and 
-                       message.author.bot and 
-                       user.display_name.lower() in message.content.lower() and
-                       "petals" in message.content.lower())
+            if result and "petals" in result:
+                return result["petals"]
             
-            try:
-                response = await self.bot.wait_for('message', timeout=10.0, check=check)
-                
-                # Try to extract number from YAGPDB response
-                import re
-                numbers = re.findall(r'\d+', response.content)
-                if numbers:
-                    return int(numbers[-1])  # Usually the last number is the total
-                    
-            except asyncio.TimeoutError:
-                print(f"Timeout waiting for YAGPDB rep response for {user.display_name}")
-                
             return 0
             
         except Exception as e:
@@ -3430,28 +3411,33 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             return 0
     
     async def _give_rep_to_user(self, guild, user_id: int, amount: int) -> bool:
-        """Give rep points to a user using YAGPDB command"""
+        """Give rep points to a user using AutoReputation API"""
         try:
-            admin_channel_id = await self.config.guild(guild).admin_channel()
-            if not admin_channel_id:
-                return False
-            
-            admin_channel = guild.get_channel(admin_channel_id)
-            if not admin_channel:
+            # Get AutoReputation cog
+            auto_rep = self.bot.get_cog('AutoReputation')
+            if not auto_rep:
+                print("AutoReputation cog not found")
                 return False
             
             user = guild.get_member(user_id)
             if not user:
                 return False
             
-            # Send YAGPDB giverep command
-            command_msg = f"-giverep {user.mention} {amount}"
-            await admin_channel.send(command_msg)
+            # Add petals using AutoReputation API
+            result = await auto_rep.api_add_points(
+                guild=guild,
+                user_id=user_id,
+                amount=amount,
+                reason="Competition winner",
+                source_cog="CollabWarz"
+            )
             
-            # Wait a bit for the command to process
-            await asyncio.sleep(2)
-            
-            return True
+            # Check if the operation was successful
+            if result and result.get("success"):
+                return True
+            else:
+                print(f"Failed to give rep to user {user_id}: {result}")
+                return False
             
         except Exception as e:
             print(f"Error giving rep to user {user_id}: {e}")
@@ -3531,7 +3517,6 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 user = guild.get_member(user_id)
                 if user:
                     # Get updated rep count (after giving rewards)
-                    await asyncio.sleep(3)  # Wait for YAGPDB to process
                     total_rep = await self._get_user_rep_count(guild, user_id)
                     
                     member_details.append({
@@ -4473,13 +4458,12 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         )
         
         embed.add_field(
-            name="🌸 Rep Rewards (YAGPDB)",
+            name="🌸 Rep Rewards (AutoReputation)",
             value=(
-                "`[p]cw setadminchannel #channel` - Set admin channel for YAGPDB commands\n"
                 "`[p]cw setrepamount 2` - Set petals given to winners\n"
                 "`[p]cw declarewinner \"Team\" @user1 @user2` - 🚨 Manual override only\n"
                 "`[p]cw winners [weeks]` - Show recent winners and rep status\n"
-                "🏆 **Winners automatically get petals via YAGPDB**"
+                "🏆 **Winners automatically get petals via AutoReputation cog**"
             ),
             inline=False
         )
@@ -5379,7 +5363,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         rep_details.append(f"Reward amount: **{rep_amount} petals**" if rep_amount > 0 else "Rewards: **Disabled**")
         
         embed.add_field(
-            name="🌸 Rep Rewards (YAGPDB)",
+            name="🌸 Rep Rewards (AutoReputation)",
             value=f"Status: {rep_status}\n" + "\n".join(rep_details),
             inline=False
         )
@@ -6498,27 +6482,31 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     
     @collabwarz.command(name="setadminchannel")
     async def set_admin_channel(self, ctx, channel: discord.TextChannel):
-        """Set the admin channel for YAGPDB commands (rep rewards)"""
-        await self.config.guild(ctx.guild).admin_channel.set(channel.id)
+        """[DEPRECATED] This command is no longer needed with AutoReputation cog"""
         
         embed = discord.Embed(
-            title="⚙️ Admin Channel Set",
-            description=f"Admin channel set to {channel.mention}",
-            color=discord.Color.green()
+            title="⚠️ Deprecated Command",
+            description=(
+                "This command is no longer needed!\n\n"
+                "The bot now uses the **AutoReputation cog** for reputation management, "
+                "which doesn't require a separate admin channel.\n\n"
+                "Rep rewards are given directly through internal API calls."
+            ),
+            color=discord.Color.orange()
         )
         
         embed.add_field(
-            name="Usage",
+            name="How It Works Now",
             value=(
-                "This channel will be used for:\n"
-                "• YAGPDB `-giverep` commands\n"
-                "• YAGPDB `-rep` lookups\n"
-                "• Automatic rep rewards for winners"
+                "✅ Winners automatically receive petals via AutoReputation cog\n"
+                "✅ No channel configuration needed\n"
+                "✅ Instant, reliable reputation updates\n"
+                "✅ Use `[p]cw setrepamount` to configure reward amounts"
             ),
             inline=False
         )
         
-        embed.set_footer(text="Make sure YAGPDB has access to this channel!")
+        embed.set_footer(text="AutoReputation cog must be loaded for rep rewards to work")
         await ctx.send(embed=embed)
     
     @collabwarz.command(name="setrepamount")
