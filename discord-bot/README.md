@@ -1262,7 +1262,8 @@ The bot automatically enriches submissions with **song metadata** from Suno.com,
 [p]cw sunoconfig enable           # Enable Suno integration
 [p]cw sunoconfig disable          # Disable integration  
 [p]cw sunoconfig url <api-url>    # Change API base URL
-[p]cw testsuno <suno-url>         # Test with specific song
+[p]cw testsuno <suno-url>         # Test metadata extraction with specific song
+[p]cw testsunourl <suno-url>      # Test URL validation
 ```
 
 ### Metadata Provided
@@ -2274,7 +2275,7 @@ Web interface voting eliminates ALL legitimate reasons for errors:
 
 ### URL Validation Testing
 ```bash
-[p]cw testsuno [url]            # Test Suno.com URL format validation
+[p]cw testsunourl [url]         # Test Suno.com URL format validation
 ```
 
 ### AI Configuration

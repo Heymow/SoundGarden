@@ -4486,6 +4486,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "`[p]cw testpublicapi` - Test all public API endpoints\n"
                 "`[p]cw sunoconfig enable/disable` - Toggle Suno metadata integration\n"
                 "`[p]cw testsuno <url>` - Test Suno API with song URL\n"
+                "`[p]cw testsunourl <url>` - Test Suno URL validation\n"
                 "🎧 **Automatic song metadata from Suno.com**"
             ),
             inline=False
@@ -7088,7 +7089,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 value=(
                     "`[p]cw sunoconfig enable/disable`\n"
                     "`[p]cw sunoconfig url https://api.suno-proxy.click`\n"
-                    "`[p]cw testsuno https://suno.com/song/abc123`"
+                    "`[p]cw testsuno https://suno.com/song/abc123`\n"
+                    "For URL validation: `[p]cw testsunourl https://suno.com/s/example123`"
                 ),
                 inline=False
             )
@@ -7680,7 +7682,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             )
             await message.edit(embed=timeout_embed, view=None)
     
-    @collabwarz.command(name="testsuno")
+    @collabwarz.command(name="testsunourl")
     async def test_suno_validation(self, ctx, *, url: str = None):
         """🧪 Test Suno.com URL validation"""
         
@@ -7736,7 +7738,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             # Show example usage
             embed.add_field(
                 name="📝 Usage",
-                value=f"`{ctx.prefix}cw testsuno https://suno.com/s/example123`",
+                value=f"`{ctx.prefix}cw testsunourl https://suno.com/s/example123`",
                 inline=False
             )
             
