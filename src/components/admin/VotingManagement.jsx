@@ -1,0 +1,119 @@
+import React, { useState } from "react";
+
+export default function VotingManagement() {
+  const [votingStats, setVotingStats] = useState({
+    totalVotes: 142,
+    uniqueVoters: 45,
+    averageVotesPerSubmission: 28.4,
+  });
+
+  return (
+    <div className="admin-section">
+      <div className="admin-section-header">
+        <h2>🗳️ Voting Management</h2>
+        <p className="admin-section-subtitle">
+          Monitor voting activity and manage results
+        </p>
+      </div>
+
+      {/* Voting Stats */}
+      <div className="admin-stats-grid">
+        <div className="admin-stat-card">
+          <div className="admin-stat-icon">🗳️</div>
+          <div className="admin-stat-content">
+            <div className="admin-stat-label">Total Votes</div>
+            <div className="admin-stat-value">{votingStats.totalVotes}</div>
+          </div>
+        </div>
+        <div className="admin-stat-card">
+          <div className="admin-stat-icon">👥</div>
+          <div className="admin-stat-content">
+            <div className="admin-stat-label">Unique Voters</div>
+            <div className="admin-stat-value">{votingStats.uniqueVoters}</div>
+          </div>
+        </div>
+        <div className="admin-stat-card">
+          <div className="admin-stat-icon">📊</div>
+          <div className="admin-stat-content">
+            <div className="admin-stat-label">Avg per Submission</div>
+            <div className="admin-stat-value">{votingStats.averageVotesPerSubmission}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Current Results */}
+      <div className="admin-card">
+        <h3 className="admin-card-title">📊 Current Voting Results</h3>
+        <div className="admin-card-content">
+          <div className="voting-results-list">
+            <div className="result-item winner">
+              <div className="result-rank">🥇</div>
+              <div className="result-info">
+                <div className="result-team">Team Alpha - "Cosmic Journey"</div>
+                <div className="result-bar">
+                  <div className="result-bar-fill" style={{ width: "85%" }}></div>
+                </div>
+              </div>
+              <div className="result-votes">42 votes</div>
+            </div>
+            <div className="result-item">
+              <div className="result-rank">🥈</div>
+              <div className="result-info">
+                <div className="result-team">Team Beta - "Stellar Dreams"</div>
+                <div className="result-bar">
+                  <div className="result-bar-fill" style={{ width: "68%" }}></div>
+                </div>
+              </div>
+              <div className="result-votes">34 votes</div>
+            </div>
+            <div className="result-item">
+              <div className="result-rank">🥉</div>
+              <div className="result-info">
+                <div className="result-team">Team Gamma - "Nebula Sound"</div>
+                <div className="result-bar">
+                  <div className="result-bar-fill" style={{ width: "56%" }}></div>
+                </div>
+              </div>
+              <div className="result-votes">28 votes</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Vote Audit */}
+      <div className="admin-card">
+        <h3 className="admin-card-title">🔍 Vote Audit</h3>
+        <div className="admin-card-content">
+          <div className="admin-form-group">
+            <label>Select Week:</label>
+            <select className="admin-input">
+              <option>2024-W03 (Current)</option>
+              <option>2024-W02</option>
+              <option>2024-W01</option>
+            </select>
+          </div>
+          <button className="admin-btn btn-primary">Load Detailed Audit</button>
+          
+          <div className="admin-help-text">
+            💡 View detailed voting information including individual votes and timestamps
+          </div>
+        </div>
+      </div>
+
+      {/* Voting Controls */}
+      <div className="admin-card">
+        <h3 className="admin-card-title">⚙️ Voting Controls</h3>
+        <div className="admin-card-content">
+          <div className="voting-controls">
+            <button className="admin-btn btn-warning">🔄 Reset All Votes</button>
+            <button className="admin-btn btn-danger">🗑️ Remove Invalid Votes</button>
+            <button className="admin-btn btn-success">📊 Export Results</button>
+          </div>
+          <div className="admin-warning">
+            ⚠️ These actions cannot be undone. Use with caution.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
