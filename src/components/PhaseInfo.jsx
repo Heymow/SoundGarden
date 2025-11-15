@@ -1,4 +1,5 @@
 import React from 'react';
+import LavaLampBackground from './LavaLampBackground';
 
 export default function PhaseInfo({ phase, theme, submissionDeadline, votingDeadline }) {
   const getPhaseMessage = () => {
@@ -54,6 +55,7 @@ export default function PhaseInfo({ phase, theme, submissionDeadline, votingDead
 
   return (
     <div className={`phase-info phase-${phase}`}>
+      <LavaLampBackground />
       <div className="phase-header">
         <h2>{phaseInfo.title}</h2>
         <span className="phase-badge">{phase}</span>
