@@ -1444,3 +1444,330 @@
   margin: 8px 0;
   color: var(--admin-text-muted);
 }
+
+/* Admin Token Setup Styles */
+.admin-token-setup {
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 20px;
+}
+
+.token-setup-card {
+  background: var(--admin-card);
+  border: 1px solid var(--admin-border);
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.token-setup-header {
+  text-align: center;
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--admin-border);
+}
+
+.token-setup-header h2 {
+  margin: 0 0 12px 0;
+  color: var(--admin-text);
+  font-size: 1.8rem;
+}
+
+.token-setup-header p {
+  margin: 0;
+  color: var(--admin-text-muted);
+  font-size: 1rem;
+}
+
+.token-setup-instructions {
+  background: rgba(74, 222, 128, 0.05);
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.token-setup-instructions h3 {
+  margin: 0 0 16px 0;
+  color: var(--admin-accent);
+  font-size: 1.1rem;
+}
+
+.token-setup-instructions ol {
+  margin: 0;
+  padding-left: 24px;
+  color: var(--admin-text);
+}
+
+.token-setup-instructions li {
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+
+.token-setup-instructions code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  color: var(--admin-accent-2);
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 0.9rem;
+}
+
+.token-setup-form {
+  margin-bottom: 24px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--admin-text);
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.token-input {
+  width: 100%;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  color: var(--admin-text);
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  resize: vertical;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.token-input:focus {
+  outline: none;
+  border-color: var(--admin-accent);
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.1);
+}
+
+.token-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.token-error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--admin-danger);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+  color: #fca5a5;
+}
+
+.token-error strong {
+  color: var(--admin-danger);
+  display: block;
+  margin-bottom: 8px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-start;
+}
+
+.btn-primary,
+.btn-secondary,
+.btn-danger {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--admin-accent), var(--admin-accent-2));
+  color: var(--admin-bg);
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(74, 222, 128, 0.3);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: rgba(74, 222, 128, 0.1);
+  color: var(--admin-accent);
+  border: 1px solid var(--admin-accent);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(74, 222, 128, 0.2);
+}
+
+.btn-danger {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--admin-danger);
+  border: 1px solid var(--admin-danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.token-setup-help {
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.token-setup-help h4 {
+  margin: 0 0 12px 0;
+  color: var(--admin-info);
+  font-size: 1rem;
+}
+
+.token-setup-help ul {
+  margin: 0;
+  padding-left: 24px;
+  color: var(--admin-text-muted);
+}
+
+.token-setup-help li {
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.token-setup-help code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  color: var(--admin-accent-2);
+  font-size: 0.85rem;
+}
+
+/* Admin Token Status (when token is configured) */
+.admin-token-status {
+  max-width: 800px;
+  margin: 40px auto;
+  padding: 20px;
+}
+
+.token-status-card {
+  background: var(--admin-card);
+  border: 2px solid var(--admin-accent);
+  border-radius: 12px;
+  padding: 32px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  box-shadow: 0 8px 24px rgba(74, 222, 128, 0.1);
+}
+
+.token-status-icon {
+  font-size: 3rem;
+  flex-shrink: 0;
+}
+
+.token-status-content {
+  flex: 1;
+}
+
+.token-status-content h3 {
+  margin: 0 0 8px 0;
+  color: var(--admin-accent);
+  font-size: 1.4rem;
+}
+
+.token-status-content p {
+  margin: 0 0 16px 0;
+  color: var(--admin-text-muted);
+}
+
+.token-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Loading State */
+.admin-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  color: var(--admin-text);
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid rgba(74, 222, 128, 0.2);
+  border-top-color: var(--admin-accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 20px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Auth Error Message */
+.admin-auth-error {
+  max-width: 800px;
+  margin: 20px auto;
+  padding: 16px 20px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--admin-danger);
+  border-radius: 8px;
+  color: #fca5a5;
+}
+
+.admin-auth-error p {
+  margin: 4px 0;
+}
+
+.admin-auth-error strong {
+  color: var(--admin-danger);
+}
+
+/* Full width content for token setup */
+.admin-content-full {
+  flex: 1;
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .token-setup-card {
+    padding: 24px 16px;
+  }
+
+  .token-status-card {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .token-actions {
+    justify-content: center;
+  }
+}
