@@ -9,6 +9,34 @@ export default function TeamManagement() {
 
   const [searchTerm, setSearchTerm] = useState("");
 
+  const handleSearch = () => {
+    if (searchTerm.trim()) {
+      alert(`🔍 Searching for teams: "${searchTerm}"`);
+      // TODO: Implement actual search functionality
+    }
+  };
+
+  const handleViewTeam = (team) => {
+    alert(`👁️ Viewing details for ${team.name}\nMembers: ${team.members.join(", ")}\nSubmissions: ${team.submissions}\nWins: ${team.wins}`);
+  };
+
+  const handleEditTeam = (team) => {
+    alert(`✏️ Opening edit dialog for ${team.name}`);
+    // TODO: Open edit modal
+  };
+
+  const handleApproveSubmission = (team, song) => {
+    alert(`✅ Approved submission from ${team}: "${song}"`);
+    // TODO: Call API to approve submission
+  };
+
+  const handleRejectSubmission = (team, song) => {
+    if (confirm(`Are you sure you want to reject submission from ${team}: "${song}"?`)) {
+      alert(`❌ Rejected submission from ${team}`);
+      // TODO: Call API to reject submission
+    }
+  };
+
   return (
     <div className="admin-section">
       <div className="admin-section-header">
@@ -27,9 +55,10 @@ export default function TeamManagement() {
               placeholder="Search teams..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
               className="admin-input"
             />
-            <button className="admin-btn btn-primary">🔍 Search</button>
+            <button className="admin-btn btn-primary" onClick={handleSearch}>🔍 Search</button>
           </div>
         </div>
       </div>
@@ -57,8 +86,8 @@ export default function TeamManagement() {
                     <td>{team.submissions}</td>
                     <td>{team.wins}</td>
                     <td>
-                      <button className="admin-btn-sm btn-info">View</button>
-                      <button className="admin-btn-sm btn-secondary">Edit</button>
+                      <button className="admin-btn-sm btn-info" onClick={() => handleViewTeam(team)}>View</button>
+                      <button className="admin-btn-sm btn-secondary" onClick={() => handleEditTeam(team)}>Edit</button>
                     </td>
                   </tr>
                 ))}
@@ -79,8 +108,8 @@ export default function TeamManagement() {
                 <div className="submission-meta">Submitted 2 hours ago</div>
               </div>
               <div className="submission-actions">
-                <button className="admin-btn-sm btn-success">✓ Approve</button>
-                <button className="admin-btn-sm btn-danger">✗ Reject</button>
+                <button className="admin-btn-sm btn-success" onClick={() => handleApproveSubmission("Team Alpha", "Cosmic Journey")}>✓ Approve</button>
+                <button className="admin-btn-sm btn-danger" onClick={() => handleRejectSubmission("Team Alpha", "Cosmic Journey")}>✗ Reject</button>
               </div>
             </div>
             <div className="submission-item">
@@ -89,8 +118,8 @@ export default function TeamManagement() {
                 <div className="submission-meta">Submitted 5 hours ago</div>
               </div>
               <div className="submission-actions">
-                <button className="admin-btn-sm btn-success">✓ Approve</button>
-                <button className="admin-btn-sm btn-danger">✗ Reject</button>
+                <button className="admin-btn-sm btn-success" onClick={() => handleApproveSubmission("Team Beta", "Stellar Dreams")}>✓ Approve</button>
+                <button className="admin-btn-sm btn-danger" onClick={() => handleRejectSubmission("Team Beta", "Stellar Dreams")}>✗ Reject</button>
               </div>
             </div>
           </div>
