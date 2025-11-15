@@ -5,11 +5,32 @@ This guide explains how to set up and use the admin panel with the Discord bot b
 ## Prerequisites
 
 1. **Discord Bot Running**: The Discord bot must be running with the API server enabled
-2. **Admin Token**: You need an admin authentication token from the bot
+2. **Admin Configuration**: You must be configured as an admin in the Discord bot
+3. **Admin Token**: You need an admin authentication token from the bot
 
 ## Setting Up Admin Authentication
 
-### Step 1: Enable API Server in Discord Bot
+### Step 1: Configure Admin Access in Discord Bot
+
+First, ensure you are configured as an admin in the Discord bot:
+
+```
+[p]cw setadmin @YourUsername
+```
+
+Or add additional admins:
+
+```
+[p]cw addadmin @YourUsername
+```
+
+To verify your admin status:
+
+```
+[p]cw listadmins
+```
+
+### Step 2: Enable API Server in Discord Bot
 
 Use Discord commands to enable the API server:
 
@@ -19,34 +40,39 @@ Use Discord commands to enable the API server:
 [p]cw apiconfig api_server_port 8080
 ```
 
-### Step 2: Generate Admin Token
+### Step 3: Generate Admin Token
 
 Generate an admin access token via Discord:
 
 ```
-[p]cw generatetoken
+[p]cw admintoken generate
 ```
 
-The bot will DM you a secure token. **Keep this token private!**
+The bot will DM you a secure JWT token. **Keep this token private!**
 
-### Step 3: Set Token in Browser
+### Step 4: Enter Token in Admin Panel (NEW!)
 
-1. Open the admin panel in your browser
-2. Open browser console (F12)
-3. Run this command with your token:
+**The admin panel now has a built-in token setup interface:**
 
-```javascript
-localStorage.setItem('discordAdminToken', 'YOUR_TOKEN_HERE');
-```
+1. Navigate to the admin panel at `http://localhost:3000/admin` (or your deployment URL)
+2. You will see the "Admin Authentication Required" screen
+3. Follow the instructions on the screen:
+   - Paste your token from Discord into the text area
+   - Click "Save and Validate Token"
+4. The token will be validated and saved automatically
+5. If valid, you'll gain immediate access to the admin panel
 
-4. Refresh the page
+**Note:** You no longer need to manually use the browser console to set the token!
 
-### Step 4: Verify Connection
+### Step 5: Verify Connection
 
-The admin panel should now be able to:
-- Load competition status
-- View current phase and theme
-- Access all admin functions
+Once authenticated, the admin panel will display:
+- Dashboard with competition status
+- Current phase and theme
+- Access to all admin functions
+- Token status indicator
+
+You can test the connection using the "Test Connection" button in the token status section.
 
 ## Environment Variables
 
@@ -127,20 +153,30 @@ FRONTEND_URL=http://localhost:3000
 
 ## Troubleshooting
 
-### "Admin token not found" Error
-- Ensure you've set the token in localStorage
-- Check that the token hasn't expired
-- Regenerate token if needed
+### Authentication Issues
+
+**"Admin token not found" or Token Setup Screen Appears**
+- You need to enter your admin token in the admin panel interface
+- Generate a token: `[p]cw admintoken generate`
+- Check your Discord DMs for the token
+- Paste it into the token setup screen in the admin panel
+
+**"Invalid token" or "Token user no longer configured as admin" Error**
+- Verify you're configured as an admin: `[p]cw listadmins`
+- Your Discord user ID must be in the bot's admin list
+- Use `[p]cw setadmin @YourUsername` or `[p]cw addadmin @YourUsername`
+- Token may have expired - generate a new one: `[p]cw admintoken generate`
+
+**"Token validation failed: Failed to fetch" Error**
+- The Discord bot API server is not running or not reachable
+- Check that the bot is online and API is enabled: `[p]cw apiserver enable`
+- Verify `VITE_BOT_API_URL` in your .env file matches the bot API URL
+- Ensure firewall/network allows connections to the bot API port (default: 8080)
 
 ### "API not enabled" Error (503)
 - Verify the Discord bot API server is running
 - Check that `api_server_enabled` is true in bot config
 - Ensure you're connecting to the correct port (default: 8080)
-
-### "Invalid token" Error (403)
-- Token may have expired - generate a new one
-- Ensure you're using the full token string
-- Verify you're an admin in the Discord bot config
 
 ### Network Errors
 - Check that `VITE_BOT_API_URL` points to the correct bot API
@@ -149,11 +185,13 @@ FRONTEND_URL=http://localhost:3000
 
 ## Security Notes
 
-1. **Keep Tokens Private**: Never share your admin token
+1. **Keep Tokens Private**: Never share your admin token - it grants full admin access
 2. **HTTPS in Production**: Use HTTPS for both frontend and API in production
-3. **Token Expiration**: Tokens should expire; regenerate periodically
+3. **Token Expiration**: Tokens expire after 1 year; regenerate periodically
 4. **CORS Configuration**: Configure CORS properly in production
 5. **Admin List**: Only authorized Discord users should have admin access
+6. **Token Storage**: Tokens are stored in browser localStorage - clear them with the "Clear Token" button
+7. **Automatic Validation**: Invalid tokens are automatically cleared from storage
 
 ## Development
 
