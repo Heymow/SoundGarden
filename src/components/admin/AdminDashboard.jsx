@@ -12,6 +12,45 @@ export default function AdminDashboard() {
     systemStatus: "operational",
   });
 
+  const handleStartNewWeek = () => {
+    if (confirm("Are you sure you want to start a new week? This will create a new competition cycle.")) {
+      // TODO: Call API to start new week
+      alert("✅ New week started successfully!");
+      // Update stats
+      setStats(prev => ({
+        ...prev,
+        activeWeek: `2024-W${parseInt(prev.activeWeek.split('-W')[1]) + 1}`,
+        currentPhase: "submission",
+        totalSubmissions: 0,
+        totalVotes: 0,
+      }));
+    }
+  };
+
+  const handleSendAnnouncement = () => {
+    // TODO: Navigate to announcements section or show quick announcement modal
+    alert("📢 Opening announcement composer...");
+  };
+
+  const handleChangePhase = () => {
+    const phases = ["submission", "voting", "paused", "ended"];
+    const currentIndex = phases.indexOf(stats.currentPhase);
+    const nextPhase = phases[(currentIndex + 1) % phases.length];
+    
+    if (confirm(`Change phase from "${stats.currentPhase}" to "${nextPhase}"?`)) {
+      setStats(prev => ({ ...prev, currentPhase: nextPhase }));
+      alert(`✅ Phase changed to: ${nextPhase}`);
+    }
+  };
+
+  const handleAnnounceWinner = () => {
+    if (confirm("Are you sure you want to announce the winner? This will end the current voting period.")) {
+      // TODO: Call API to calculate and announce winner
+      alert("🏆 Calculating results and announcing winner...");
+      setStats(prev => ({ ...prev, currentPhase: "ended" }));
+    }
+  };
+
   return (
     <div className="admin-section">
       <div className="admin-section-header">
@@ -90,19 +129,19 @@ export default function AdminDashboard() {
       <div className="admin-quick-actions">
         <h3>⚡ Quick Actions</h3>
         <div className="admin-action-grid">
-          <button className="admin-action-btn action-primary">
+          <button className="admin-action-btn action-primary" onClick={handleStartNewWeek}>
             <span className="action-icon">🎵</span>
             <span>Start New Week</span>
           </button>
-          <button className="admin-action-btn action-success">
+          <button className="admin-action-btn action-success" onClick={handleSendAnnouncement}>
             <span className="action-icon">📢</span>
             <span>Send Announcement</span>
           </button>
-          <button className="admin-action-btn action-warning">
+          <button className="admin-action-btn action-warning" onClick={handleChangePhase}>
             <span className="action-icon">🔄</span>
             <span>Change Phase</span>
           </button>
-          <button className="admin-action-btn action-info">
+          <button className="admin-action-btn action-info" onClick={handleAnnounceWinner}>
             <span className="action-icon">🏆</span>
             <span>Announce Winner</span>
           </button>

@@ -8,6 +8,54 @@ export default function SystemStatus() {
     discord: true,
   });
 
+  const handleEditConfig = () => {
+    alert("⚙️ Opening bot configuration editor...");
+    // TODO: Open configuration editor
+  };
+
+  const handleViewLogs = () => {
+    alert("📜 Opening full system logs viewer...");
+    // TODO: Open logs viewer or navigate to logs page
+  };
+
+  const handleSyncData = () => {
+    alert("🔄 Syncing data with Discord bot...");
+    // TODO: Call API to sync data
+    setTimeout(() => {
+      alert("✅ Data synchronized successfully!");
+    }, 1500);
+  };
+
+  const handleRestartBot = () => {
+    if (confirm("⚠️ Are you sure you want to restart the bot? This may cause brief downtime.")) {
+      alert("♻️ Restarting Discord bot...");
+      // TODO: Call API to restart bot
+      setSystemHealth(prev => ({ ...prev, botOnline: false }));
+      setTimeout(() => {
+        setSystemHealth(prev => ({ ...prev, botOnline: true }));
+        alert("✅ Bot restarted successfully!");
+      }, 3000);
+    }
+  };
+
+  const handleGenerateReport = () => {
+    alert("📊 Generating system report...");
+    // TODO: Call API to generate report
+    setTimeout(() => {
+      alert("✅ System report generated and downloaded!");
+    }, 1500);
+  };
+
+  const handleBackupData = () => {
+    if (confirm("Create a backup of all competition data?")) {
+      alert("💾 Creating data backup...");
+      // TODO: Call API to backup data
+      setTimeout(() => {
+        alert("✅ Backup created successfully!");
+      }, 2000);
+    }
+  };
+
   return (
     <div className="admin-section">
       <div className="admin-section-header">
@@ -80,7 +128,7 @@ export default function SystemStatus() {
               <span className="config-value">Disabled</span>
             </div>
           </div>
-          <button className="admin-btn btn-secondary">Edit Configuration</button>
+          <button className="admin-btn btn-secondary" onClick={handleEditConfig}>Edit Configuration</button>
         </div>
       </div>
 
@@ -135,7 +183,7 @@ export default function SystemStatus() {
               <span className="log-message">Rate limit approaching for API calls</span>
             </div>
           </div>
-          <button className="admin-btn btn-secondary">View Full Logs</button>
+          <button className="admin-btn btn-secondary" onClick={handleViewLogs}>View Full Logs</button>
         </div>
       </div>
 
@@ -144,10 +192,10 @@ export default function SystemStatus() {
         <h3 className="admin-card-title">🔧 System Actions</h3>
         <div className="admin-card-content">
           <div className="system-actions">
-            <button className="admin-btn btn-info">🔄 Sync Data</button>
-            <button className="admin-btn btn-warning">♻️ Restart Bot</button>
-            <button className="admin-btn btn-secondary">📊 Generate Report</button>
-            <button className="admin-btn btn-primary">💾 Backup Data</button>
+            <button className="admin-btn btn-info" onClick={handleSyncData}>🔄 Sync Data</button>
+            <button className="admin-btn btn-warning" onClick={handleRestartBot}>♻️ Restart Bot</button>
+            <button className="admin-btn btn-secondary" onClick={handleGenerateReport}>📊 Generate Report</button>
+            <button className="admin-btn btn-primary" onClick={handleBackupData}>💾 Backup Data</button>
           </div>
         </div>
       </div>

@@ -5,40 +5,69 @@ export default function CompetitionManagement() {
   const [currentTheme, setCurrentTheme] = useState("Cosmic Dreams");
   const [nextTheme, setNextTheme] = useState("");
   const [biweeklyMode, setBiweeklyMode] = useState(false);
+  const [minTeams, setMinTeams] = useState(2);
+  const [reputationPoints, setReputationPoints] = useState(2);
+  const [autoAnnounce, setAutoAnnounce] = useState(true);
+  const [validateFormat, setValidateFormat] = useState(true);
 
   const handlePhaseChange = (newPhase) => {
     setCurrentPhase(newPhase);
     // TODO: Call Discord bot API to change phase
-    alert(`Phase changed to: ${newPhase}`);
+    alert(`✅ Phase changed to: ${newPhase}`);
   };
 
   const handleThemeUpdate = () => {
+    if (!currentTheme.trim()) {
+      alert("❌ Please enter a theme");
+      return;
+    }
     // TODO: Call Discord bot API to update theme
-    alert(`Theme updated to: ${currentTheme}`);
+    alert(`✅ Theme updated to: ${currentTheme}`);
   };
 
   const handleGenerateTheme = () => {
     // TODO: Call Discord bot API to generate AI theme
-    alert("Generating AI theme...");
+    alert("🤖 Generating AI theme...");
+    // Simulate AI generation
+    setTimeout(() => {
+      const themes = ["Neon Dreams", "Ocean Waves", "Desert Sunset", "Arctic Winds", "Jungle Rhythm"];
+      const randomTheme = themes[Math.floor(Math.random() * themes.length)];
+      setNextTheme(randomTheme);
+      alert(`✅ AI generated theme: "${randomTheme}"`);
+    }, 1000);
   };
 
   const handleNextWeek = () => {
-    // TODO: Call Discord bot API to start next week
-    alert("Starting next week...");
+    if (confirm("Are you sure you want to start the next week? This will begin a new competition cycle.")) {
+      // TODO: Call Discord bot API to start next week
+      alert("✅ Starting next week...");
+    }
   };
 
   const handleCancelWeek = () => {
-    if (confirm("Are you sure you want to cancel this week's competition?")) {
+    if (confirm("Are you sure you want to cancel this week's competition? This action cannot be undone.")) {
       // TODO: Call Discord bot API to cancel week
-      alert("Week cancelled");
+      alert("✅ Week cancelled");
     }
   };
 
   const handleEndWeek = () => {
     if (confirm("Are you sure you want to end this week and announce results?")) {
       // TODO: Call Discord bot API to end week
-      alert("Week ended - announcing results");
+      alert("✅ Week ended - announcing results");
     }
+  };
+
+  const handleSaveSettings = () => {
+    // TODO: Call API to save competition settings
+    const settings = {
+      minTeams,
+      reputationPoints,
+      autoAnnounce,
+      validateFormat,
+    };
+    console.log("Saving settings:", settings);
+    alert("✅ Competition settings saved successfully!");
   };
 
   return (
@@ -209,26 +238,44 @@ export default function CompetitionManagement() {
           <div className="admin-settings-grid">
             <div className="setting-item">
               <label>Minimum Teams Required:</label>
-              <input type="number" defaultValue="2" className="admin-input-sm" />
+              <input 
+                type="number" 
+                value={minTeams}
+                onChange={(e) => setMinTeams(parseInt(e.target.value))}
+                className="admin-input-sm" 
+              />
             </div>
             <div className="setting-item">
               <label>Reputation Points for Winner:</label>
-              <input type="number" defaultValue="2" className="admin-input-sm" />
+              <input 
+                type="number" 
+                value={reputationPoints}
+                onChange={(e) => setReputationPoints(parseInt(e.target.value))}
+                className="admin-input-sm" 
+              />
             </div>
             <div className="setting-item">
               <label className="admin-checkbox-label">
-                <input type="checkbox" defaultChecked />
+                <input 
+                  type="checkbox" 
+                  checked={autoAnnounce}
+                  onChange={(e) => setAutoAnnounce(e.target.checked)}
+                />
                 <span>Auto-announce phase changes</span>
               </label>
             </div>
             <div className="setting-item">
               <label className="admin-checkbox-label">
-                <input type="checkbox" defaultChecked />
+                <input 
+                  type="checkbox" 
+                  checked={validateFormat}
+                  onChange={(e) => setValidateFormat(e.target.checked)}
+                />
                 <span>Validate submissions format</span>
               </label>
             </div>
           </div>
-          <button className="admin-btn btn-primary">Save Settings</button>
+          <button className="admin-btn btn-primary" onClick={handleSaveSettings}>Save Settings</button>
         </div>
       </div>
     </div>

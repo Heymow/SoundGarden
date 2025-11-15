@@ -9,11 +9,43 @@ export default function AIConfiguration() {
   const [maxTokens, setMaxTokens] = useState(150);
 
   const handleTestAI = () => {
-    alert("Testing AI connection...");
+    alert("🧪 Testing AI connection...");
+    // TODO: Call API to test AI connection
+    setTimeout(() => {
+      const success = Math.random() > 0.2; // 80% success rate for demo
+      if (success) {
+        alert("✅ AI connection successful! Model is responding correctly.");
+      } else {
+        alert("❌ AI connection failed. Please check your API key and endpoint.");
+      }
+    }, 1500);
   };
 
   const handleSaveConfig = () => {
-    alert("AI configuration saved!");
+    if (!apiUrl.trim()) {
+      alert("❌ Please enter an API URL");
+      return;
+    }
+    if (!apiKey.trim()) {
+      alert("❌ Please enter an API key");
+      return;
+    }
+    
+    const config = {
+      enabled: aiEnabled,
+      apiUrl,
+      model,
+      temperature,
+      maxTokens,
+    };
+    console.log("Saving AI configuration:", config);
+    alert("✅ AI configuration saved successfully!");
+    // TODO: Call API to save configuration
+  };
+
+  const handleEditTemplate = (templateName) => {
+    alert(`✏️ Opening template editor for: ${templateName}`);
+    // TODO: Open template editor modal
   };
 
   return (
@@ -158,7 +190,7 @@ export default function AIConfiguration() {
             <div className="template-item">
               <div className="template-header">
                 <strong>Submission Phase</strong>
-                <button className="admin-btn-sm btn-secondary">Edit</button>
+                <button className="admin-btn-sm btn-secondary" onClick={() => handleEditTemplate("Submission Phase")}>Edit</button>
               </div>
               <div className="template-preview">
                 "Generate an exciting announcement for starting the submission phase..."
@@ -167,7 +199,7 @@ export default function AIConfiguration() {
             <div className="template-item">
               <div className="template-header">
                 <strong>Voting Phase</strong>
-                <button className="admin-btn-sm btn-secondary">Edit</button>
+                <button className="admin-btn-sm btn-secondary" onClick={() => handleEditTemplate("Voting Phase")}>Edit</button>
               </div>
               <div className="template-preview">
                 "Generate an engaging announcement to encourage voting..."
@@ -176,7 +208,7 @@ export default function AIConfiguration() {
             <div className="template-item">
               <div className="template-header">
                 <strong>Theme Generation</strong>
-                <button className="admin-btn-sm btn-secondary">Edit</button>
+                <button className="admin-btn-sm btn-secondary" onClick={() => handleEditTemplate("Theme Generation")}>Edit</button>
               </div>
               <div className="template-preview">
                 "Generate a creative and inspiring music collaboration theme..."

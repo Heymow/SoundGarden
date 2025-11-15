@@ -5,10 +5,45 @@ export default function AnnouncementSystem() {
   const [customMessage, setCustomMessage] = useState("");
   const [useAI, setUseAI] = useState(true);
   const [includeEveryone, setIncludeEveryone] = useState(false);
+  const [autoAnnouncements, setAutoAnnouncements] = useState(true);
+  const [autoSubmissionStart, setAutoSubmissionStart] = useState(true);
+  const [autoVotingStart, setAutoVotingStart] = useState(true);
+  const [autoReminders, setAutoReminders] = useState(true);
+  const [requireConfirmation, setRequireConfirmation] = useState(false);
 
   const handleSendAnnouncement = () => {
+    if (announcementType === "custom" && !customMessage.trim()) {
+      alert("❌ Please enter a message");
+      return;
+    }
     // TODO: Call Discord bot API to send announcement
-    alert(`Sending ${announcementType} announcement...`);
+    const message = announcementType === "custom" ? customMessage : announcementType;
+    alert(`✅ Sending ${announcementType} announcement...`);
+    console.log("Announcement details:", { type: announcementType, message, useAI, includeEveryone });
+  };
+
+  const handleSendTestMessage = () => {
+    if (announcementType === "custom" && !customMessage.trim()) {
+      alert("❌ Please enter a message");
+      return;
+    }
+    alert("🧪 Sending test message to test channel...");
+  };
+
+  const handleViewAnnouncement = (announcement) => {
+    alert(`📄 Viewing announcement: ${announcement}`);
+  };
+
+  const handleSaveAutoSettings = () => {
+    const settings = {
+      autoAnnouncements,
+      autoSubmissionStart,
+      autoVotingStart,
+      autoReminders,
+      requireConfirmation,
+    };
+    console.log("Saving auto-announcement settings:", settings);
+    alert("✅ Auto-announcement settings saved successfully!");
   };
 
   const announcementTypes = [
@@ -152,7 +187,7 @@ export default function AnnouncementSystem() {
             <button onClick={handleSendAnnouncement} className="admin-btn btn-primary btn-large">
               📢 Send to Main Channel
             </button>
-            <button className="admin-btn btn-secondary btn-large">
+            <button onClick={handleSendTestMessage} className="admin-btn btn-secondary btn-large">
               🧪 Send Test Message
             </button>
           </div>
@@ -174,7 +209,7 @@ export default function AnnouncementSystem() {
                 <div className="history-title">Voting Phase Started</div>
                 <div className="history-meta">Sent 2 hours ago • AI Generated</div>
               </div>
-              <button className="history-action">View</button>
+              <button className="history-action" onClick={() => handleViewAnnouncement("Voting Phase Started")}>View</button>
             </div>
             <div className="announcement-history-item">
               <div className="history-icon">⏰</div>
@@ -182,7 +217,7 @@ export default function AnnouncementSystem() {
                 <div className="history-title">Deadline Reminder</div>
                 <div className="history-meta">Sent yesterday • Manual</div>
               </div>
-              <button className="history-action">View</button>
+              <button className="history-action" onClick={() => handleViewAnnouncement("Deadline Reminder")}>View</button>
             </div>
             <div className="announcement-history-item">
               <div className="history-icon">🎵</div>
@@ -190,7 +225,7 @@ export default function AnnouncementSystem() {
                 <div className="history-title">Submission Phase Started</div>
                 <div className="history-meta">Sent 3 days ago • AI Generated</div>
               </div>
-              <button className="history-action">View</button>
+              <button className="history-action" onClick={() => handleViewAnnouncement("Submission Phase Started")}>View</button>
             </div>
           </div>
         </div>
@@ -202,27 +237,47 @@ export default function AnnouncementSystem() {
         <div className="admin-card-content">
           <div className="auto-announcement-settings">
             <label className="admin-checkbox-label">
-              <input type="checkbox" defaultChecked />
+              <input 
+                type="checkbox" 
+                checked={autoAnnouncements}
+                onChange={(e) => setAutoAnnouncements(e.target.checked)}
+              />
               <span>Enable automatic announcements</span>
             </label>
             <label className="admin-checkbox-label">
-              <input type="checkbox" defaultChecked />
+              <input 
+                type="checkbox" 
+                checked={autoSubmissionStart}
+                onChange={(e) => setAutoSubmissionStart(e.target.checked)}
+              />
               <span>Auto-announce submission phase start</span>
             </label>
             <label className="admin-checkbox-label">
-              <input type="checkbox" defaultChecked />
+              <input 
+                type="checkbox" 
+                checked={autoVotingStart}
+                onChange={(e) => setAutoVotingStart(e.target.checked)}
+              />
               <span>Auto-announce voting phase start</span>
             </label>
             <label className="admin-checkbox-label">
-              <input type="checkbox" defaultChecked />
+              <input 
+                type="checkbox" 
+                checked={autoReminders}
+                onChange={(e) => setAutoReminders(e.target.checked)}
+              />
               <span>Send deadline reminders (24h before)</span>
             </label>
             <label className="admin-checkbox-label">
-              <input type="checkbox" />
+              <input 
+                type="checkbox" 
+                checked={requireConfirmation}
+                onChange={(e) => setRequireConfirmation(e.target.checked)}
+              />
               <span>Require admin confirmation before posting</span>
             </label>
           </div>
-          <button className="admin-btn btn-primary">Save Settings</button>
+          <button className="admin-btn btn-primary" onClick={handleSaveAutoSettings}>Save Settings</button>
         </div>
       </div>
     </div>
