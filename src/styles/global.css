@@ -1370,9 +1370,24 @@ body{
   transform:translateY(-2px);
   border-color:rgba(74,222,128,0.3);
 }
+.member-card:hover .member-card-hint{
+  opacity:1;
+}
+.member-card-info{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
 .member-name{
   color:var(--text);
   font-weight:500;
+}
+.member-card-hint{
+  color:var(--accent);
+  font-size:0.75rem;
+  font-weight:400;
+  opacity:0.6;
+  transition:opacity .2s;
 }
 .btn-suno-mini{
   padding:6px 12px;

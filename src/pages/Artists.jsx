@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { useAudioPlayer } from '../context/AudioPlayerContext';
 import { artistsData } from '../data/mockData';
 
 export default function Artists({ selectedArtist, setSelectedArtist, onNavigateToTeam, onPlaySong }) {
+  const { currentSong, isPlaying, togglePlayPause } = useAudioPlayer();
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
 
@@ -96,7 +98,12 @@ export default function Artists({ selectedArtist, setSelectedArtist, onNavigateT
             <div className="artist-songs">
               <h3>Songs</h3>
               <div className="history-grid">
-                {selectedArtist.songs.map((song, idx) => (
+                {selectedArtist.songs.map((song, idx) => {
+                  const songId = `artist-song-${idx}`;
+                  const isThisSongPlaying = currentSong?.id === songId && isPlaying;
+                  const isThisSongCurrent = currentSong?.id === songId;
+                  
+                  return (
                   <div key={idx} className="history-card">
                     <div className="history-card-header">
                       <h4>{song.title}</h4>
@@ -122,17 +129,23 @@ export default function Artists({ selectedArtist, setSelectedArtist, onNavigateT
                       {onPlaySong && (
                         <button 
                           className="history-play-btn"
-                          onClick={() => onPlaySong({
-                            id: `artist-song-${idx}`,
-                            title: song.title,
-                            participants: [selectedArtist.name],
-                            imageUrl: 'https://picsum.photos/seed/artist-' + idx + '/200/200',
-                            audioUrl: `/test-audio/song-${(idx % 7) + 1}.wav`,
-                            sunoUrl: song.sunoUrl
-                          })}
-                          aria-label={`Play ${song.title}`}
+                          onClick={() => {
+                            if (isThisSongCurrent) {
+                              togglePlayPause();
+                            } else {
+                              onPlaySong({
+                                id: songId,
+                                title: song.title,
+                                participants: [selectedArtist.name],
+                                imageUrl: 'https://picsum.photos/seed/artist-' + idx + '/200/200',
+                                audioUrl: `/test-audio/song-${(idx % 7) + 1}.wav`,
+                                sunoUrl: song.sunoUrl
+                              });
+                            }
+                          }}
+                          aria-label={isThisSongPlaying ? `Pause ${song.title}` : `Play ${song.title}`}
                         >
-                          ▶
+                          {isThisSongPlaying ? '⏸' : '▶'}
                         </button>
                       )}
                     </div>
@@ -145,7 +158,8 @@ export default function Artists({ selectedArtist, setSelectedArtist, onNavigateT
                       🎵 Listen on Suno
                     </a>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
