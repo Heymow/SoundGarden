@@ -144,7 +144,7 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                         </div>
                       </div>
                       <button
-                        className="victory-play-btn"
+                        className={`victory-play-btn ${isThisSongPlaying ? 'playing' : ''}`}
                         onClick={() => {
                           if (isThisSongCurrent) {
                             togglePlayPause();
@@ -201,7 +201,7 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                                 {song.isWinner && <span> 🏆</span>}
                               </div>
                               <button
-                                className="song-play-btn-compact"
+                                className={`song-play-btn-compact ${isThisSongPlaying ? 'playing' : ''}`}
                                 onClick={() => {
                                   if (isThisSongCurrent) {
                                     togglePlayPause();

@@ -75,7 +75,7 @@ export default function History({ onPlaySong, onNavigateToTeam, onNavigateToArti
                   </div>
                 </div>
                 <button 
-                  className="history-play-btn"
+                  className={`history-play-btn ${isThisSongPlaying ? 'playing' : ''}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (isThisSongCurrent) {
