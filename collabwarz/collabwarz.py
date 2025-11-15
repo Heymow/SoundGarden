@@ -3051,10 +3051,11 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             )
             
             if railway_detected:
-                # Use a fixed uncommon port to avoid conflicts
-                port = 7777  # Fixed uncommon port
-                print(f"Railway environment detected, using fixed port: {port}")
-                print(f"Avoiding conflicted ports 8080, 3001, 9000")
+                # FORCE use Railway PORT and let Railway handle conflicts
+                railway_port = os.environ.get('PORT', '8080')
+                port = int(railway_port)
+                print(f"Railway environment detected, FORCING Railway PORT: {port}")
+                print(f"Let Railway handle port conflicts")
                 print(f"Service ID: {os.environ.get('RAILWAY_SERVICE_ID')}")
             else:
                 print(f"Local environment, using configured port: {port}")
@@ -3067,10 +3068,21 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             runner = web.AppRunner(app)
             await runner.setup()
             
-            site = web.TCPSite(runner, host, port)
-            await site.start()
-            
-            print(f"API server started for {guild.name} on {host}:{port}")
+            # Try to start on the assigned port
+            try:
+                site = web.TCPSite(runner, host, port)
+                await site.start()
+                print(f"API server started for {guild.name} on {host}:{port}")
+            except OSError as e:
+                if "Address already in use" in str(e):
+                    print(f"Port {port} busy, trying alternative port...")
+                    # Try alternative port
+                    alt_port = port + 1000
+                    site = web.TCPSite(runner, host, alt_port)
+                    await site.start()
+                    print(f"API server started for {guild.name} on {host}:{alt_port} (alternative)")
+                else:
+                    raise e
             
             # Keep the server running
             while api_enabled:
