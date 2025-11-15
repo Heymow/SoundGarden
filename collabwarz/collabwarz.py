@@ -3048,15 +3048,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             )
             
             if railway_detected:
-                # Use Railway's assigned PORT or fallback to a different port
-                railway_port = os.environ.get('PORT')
-                if railway_port:
-                    port = int(railway_port)
-                    print(f"Railway environment detected, using assigned PORT: {port}")
-                else:
-                    # If no PORT assigned, try a different port to avoid conflicts
-                    port = 3001  # Different from 8080 to avoid conflicts
-                    print(f"Railway environment detected, using fallback port: {port}")
+                # Force a different port to avoid conflicts with other Railway services
+                port = 3001  # Use port 3001 instead of the conflicted 8080
+                print(f"Railway environment detected, forcing non-conflicting port: {port}")
+                print(f"Ignoring Railway PORT={os.environ.get('PORT')} due to conflicts")
                 print(f"Environment vars: RAILWAY_SERVICE_ID={os.environ.get('RAILWAY_SERVICE_ID')}")
             else:
                 print(f"Local environment, using configured port: {port}")
