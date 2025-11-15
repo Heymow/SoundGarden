@@ -2,29 +2,59 @@
 
 ## Express Installation (5 minutes)
 
-### 1. Prerequisites
+### Method 1: Install from GitHub Repository (Recommended)
+
+This is the easiest way to install the bot and get automatic updates.
+
+```bash
+# Add the SoundGarden cogs repository
+[p]repo add soundgarden https://github.com/Heymow/SoundGarden
+
+# Install the Collab Warz cog
+[p]cog install soundgarden collabwarz
+
+# Load the cog
+[p]load collabwarz
+
+# Basic configuration
+[p]cw setchannel #competition-channel
+[p]cw settheme "Your First Theme"
+[p]cw toggle
+[p]cw status
+```
+
+### Method 2: Manual Installation
+
+If you prefer to install manually:
+
+#### 1. Prerequisites
 ```bash
 pip install Red-DiscordBot aiohttp
 ```
 
-### 2. Automatic Installation
-```bash
-python install.py
-```
-Follow the interactive wizard to configure your bot.
+#### 2. Install the Cog
+Copy the entire `collabwarz` folder from this repository to your Red-DiscordBot instance's cogs directory.
 
-### 3. Load the Cog
+#### 3. Load the Cog
 ```
 [p]load collabwarz
 ```
 
-### 4. Minimal Configuration
+#### 4. Minimal Configuration
 ```
 [p]cw setchannel #competition-channel
 [p]cw settheme "Your First Theme"
 [p]cw setphase submission
 [p]cw status
 ```
+
+### Method 3: Interactive Installation Wizard
+
+For guided configuration:
+```bash
+python install.py
+```
+Follow the interactive wizard to configure your bot.
 
 ---
 
