@@ -332,6 +332,7 @@ body{
   background: linear-gradient(90deg, #2d9e5f, #28a869);
   color: white;
   box-shadow: 0 4px 12px rgba(45, 158, 95, 0.3);
+  z-index: 1;
 }
 .btn-discord-phase:hover{
   transform: translateY(-2px);
