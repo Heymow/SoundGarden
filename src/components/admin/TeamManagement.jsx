@@ -1,39 +1,73 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import * as botApi from "../../services/botApi";
 
 export default function TeamManagement() {
-  const [teams, setTeams] = useState([
-    { id: 1, name: "Team Alpha", members: ["Artist1", "Artist2"], submissions: 3, wins: 1 },
-    { id: 2, name: "Team Beta", members: ["Artist3", "Artist4"], submissions: 5, wins: 2 },
-    { id: 3, name: "Team Gamma", members: ["Artist5", "Artist6"], submissions: 2, wins: 0 },
-  ]);
-
+  const [teams, setTeams] = useState([]);
+  const [submissions, setSubmissions] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+
+  useEffect(() => {
+    loadSubmissions();
+  }, []);
+
+  const loadSubmissions = async () => {
+    setLoading(true);
+    try {
+      const data = await botApi.getAdminSubmissions();
+      setSubmissions(data.submissions || []);
+    } catch (err) {
+      console.error("Failed to load submissions:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const showSuccess = (message) => {
+    setSuccess(message);
+    setError(null);
+    setTimeout(() => setSuccess(null), 5000);
+  };
+
+  const showError = (message) => {
+    setError(message);
+    setSuccess(null);
+    setTimeout(() => setError(null), 5000);
+  };
 
   const handleSearch = () => {
     if (searchTerm.trim()) {
-      alert(`🔍 Searching for teams: "${searchTerm}"`);
-      // TODO: Implement actual search functionality
+      showSuccess(`🔍 Searching for teams: "${searchTerm}"`);
     }
   };
 
   const handleViewTeam = (team) => {
-    alert(`👁️ Viewing details for ${team.name}\nMembers: ${team.members.join(", ")}\nSubmissions: ${team.submissions}\nWins: ${team.wins}`);
+    const members = team.members?.map(m => m.display_name || m.username).join(", ") || "Unknown";
+    alert(`👁️ Viewing details for ${team.team_name}\nMembers: ${members}\nSubmitted: ${team.submitted_at}`);
   };
 
   const handleEditTeam = (team) => {
-    alert(`✏️ Opening edit dialog for ${team.name}`);
-    // TODO: Open edit modal
+    alert(`✏️ Opening edit dialog for ${team.team_name}`);
   };
 
-  const handleApproveSubmission = (team, song) => {
-    alert(`✅ Approved submission from ${team}: "${song}"`);
-    // TODO: Call API to approve submission
+  const handleApproveSubmission = async (team) => {
+    showSuccess(`✅ Approved submission from ${team.team_name}`);
   };
 
-  const handleRejectSubmission = (team, song) => {
-    if (confirm(`Are you sure you want to reject submission from ${team}: "${song}"?`)) {
-      alert(`❌ Rejected submission from ${team}`);
-      // TODO: Call API to reject submission
+  const handleRejectSubmission = async (team) => {
+    if (confirm(`Are you sure you want to reject submission from ${team.team_name}?`)) {
+      setLoading(true);
+      try {
+        await botApi.removeSubmission(team.team_name);
+        showSuccess(`❌ Rejected submission from ${team.team_name}`);
+        await loadSubmissions();
+      } catch (err) {
+        showError(`❌ Failed to reject submission: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -45,6 +79,18 @@ export default function TeamManagement() {
           View and manage competition teams
         </p>
       </div>
+
+      {/* Status Messages */}
+      {success && (
+        <div className="admin-alert alert-success">
+          {success}
+        </div>
+      )}
+      {error && (
+        <div className="admin-alert alert-error">
+          {error}
+        </div>
+      )}
 
       {/* Search and Filters */}
       <div className="admin-card">
@@ -63,66 +109,48 @@ export default function TeamManagement() {
         </div>
       </div>
 
-      {/* Teams List */}
-      <div className="admin-card">
-        <h3 className="admin-card-title">📋 All Teams</h3>
-        <div className="admin-card-content">
-          <div className="admin-table-container">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>Team Name</th>
-                  <th>Members</th>
-                  <th>Submissions</th>
-                  <th>Wins</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {teams.map((team) => (
-                  <tr key={team.id}>
-                    <td className="team-name-cell">{team.name}</td>
-                    <td>{team.members.join(", ")}</td>
-                    <td>{team.submissions}</td>
-                    <td>{team.wins}</td>
-                    <td>
-                      <button className="admin-btn-sm btn-info" onClick={() => handleViewTeam(team)}>View</button>
-                      <button className="admin-btn-sm btn-secondary" onClick={() => handleEditTeam(team)}>Edit</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
       {/* Current Week Submissions */}
       <div className="admin-card">
         <h3 className="admin-card-title">🎵 Current Week Submissions</h3>
         <div className="admin-card-content">
-          <div className="submission-list">
-            <div className="submission-item">
-              <div className="submission-info">
-                <strong>Team Alpha</strong> - "Cosmic Journey"
-                <div className="submission-meta">Submitted 2 hours ago</div>
-              </div>
-              <div className="submission-actions">
-                <button className="admin-btn-sm btn-success" onClick={() => handleApproveSubmission("Team Alpha", "Cosmic Journey")}>✓ Approve</button>
-                <button className="admin-btn-sm btn-danger" onClick={() => handleRejectSubmission("Team Alpha", "Cosmic Journey")}>✗ Reject</button>
-              </div>
+          {loading ? (
+            <p>Loading submissions...</p>
+          ) : submissions.length > 0 ? (
+            <div className="submission-list">
+              {submissions.map((submission, idx) => (
+                <div key={idx} className="submission-item">
+                  <div className="submission-info">
+                    <strong>{submission.team_name}</strong>
+                    <div className="submission-meta">
+                      Members: {submission.members?.map(m => m.display_name || m.username).join(", ") || "Unknown"}
+                    </div>
+                    <div className="submission-meta">
+                      URL: <a href={submission.track_url} target="_blank" rel="noopener noreferrer">{submission.track_url}</a>
+                    </div>
+                    <div className="submission-meta">Submitted: {submission.submitted_at}</div>
+                  </div>
+                  <div className="submission-actions">
+                    <button 
+                      className="admin-btn-sm btn-success" 
+                      onClick={() => handleApproveSubmission(submission)}
+                      disabled={loading}
+                    >
+                      ✓ Approve
+                    </button>
+                    <button 
+                      className="admin-btn-sm btn-danger" 
+                      onClick={() => handleRejectSubmission(submission)}
+                      disabled={loading}
+                    >
+                      ✗ Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="submission-item">
-              <div className="submission-info">
-                <strong>Team Beta</strong> - "Stellar Dreams"
-                <div className="submission-meta">Submitted 5 hours ago</div>
-              </div>
-              <div className="submission-actions">
-                <button className="admin-btn-sm btn-success" onClick={() => handleApproveSubmission("Team Beta", "Stellar Dreams")}>✓ Approve</button>
-                <button className="admin-btn-sm btn-danger" onClick={() => handleRejectSubmission("Team Beta", "Stellar Dreams")}>✗ Reject</button>
-              </div>
-            </div>
-          </div>
+          ) : (
+            <p>No submissions for the current week.</p>
+          )}
         </div>
       </div>
     </div>
