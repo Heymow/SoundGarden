@@ -1907,3 +1907,29 @@ body{
     gap:8px;
   }
 }
+
+/* ==========================================
+   LAVA LAMP COMPONENT STYLES
+   ========================================== */
+
+.lava-lamp {
+  /* Styles de base déjà dans le composant */
+}
+
+.lava-lamp-container {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Variantes de couleurs prédéfinies */
+.lava-lamp-blue {
+  /* Bleus/Cyans */
+}
+
+.lava-lamp-purple {
+  /* Violets/Magentas */
+}
+
+.lava-lamp-orange {
+  /* Oranges/Rouges */
+}
