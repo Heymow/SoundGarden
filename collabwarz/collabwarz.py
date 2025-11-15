@@ -1042,8 +1042,16 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     
                     # Parse JWT token
                     parts = provided_token.split('.')
-                    if len(parts) == 3:
-                        header_b64, payload_b64, signature = parts
+                    if len(parts) != 3:
+                        print(f"Invalid JWT format: expected 3 parts, got {len(parts)}")
+                        return None, web.json_response({"error": "Invalid token format"}, status=400)
+                    
+                    header_b64, payload_b64, signature = parts
+                    
+                    # Validate that parts are not empty
+                    if not all([header_b64, payload_b64, signature]):
+                        print("Invalid JWT: empty parts detected")
+                        return None, web.json_response({"error": "Invalid token structure"}, status=400)
                         
                         # Verify signature
                         message = f"{header_b64}.{payload_b64}"
@@ -1055,17 +1063,29 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                             payload = json.loads(payload_json)
                             
                             # Check expiration
-                            expires_at = datetime.fromisoformat(payload['expires_at'].replace('Z', '+00:00'))
+                            try:
+                                # Handle different datetime formats
+                                expires_str = payload['expires_at']
+                                if 'Z' in expires_str:
+                                    expires_str = expires_str.replace('Z', '+00:00')
+                                expires_at = datetime.fromisoformat(expires_str)
+                            except ValueError:
+                                # Fallback: try parsing without timezone
+                                expires_at = datetime.fromisoformat(payload['expires_at'].split('+')[0].split('Z')[0])
+                            
                             if datetime.utcnow() < expires_at:
                                 token_valid = True
                                 token_user_id = payload.get('user_id')
                                 print(f"JWT token validated for user {token_user_id} in guild {guild.id}")
                             else:
                                 print(f"JWT token expired for guild {guild.id}")
+                                return None, web.json_response({"error": "Token expired"}, status=401)
                         else:
                             print(f"JWT signature validation failed for guild {guild.id}")
+                            return None, web.json_response({"error": "Invalid token signature"}, status=403)
                 except Exception as e:
                     print(f"JWT validation error: {e}")
+                    return None, web.json_response({"error": f"Token validation failed: {str(e)}"}, status=400)
             
             # Fallback to legacy token formats if JWT failed
             if not token_valid:
@@ -1112,7 +1132,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             
         except Exception as e:
             print(f"Error validating admin auth: {e}")
-            return None, web.json_response({"error": "Authentication error"}, status=500)
+            return None, web.json_response({"error": f"Authentication failed: {str(e)}"}, status=500)
     
     async def _handle_admin_config_get(self, request):
         """Get current bot configuration for admin panel"""
@@ -7466,8 +7486,76 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             
             await ctx.send(embed=embed)
         
+        elif action.lower() == "debug":
+            # Debug command for token validation issues
+            primary_admin_id = await self.config.guild(ctx.guild).admin_user_id()
+            admin_ids = await self.config.guild(ctx.guild).admin_user_ids()
+            
+            if ctx.author.id != primary_admin_id and ctx.author.id not in admin_ids:
+                await ctx.send("❌ Only configured Discord admins can debug tokens.")
+                return
+                
+            token_data = await self.config.guild(ctx.guild).api_access_token_data()
+            signing_key = await self.config.guild(ctx.guild).jwt_signing_key()
+            api_enabled = await self.config.guild(ctx.guild).api_server_enabled()
+            port = await self.config.guild(ctx.guild).api_server_port()
+            host = await self.config.guild(ctx.guild).api_server_host()
+            
+            embed = discord.Embed(
+                title="🔍 Token Debug Information",
+                color=discord.Color.orange()
+            )
+            
+            embed.add_field(
+                name="API Server",
+                value=f"{'✅ Running' if api_enabled else '❌ Stopped'} on `{host}:{port}`",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="JWT Signing Key",
+                value="✅ Present" if signing_key else "❌ Missing",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="Token Data",
+                value="✅ Present" if token_data else "❌ Missing",
+                inline=True
+            )
+            
+            if token_data:
+                embed.add_field(
+                    name="Token Details",
+                    value=(
+                        f"Version: {token_data.get('token_version', 'Unknown')}\n"
+                        f"User ID: {token_data.get('user_id', 'Unknown')}\n"
+                        f"Generated: {token_data.get('generated_at', 'Unknown')[:19]}"
+                    ),
+                    inline=False
+                )
+            
+            embed.add_field(
+                name="Test Endpoint",
+                value=f"`curl -H \"Authorization: Bearer <token>\" http://{host}:{port}/api/admin/status`",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="Next Steps",
+                value=(
+                    "1. Ensure API server is running: `[p]cw apiserver start`\n"
+                    "2. Generate new token if needed: `[p]cw admintoken generate`\n"
+                    "3. Check frontend console for detailed errors\n"
+                    "4. Verify CORS settings: `[p]cw apiconfig cors <frontend-url>`"
+                ),
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
+        
         else:
-            await ctx.send("❌ Invalid action. Use: `generate`, `revoke`, or `status`")
+            await ctx.send("❌ Invalid action. Use: `generate`, `revoke`, `status`, or `debug`")
     
     @collabwarz.command(name="testpublicapi")
     async def test_public_api(self, ctx):

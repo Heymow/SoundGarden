@@ -33,8 +33,22 @@ const fetchWithAuth = async (endpoint, options = {}) => {
 
     // Handle non-OK responses
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
-      throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      const errorData = await response.json().catch(() => ({ error: "Network or parsing error" }));
+      
+      // Provide more specific error messages for common cases
+      let errorMessage = errorData.error || `HTTP ${response.status}: ${response.statusText}`;
+      
+      if (response.status === 401) {
+        errorMessage = `Authentication failed: ${errorData.error || 'Invalid or expired token'}`;
+      } else if (response.status === 403) {
+        errorMessage = `Access denied: ${errorData.error || 'Token does not have required permissions'}`;
+      } else if (response.status === 500) {
+        errorMessage = `Server error: ${errorData.error || 'Internal server error'}`;
+      } else if (response.status === 503) {
+        errorMessage = `Service unavailable: ${errorData.error || 'Bot API server is not running'}`;
+      }
+      
+      throw new Error(errorMessage);
     }
 
     return await response.json();
