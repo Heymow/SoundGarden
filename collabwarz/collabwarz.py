@@ -902,6 +902,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             # Test endpoints
             app.router.add_get('/api/ping', self._handle_ping)
             app.router.add_get('/api/test', self._handle_test)
+            app.router.add_get('/api/simple', self._handle_simple_test)
             
             app.router.add_options('/api/public/{path:.*}', self._handle_options_request)
             
@@ -1752,6 +1753,12 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             "status": "success",
             "message": "Test endpoint works"
         })
+    
+    async def _handle_simple_test(self, request):
+        """Ultra-simple test endpoint to isolate middleware issues"""
+        response = web.Response(text='{"simple": "test"}', content_type='application/json')
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
     
     async def _handle_public_submissions(self, request):
         """Get current week submissions for frontend users"""
