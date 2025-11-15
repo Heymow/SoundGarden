@@ -8,6 +8,8 @@ import TeamManagement from "../components/admin/TeamManagement";
 import VotingManagement from "../components/admin/VotingManagement";
 import AIConfiguration from "../components/admin/AIConfiguration";
 import SystemStatus from "../components/admin/SystemStatus";
+import AdminTokenSetup from "../components/admin/AdminTokenSetup";
+import * as botApi from "../services/botApi";
 import "../styles/admin.css";
 
 export default function Admin() {
@@ -15,27 +17,82 @@ export default function Admin() {
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState("dashboard");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [authError, setAuthError] = useState(null);
 
   useEffect(() => {
-    // Check if user is admin - for now, check if logged in
-    // In production, this would check against a list of admin user IDs
-    // TEMPORARY: Allow access without login for demonstration
-    setIsAdmin(true);
+    checkAdminAccess();
+  }, []);
 
-    // Uncomment for production:
-    // if (!user) {
-    //   navigate("/current");
-    //   return;
-    // }
-    // setIsAdmin(true);
-  }, [user, navigate]);
+  const checkAdminAccess = async () => {
+    setIsCheckingAuth(true);
+    setAuthError(null);
 
+    try {
+      // Check if token exists
+      if (!botApi.hasAdminToken()) {
+        setIsAdmin(false);
+        setIsCheckingAuth(false);
+        return;
+      }
+
+      // Validate token by making an API call
+      // This will throw an error if token is invalid or user is not an admin
+      await botApi.getAdminStatus();
+      
+      // If successful, user is authenticated and authorized as admin
+      setIsAdmin(true);
+    } catch (err) {
+      console.error("Admin access check failed:", err);
+      setAuthError(err.message);
+      setIsAdmin(false);
+      
+      // Clear invalid token
+      botApi.clearAdminToken();
+    } finally {
+      setIsCheckingAuth(false);
+    }
+  };
+
+  const handleTokenValidated = () => {
+    // Token was successfully validated, refresh admin status
+    checkAdminAccess();
+  };
+
+  // Show loading state while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <div className="admin-page">
+        <div className="admin-loading">
+          <div className="loading-spinner"></div>
+          <p>Checking admin access...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show token setup if not authenticated
   if (!isAdmin) {
     return (
       <div className="admin-page">
-        <div className="admin-unauthorized">
-          <h2>🔒 Unauthorized Access</h2>
-          <p>You don't have permission to access the admin panel.</p>
+        <div className="admin-header">
+          <div className="admin-header-content">
+            <h1 className="admin-title">
+              <span className="admin-icon">🛡️</span>
+              Admin Control Panel
+            </h1>
+          </div>
+        </div>
+        <div className="admin-layout">
+          <main className="admin-content-full">
+            <AdminTokenSetup onTokenValidated={handleTokenValidated} />
+            {authError && (
+              <div className="admin-auth-error">
+                <p><strong>Authentication Error:</strong></p>
+                <p>{authError}</p>
+              </div>
+            )}
+          </main>
         </div>
       </div>
     );
