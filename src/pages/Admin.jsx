@@ -21,7 +21,7 @@ export default function Admin() {
     // In production, this would check against a list of admin user IDs
     // TEMPORARY: Allow access without login for demonstration
     setIsAdmin(true);
-    
+
     // Uncomment for production:
     // if (!user) {
     //   navigate("/current");
@@ -42,13 +42,13 @@ export default function Admin() {
   }
 
   const sections = [
-    { id: "dashboard", label: "📊 Dashboard", icon: "📊" },
-    { id: "competition", label: "🎵 Competition", icon: "🎵" },
-    { id: "announcements", label: "📢 Announcements", icon: "📢" },
-    { id: "teams", label: "👥 Teams", icon: "👥" },
-    { id: "voting", label: "🗳️ Voting", icon: "🗳️" },
-    { id: "ai", label: "🤖 AI Config", icon: "🤖" },
-    { id: "status", label: "⚙️ System", icon: "⚙️" },
+    { id: "dashboard", label: "Dashboard", icon: "📊" },
+    { id: "competition", label: "Competition", icon: "🎵" },
+    { id: "announcements", label: "Announcements", icon: "📢" },
+    { id: "teams", label: "Teams", icon: "👥" },
+    { id: "voting", label: "Voting", icon: "🗳️" },
+    { id: "ai", label: "AI Config", icon: "🤖" },
+    { id: "status", label: "System", icon: "⚙️" },
   ];
 
   const renderSection = () => {
@@ -93,9 +93,8 @@ export default function Admin() {
             {sections.map((section) => (
               <button
                 key={section.id}
-                className={`admin-nav-item ${
-                  activeSection === section.id ? "active" : ""
-                }`}
+                className={`admin-nav-item ${activeSection === section.id ? "active" : ""
+                  }`}
                 onClick={() => setActiveSection(section.id)}
               >
                 <span className="admin-nav-icon">{section.icon}</span>
