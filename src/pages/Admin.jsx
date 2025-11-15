@@ -9,6 +9,7 @@ import VotingManagement from "../components/admin/VotingManagement";
 import AIConfiguration from "../components/admin/AIConfiguration";
 import SystemStatus from "../components/admin/SystemStatus";
 import AdminTokenSetup from "../components/admin/AdminTokenSetup";
+import AuthenticationError from "../components/AuthenticationError";
 import * as botApi from "../services/botApi";
 import "../styles/admin.css";
 
@@ -39,14 +40,14 @@ export default function Admin() {
       // Validate token by making an API call
       // This will throw an error if token is invalid or user is not an admin
       await botApi.getAdminStatus();
-      
+
       // If successful, user is authenticated and authorized as admin
       setIsAdmin(true);
     } catch (err) {
       console.error("Admin access check failed:", err);
       setAuthError(err.message);
       setIsAdmin(false);
-      
+
       // Clear invalid token
       botApi.clearAdminToken();
     } finally {
@@ -73,6 +74,12 @@ export default function Admin() {
 
   // Show token setup if not authenticated
   if (!isAdmin) {
+    // If there's an authentication error, show the enhanced error page
+    if (authError) {
+      return <AuthenticationError error={authError} />;
+    }
+
+    // Otherwise, show the normal token setup
     return (
       <div className="admin-page">
         <div className="admin-header">
@@ -86,12 +93,6 @@ export default function Admin() {
         <div className="admin-layout">
           <main className="admin-content-full">
             <AdminTokenSetup onTokenValidated={handleTokenValidated} />
-            {authError && (
-              <div className="admin-auth-error">
-                <p><strong>Authentication Error:</strong></p>
-                <p>{authError}</p>
-              </div>
-            )}
           </main>
         </div>
       </div>

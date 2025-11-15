@@ -1,0 +1,271 @@
+import React, { useState } from "react";
+import { BOT_API_URL } from "../config/api";
+
+export default function DiagnosticPage() {
+    const [results, setResults] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [currentUrl, setCurrentUrl] = useState(BOT_API_URL);
+
+    const addResult = (message, type = "info") => {
+        setResults(prev => [...prev, {
+            message,
+            type,
+            timestamp: new Date().toLocaleTimeString()
+        }]);
+    };
+
+    const clearResults = () => {
+        setResults([]);
+    };
+
+    // Test de base sans authentification
+    const testBasicConnection = async (testUrl) => {
+        try {
+            const url = `${testUrl}/api/public/status`;
+            addResult(`🧪 Testing: ${url}`, "info");
+
+            const response = await fetch(url, {
+                method: "GET",
+                headers: { "Content-Type": "application/json" },
+                signal: AbortSignal.timeout(10000) // 10 secondes
+            });
+
+            addResult(`📡 Response: ${response.status} ${response.statusText}`,
+                response.ok ? "success" : "error");
+
+            if (response.ok) {
+                const data = await response.json();
+                addResult(`✅ Bot API found! Data: ${JSON.stringify(data)}`, "success");
+                return { success: true, data, url: testUrl };
+            } else {
+                const text = await response.text();
+                addResult(`❌ Error response: ${text.substring(0, 200)}`, "error");
+                return { success: false, error: `HTTP ${response.status}` };
+            }
+        } catch (error) {
+            addResult(`❌ Connection failed: ${error.message}`, "error");
+            return { success: false, error: error.message };
+        }
+    };
+
+    // Scanner plusieurs ports
+    const scanPorts = async () => {
+        setLoading(true);
+        clearResults();
+
+        const commonPorts = [8080, 3000, 3001, 5000, 8000, 8888, 9000];
+        const baseHost = currentUrl.replace(/:\d+$/, "");
+
+        addResult("🔍 Starting port scan...", "info");
+
+        let found = false;
+        for (const port of commonPorts) {
+            const testUrl = `${baseHost}:${port}`;
+            addResult(`🔍 Scanning port ${port}...`, "info");
+
+            const result = await testBasicConnection(testUrl);
+            if (result.success) {
+                found = true;
+                addResult(`🎉 SUCCESS! Found bot API on ${testUrl}`, "success");
+                break;
+            }
+        }
+
+        if (!found) {
+            addResult(`❌ No bot API server found on any common port`, "error");
+            addResult(`💡 Make sure to run "!cw apiserver start" in Discord first`, "warning");
+        }
+
+        setLoading(false);
+    };
+
+    // Tester l'URL configurée
+    const testConfiguredUrl = async () => {
+        setLoading(true);
+        clearResults();
+
+        addResult("🧪 Testing configured URL...", "info");
+        const result = await testBasicConnection(currentUrl);
+
+        if (!result.success) {
+            addResult("💡 Try scanning ports to find the correct URL", "warning");
+        }
+
+        setLoading(false);
+    };
+
+    // Tester une URL personnalisée
+    const testCustomUrl = async () => {
+        const customUrl = prompt("Enter the bot API URL to test:", currentUrl);
+        if (!customUrl) return;
+
+        setLoading(true);
+        clearResults();
+
+        addResult(`🧪 Testing custom URL: ${customUrl}`, "info");
+        await testBasicConnection(customUrl);
+
+        setLoading(false);
+    };
+
+    return (
+        <div style={{ padding: "20px", maxWidth: "800px", margin: "0 auto" }}>
+            <div style={{
+                background: "#f8f9fa",
+                padding: "20px",
+                borderRadius: "8px",
+                marginBottom: "20px"
+            }}>
+                <h1>🔧 Bot API Diagnostic Tool</h1>
+                <p><strong>Use this tool to diagnose connection issues WITHOUT needing authentication.</strong></p>
+
+                <div style={{
+                    background: "#fff3cd",
+                    padding: "15px",
+                    borderRadius: "5px",
+                    margin: "15px 0"
+                }}>
+                    <strong>📋 Before testing:</strong>
+                    <ol>
+                        <li>Make sure your Discord bot is online</li>
+                        <li>Run <code>!cw apiserver start</code> in Discord</li>
+                        <li>Run <code>!cw apiserver status</code> to see the port</li>
+                    </ol>
+                </div>
+
+                <div style={{ marginBottom: "20px" }}>
+                    <label><strong>Current configured URL:</strong></label>
+                    <input
+                        type="text"
+                        value={currentUrl}
+                        onChange={(e) => setCurrentUrl(e.target.value)}
+                        style={{
+                            width: "100%",
+                            padding: "8px",
+                            margin: "5px 0",
+                            border: "1px solid #ddd",
+                            borderRadius: "4px"
+                        }}
+                    />
+                </div>
+
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                    <button
+                        onClick={testConfiguredUrl}
+                        disabled={loading}
+                        style={{
+                            padding: "10px 20px",
+                            backgroundColor: "#007bff",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "4px",
+                            cursor: loading ? "not-allowed" : "pointer"
+                        }}
+                    >
+                        {loading ? "🔄 Testing..." : "🧪 Test Current URL"}
+                    </button>
+
+                    <button
+                        onClick={scanPorts}
+                        disabled={loading}
+                        style={{
+                            padding: "10px 20px",
+                            backgroundColor: "#28a745",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "4px",
+                            cursor: loading ? "not-allowed" : "pointer"
+                        }}
+                    >
+                        {loading ? "🔄 Scanning..." : "🔍 Scan Common Ports"}
+                    </button>
+
+                    <button
+                        onClick={testCustomUrl}
+                        disabled={loading}
+                        style={{
+                            padding: "10px 20px",
+                            backgroundColor: "#6c757d",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "4px",
+                            cursor: loading ? "not-allowed" : "pointer"
+                        }}
+                    >
+                        🎯 Test Custom URL
+                    </button>
+
+                    <button
+                        onClick={clearResults}
+                        style={{
+                            padding: "10px 20px",
+                            backgroundColor: "#dc3545",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "4px",
+                            cursor: "pointer"
+                        }}
+                    >
+                        🧹 Clear Results
+                    </button>
+                </div>
+            </div>
+
+            {/* Results */}
+            {results.length > 0 && (
+                <div style={{
+                    background: "#ffffff",
+                    border: "1px solid #ddd",
+                    borderRadius: "8px",
+                    padding: "20px"
+                }}>
+                    <h3>📋 Test Results</h3>
+                    <div style={{
+                        maxHeight: "400px",
+                        overflowY: "auto",
+                        backgroundColor: "#f8f9fa",
+                        padding: "10px",
+                        borderRadius: "4px",
+                        fontFamily: "monospace",
+                        fontSize: "14px"
+                    }}>
+                        {results.map((result, index) => (
+                            <div
+                                key={index}
+                                style={{
+                                    padding: "5px 0",
+                                    borderBottom: "1px solid #eee",
+                                    color: result.type === "error" ? "#dc3545" :
+                                        result.type === "success" ? "#28a745" :
+                                            result.type === "warning" ? "#ffc107" : "#333"
+                                }}
+                            >
+                                <span style={{ color: "#666", marginRight: "10px" }}>
+                                    [{result.timestamp}]
+                                </span>
+                                {result.message}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Instructions */}
+            <div style={{
+                marginTop: "30px",
+                padding: "20px",
+                backgroundColor: "#e9ecef",
+                borderRadius: "8px"
+            }}>
+                <h3>💡 What to do once you find the correct URL:</h3>
+                <ol>
+                    <li>Update your environment variable <code>VITE_BOT_API_URL</code> to the working URL</li>
+                    <li>Or create a <code>.env</code> file with: <code>VITE_BOT_API_URL=http://localhost:XXXX</code></li>
+                    <li>Restart your frontend development server</li>
+                    <li>Generate a new admin token with <code>!cw admintoken generate</code></li>
+                    <li>Use the token in the admin panel</li>
+                </ol>
+            </div>
+        </div>
+    );
+}

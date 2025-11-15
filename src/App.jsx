@@ -9,6 +9,7 @@ import History from "./pages/History";
 import Artists from "./pages/Artists";
 import Teams from "./pages/Teams";
 import Admin from "./pages/Admin";
+import DiagnosticPage from "./components/DiagnosticPage";
 import { artistsData, teamsData } from "./data/mockData";
 import LavaLamp from "./components/LavaLamp";
 
@@ -111,6 +112,7 @@ function AppContent() {
           <Route path="/artists" element={<Artists selectedArtist={selectedArtist} setSelectedArtist={setSelectedArtist} onNavigateToTeam={handleNavigateToTeam} onPlaySong={handlePlaySong} />} />
           <Route path="/teams" element={<Teams selectedTeam={selectedTeam} setSelectedTeam={setSelectedTeam} onPlaySong={handlePlaySong} onNavigateToArtist={handleNavigateToArtist} />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/diagnostic" element={<DiagnosticPage />} />
         </Routes>
       </main>
 
