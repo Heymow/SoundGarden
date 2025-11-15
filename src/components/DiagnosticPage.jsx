@@ -108,6 +108,55 @@ export default function DiagnosticPage() {
         setLoading(false);
     };
 
+    // Tester des variantes Railway courantes
+    const testRailwayVariants = async () => {
+        setLoading(true);
+        clearResults();
+
+        addResult("🚂 Testing Railway URL patterns...", "info");
+
+        // Extraire le domaine du backend (localhost:3001 -> railway URL pattern)
+        const backendUrl = "http://localhost:3001"; // Votre backend Railway
+
+        const railwayPatterns = [
+            "https://soundgarden-bot-production.up.railway.app",
+            "https://soundgarden-discord-bot-production.up.railway.app",
+            "https://collabwarz-bot-production.up.railway.app",
+            "https://soundgarden-production-0d5e.up.railway.app", // Même que votre backend
+        ];
+
+        for (const url of railwayPatterns) {
+            addResult(`🧪 Trying Railway pattern: ${url}`, "info");
+            const result = await testBasicConnection(url);
+            if (result.success) {
+                addResult(`🎉 SUCCESS! Found bot on Railway: ${url}`, "success");
+                break;
+            }
+        }
+
+        setLoading(false);
+    };
+
+    // Tester le même domaine que le backend
+    const testSameDomainAsBackend = async () => {
+        setLoading(true);
+        clearResults();
+
+        addResult("🌐 Testing if bot runs on same domain as backend...", "info");
+
+        // Votre backend est sur Railway, testez si le bot y est aussi
+        const backendDomain = "https://soundgarden-production-0d5e.up.railway.app";
+
+        addResult(`🧪 Testing backend domain for bot API: ${backendDomain}`, "info");
+        const result = await testBasicConnection(backendDomain);
+
+        if (!result.success) {
+            addResult("💡 Bot API not on same domain as backend", "warning");
+        }
+
+        setLoading(false);
+    };
+
     return (
         <div style={{ padding: "20px", maxWidth: "800px", margin: "0 auto" }}>
             <div style={{
@@ -147,6 +196,47 @@ export default function DiagnosticPage() {
                             borderRadius: "4px"
                         }}
                     />
+                </div>
+
+                {/* Railway / Cloud Bot Detection */}
+                <div style={{
+                    background: "#e7f3ff",
+                    padding: "15px",
+                    borderRadius: "5px",
+                    margin: "15px 0"
+                }}>
+                    <strong>🚂 Railway / Cloud Bot Detection:</strong>
+                    <p>If your bot runs on Railway or another cloud service, try these:</p>
+                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>
+                        <button
+                            onClick={() => testRailwayVariants()}
+                            disabled={loading}
+                            style={{
+                                padding: "8px 16px",
+                                backgroundColor: "#6f42c1",
+                                color: "white",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: loading ? "not-allowed" : "pointer"
+                            }}
+                        >
+                            🚂 Test Railway URLs
+                        </button>
+                        <button
+                            onClick={() => testSameDomainAsBackend()}
+                            disabled={loading}
+                            style={{
+                                padding: "8px 16px",
+                                backgroundColor: "#fd7e14",
+                                color: "white",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: loading ? "not-allowed" : "pointer"
+                            }}
+                        >
+                            🌐 Test Same Domain as Backend
+                        </button>
+                    </div>
                 </div>
 
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
@@ -260,11 +350,41 @@ export default function DiagnosticPage() {
                 <h3>💡 What to do once you find the correct URL:</h3>
                 <ol>
                     <li>Update your environment variable <code>VITE_BOT_API_URL</code> to the working URL</li>
-                    <li>Or create a <code>.env</code> file with: <code>VITE_BOT_API_URL=http://localhost:XXXX</code></li>
+                    <li>Or update your <code>.env</code> file with: <code>VITE_BOT_API_URL=https://your-bot-url</code></li>
                     <li>Restart your frontend development server</li>
                     <li>Generate a new admin token with <code>!cw admintoken generate</code></li>
                     <li>Use the token in the admin panel</li>
                 </ol>
+            </div>
+
+            {/* Railway Specific Instructions */}
+            <div style={{
+                marginTop: "20px",
+                padding: "20px",
+                backgroundColor: "#fff3cd",
+                borderRadius: "8px"
+            }}>
+                <h3>🚂 Railway Deployment Troubleshooting:</h3>
+                <p><strong>Since you use Railway for your backend, your bot might be:</strong></p>
+                <ul>
+                    <li><strong>Also on Railway:</strong> Check if you deployed the Discord bot to Railway too</li>
+                    <li><strong>Local but not running:</strong> Make sure the bot is started locally and API is enabled</li>
+                    <li><strong>Different port:</strong> Bot might be on a different port than 8080</li>
+                </ul>
+
+                <p><strong>Quick checks in Discord:</strong></p>
+                <code style={{
+                    display: "block",
+                    backgroundColor: "#f8f9fa",
+                    padding: "10px",
+                    borderRadius: "4px",
+                    margin: "10px 0"
+                }}>
+                    !cw help                     # Is bot responding?<br />
+                    !cw apiserver status         # Is API server running?<br />
+                    !cw apiserver start          # Start API if not running<br />
+                    !cw admintoken debug         # See current config
+                </code>
             </div>
         </div>
     );
