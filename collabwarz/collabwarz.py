@@ -2993,6 +2993,13 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             port = await self.config.guild(guild).api_server_port()
             host = await self.config.guild(guild).api_server_host()
             
+            # Use Railway PORT environment variable if available
+            import os
+            railway_port = os.environ.get('PORT')
+            if railway_port:
+                port = int(railway_port)
+                print(f"Using Railway PORT environment variable: {port}")
+            
             app = self._start_api_server(guild)
             if not app:
                 return
