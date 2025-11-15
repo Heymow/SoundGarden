@@ -1632,6 +1632,7 @@ body{
   background-color: #072713;
   background-blend-mode: color;
   backdrop-filter: blur(10px);
+  border-radius: 10px;
 }
 
 /* Week Details View */

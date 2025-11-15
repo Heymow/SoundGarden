@@ -24,8 +24,8 @@ export default function LavaLampBackground() {
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
       radius: 80 + Math.random() * 120,
-      vx: (Math.random() - 0.5) * 0.5,
-      vy: (Math.random() - 0.5) * 0.5,
+      vx: (Math.random() - 0.5) * 2,
+      vy: (Math.random() - 0.5) * 2,
       color: [
         'rgba(74, 222, 128, 0.4)',
         'rgba(52, 211, 153, 0.45)',
@@ -57,7 +57,7 @@ export default function LavaLampBackground() {
 
         // Oscillate size slightly
         const time = Date.now() * 0.001;
-        const scale = 1 + Math.sin(time + blob.x) * 0.1;
+        const scale = 1 + Math.sin(time + blob.x) * 0.01;
 
         // Draw blob with radial gradient
         const gradient = ctx.createRadialGradient(
@@ -99,9 +99,9 @@ export default function LavaLampBackground() {
         left: 0,
         width: '100%',
         height: '100%',
-        zIndex: -1,
-        filter: 'blur(40px)',
-        opacity: 0.8,
+        zIndex: 0,
+        filter: 'blur(25px)',
+        opacity: 0.7,
       }}
     />
   );
