@@ -3047,10 +3047,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             )
             
             if railway_detected:
-                # Port 8080 still occupied, use working port 9000
-                port = 9000
-                print(f"Railway environment detected, using working port: {port}")
-                print(f"Avoiding conflicted PORT: {os.environ.get('PORT')}")
+                # Use a fixed uncommon port to avoid conflicts
+                port = 7777  # Fixed uncommon port
+                print(f"Railway environment detected, using fixed port: {port}")
+                print(f"Avoiding conflicted ports 8080, 3001, 9000")
                 print(f"Service ID: {os.environ.get('RAILWAY_SERVICE_ID')}")
             else:
                 print(f"Local environment, using configured port: {port}")
