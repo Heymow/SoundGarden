@@ -98,7 +98,7 @@ function AppContent() {
           <Route path="/" element={<AuthCallbackHandler />} />
           <Route path="/auth/discord/callback" element={<AuthCallbackHandler />} />
           <Route path="/current" element={<Current onPlaySong={handlePlaySong} onNavigateToTeam={handleNavigateToTeam} onNavigateToArtist={handleNavigateToArtist} />} />
-          <Route path="/history" element={<History onPlaySong={handlePlaySong} onNavigateToTeam={handleNavigateToTeam} />} />
+          <Route path="/history" element={<History onPlaySong={handlePlaySong} onNavigateToTeam={handleNavigateToTeam} onNavigateToArtist={handleNavigateToArtist} />} />
           <Route path="/artists" element={<Artists selectedArtist={selectedArtist} setSelectedArtist={setSelectedArtist} onNavigateToTeam={handleNavigateToTeam} onPlaySong={handlePlaySong} />} />
           <Route path="/teams" element={<Teams selectedTeam={selectedTeam} setSelectedTeam={setSelectedTeam} onPlaySong={handlePlaySong} onNavigateToArtist={handleNavigateToArtist} />} />
         </Routes>
