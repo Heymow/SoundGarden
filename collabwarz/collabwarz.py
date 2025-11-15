@@ -3036,6 +3036,17 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             if not api_enabled:
                 return
             
+            # Clean up any existing server instances for this guild
+            if hasattr(self, '_api_servers') and guild.id in self._api_servers:
+                try:
+                    old_runner = self._api_servers[guild.id]
+                    await old_runner.cleanup()
+                    print(f"Cleaned up old API server for {guild.name}")
+                except Exception as e:
+                    print(f"Error cleaning up old server: {e}")
+                finally:
+                    del self._api_servers[guild.id]
+            
             port = await self.config.guild(guild).api_server_port()
             host = await self.config.guild(guild).api_server_host()
             
@@ -3067,6 +3078,11 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             
             runner = web.AppRunner(app)
             await runner.setup()
+            
+            # Track this server for cleanup
+            if not hasattr(self, '_api_servers'):
+                self._api_servers = {}
+            self._api_servers[guild.id] = runner
             
             # Try to start on the assigned port
             try:
