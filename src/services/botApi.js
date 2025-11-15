@@ -13,7 +13,7 @@ const getAdminToken = () => {
 // Helper function to make authenticated API calls
 const fetchWithAuth = async (endpoint, options = {}) => {
   const token = getAdminToken();
-  
+
   if (!token) {
     throw new Error("Admin token not found. Please authenticate first.");
   }
@@ -33,21 +33,32 @@ const fetchWithAuth = async (endpoint, options = {}) => {
 
     // Handle non-OK responses
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: "Network or parsing error" }));
-      
+      const errorData = await response
+        .json()
+        .catch(() => ({ error: "Network or parsing error" }));
+
       // Provide more specific error messages for common cases
-      let errorMessage = errorData.error || `HTTP ${response.status}: ${response.statusText}`;
-      
+      let errorMessage =
+        errorData.error || `HTTP ${response.status}: ${response.statusText}`;
+
       if (response.status === 401) {
-        errorMessage = `Authentication failed: ${errorData.error || 'Invalid or expired token'}`;
+        errorMessage = `Authentication failed: ${
+          errorData.error || "Invalid or expired token"
+        }`;
       } else if (response.status === 403) {
-        errorMessage = `Access denied: ${errorData.error || 'Token does not have required permissions'}`;
+        errorMessage = `Access denied: ${
+          errorData.error || "Token does not have required permissions"
+        }`;
       } else if (response.status === 500) {
-        errorMessage = `Server error: ${errorData.error || 'Internal server error'}`;
+        errorMessage = `Server error: ${
+          errorData.error || "Internal server error"
+        }`;
       } else if (response.status === 503) {
-        errorMessage = `Service unavailable: ${errorData.error || 'Bot API server is not running'}`;
+        errorMessage = `Service unavailable: ${
+          errorData.error || "Bot API server is not running"
+        }`;
       }
-      
+
       throw new Error(errorMessage);
     }
 
@@ -100,7 +111,9 @@ export const getAdminSubmissions = async () => {
  * @param {number} perPage - Items per page (default: 20)
  */
 export const getAdminHistory = async (page = 1, perPage = 20) => {
-  return await fetchWithAuth(`/api/admin/history?page=${page}&per_page=${perPage}`);
+  return await fetchWithAuth(
+    `/api/admin/history?page=${page}&per_page=${perPage}`
+  );
 };
 
 // ============= Action Endpoints =============
@@ -124,9 +137,12 @@ export const executeAdminAction = async (action, params = {}) => {
  * @param {string} teamName - Team name
  */
 export const removeSubmission = async (teamName) => {
-  return await fetchWithAuth(`/api/admin/submissions/${encodeURIComponent(teamName)}`, {
-    method: "DELETE",
-  });
+  return await fetchWithAuth(
+    `/api/admin/submissions/${encodeURIComponent(teamName)}`,
+    {
+      method: "DELETE",
+    }
+  );
 };
 
 /**
@@ -135,9 +151,14 @@ export const removeSubmission = async (teamName) => {
  * @param {string} userId - User ID
  */
 export const removeVote = async (week, userId) => {
-  return await fetchWithAuth(`/api/admin/votes/${encodeURIComponent(week)}/${encodeURIComponent(userId)}`, {
-    method: "DELETE",
-  });
+  return await fetchWithAuth(
+    `/api/admin/votes/${encodeURIComponent(week)}/${encodeURIComponent(
+      userId
+    )}`,
+    {
+      method: "DELETE",
+    }
+  );
 };
 
 /**
@@ -155,7 +176,9 @@ export const removeWeek = async (week) => {
  * @param {string} week - Week identifier
  */
 export const getVoteDetails = async (week) => {
-  return await fetchWithAuth(`/api/admin/votes/${encodeURIComponent(week)}/details`);
+  return await fetchWithAuth(
+    `/api/admin/votes/${encodeURIComponent(week)}/details`
+  );
 };
 
 // ============= Convenience Methods =============
@@ -181,18 +204,27 @@ export const setTheme = async (theme) => {
  * Note: AI theme generation typically done via Discord bot commands
  */
 export const generateAITheme = async () => {
-  console.warn("generateAITheme: This feature may require AI configuration in the bot");
+  console.warn(
+    "generateAITheme: This feature may require AI configuration in the bot"
+  );
   // Return a mock theme as fallback
   const themes = [
-    "Cosmic Journey", "Neon Dreams", "Ocean Waves", 
-    "Desert Sunset", "Arctic Winds", "Jungle Rhythm",
-    "Urban Pulse", "Mountain Echo", "Starlight Symphony"
+    "Cosmic Journey",
+    "Neon Dreams",
+    "Ocean Waves",
+    "Desert Sunset",
+    "Arctic Winds",
+    "Jungle Rhythm",
+    "Urban Pulse",
+    "Mountain Echo",
+    "Starlight Symphony",
   ];
   const randomTheme = themes[Math.floor(Math.random() * themes.length)];
-  return { 
-    success: true, 
+  return {
+    success: true,
     theme: randomTheme,
-    message: "Theme generated (consider using AI via Discord bot commands for better results)"
+    message:
+      "Theme generated (consider using AI via Discord bot commands for better results)",
   };
 };
 
@@ -205,7 +237,9 @@ export const startNextWeek = async (theme = null) => {
     return await executeAdminAction("start_new_week", { theme });
   }
   // If no theme provided, return error asking for theme
-  throw new Error("Theme required to start new week. Please set a theme first.");
+  throw new Error(
+    "Theme required to start new week. Please set a theme first."
+  );
 };
 
 /**
@@ -232,8 +266,13 @@ export const endWeek = async () => {
  */
 export const sendAnnouncement = async (type, message) => {
   // This is a placeholder - the actual implementation depends on bot configuration
-  console.warn("sendAnnouncement: This action may not be fully implemented in the bot backend");
-  return { success: true, message: "Announcement queued (feature may require bot command)" };
+  console.warn(
+    "sendAnnouncement: This action may not be fully implemented in the bot backend"
+  );
+  return {
+    success: true,
+    message: "Announcement queued (feature may require bot command)",
+  };
 };
 
 /**
@@ -241,8 +280,12 @@ export const sendAnnouncement = async (type, message) => {
  * Note: Use clear_submissions or manual vote removal instead
  */
 export const resetVotes = async () => {
-  console.warn("resetVotes: Consider using individual vote removal via DELETE endpoint");
-  throw new Error("Reset votes not implemented. Please remove votes individually.");
+  console.warn(
+    "resetVotes: Consider using individual vote removal via DELETE endpoint"
+  );
+  throw new Error(
+    "Reset votes not implemented. Please remove votes individually."
+  );
 };
 
 /**
@@ -259,7 +302,9 @@ export const removeInvalidVotes = async () => {
  * @param {string} week - Week identifier (optional, defaults to current)
  */
 export const exportVotingResults = async (week) => {
-  console.warn("exportVotingResults: Export feature may need backend implementation");
+  console.warn(
+    "exportVotingResults: Export feature may need backend implementation"
+  );
   return { success: true, message: "Export feature in development" };
 };
 
@@ -268,7 +313,10 @@ export const exportVotingResults = async (week) => {
  * Note: AI test typically done via Discord bot commands
  */
 export const testAI = async () => {
-  return { success: true, message: "AI test should be performed via Discord bot commands" };
+  return {
+    success: true,
+    message: "AI test should be performed via Discord bot commands",
+  };
 };
 
 /**
@@ -285,7 +333,10 @@ export const syncData = async () => {
  */
 export const restartBot = async () => {
   console.warn("restartBot: This action requires platform-level access");
-  return { success: true, message: "Bot restart request received (requires hosting platform access)" };
+  return {
+    success: true,
+    message: "Bot restart request received (requires hosting platform access)",
+  };
 };
 
 // ============= Token Management =============
