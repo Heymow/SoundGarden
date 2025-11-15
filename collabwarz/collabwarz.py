@@ -3038,11 +3038,22 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             
             # Force port 8080 for Railway deployment
             import os
-            if 'RAILWAY_ENVIRONMENT' in os.environ or 'railway' in str(os.environ.get('HOSTNAME', '')).lower():
+            
+            # Check for Railway environment variables
+            railway_detected = (
+                'RAILWAY_ENVIRONMENT_ID' in os.environ or 
+                'RAILWAY_SERVICE_ID' in os.environ or
+                'RAILWAY_PROJECT_ID' in os.environ or
+                'up.railway.app' in str(os.environ.get('HOSTNAME', ''))
+            )
+            
+            if railway_detected:
                 port = 8080
                 print(f"Railway environment detected, forcing port: {port}")
+                print(f"Environment vars: RAILWAY_SERVICE_ID={os.environ.get('RAILWAY_SERVICE_ID')}")
             else:
                 print(f"Local environment, using configured port: {port}")
+                print(f"HOSTNAME: {os.environ.get('HOSTNAME')}")
             
             app = self._start_api_server(guild)
             if not app:
