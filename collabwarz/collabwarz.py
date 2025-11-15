@@ -1055,37 +1055,37 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     if not all([header_b64, payload_b64, signature]):
                         print("Invalid JWT: empty parts detected")
                         return None, web.json_response({"error": "Invalid token structure"}, status=400)
+                    
+                    # Verify signature
+                    message = f"{header_b64}.{payload_b64}"
+                    expected_sig = hashlib.new('sha256', (message + signing_key).encode()).hexdigest()
+                    
+                    if signature == expected_sig:
+                        # Decode payload
+                        payload_json = base64.urlsafe_b64decode(payload_b64 + '=' * (-len(payload_b64) % 4)).decode()
+                        payload = json.loads(payload_json)
                         
-                        # Verify signature
-                        message = f"{header_b64}.{payload_b64}"
-                        expected_sig = hashlib.new('sha256', (message + signing_key).encode()).hexdigest()
+                        # Check expiration
+                        try:
+                            # Handle different datetime formats
+                            expires_str = payload['expires_at']
+                            if 'Z' in expires_str:
+                                expires_str = expires_str.replace('Z', '+00:00')
+                            expires_at = datetime.fromisoformat(expires_str)
+                        except ValueError:
+                            # Fallback: try parsing without timezone
+                            expires_at = datetime.fromisoformat(payload['expires_at'].split('+')[0].split('Z')[0])
                         
-                        if signature == expected_sig:
-                            # Decode payload
-                            payload_json = base64.urlsafe_b64decode(payload_b64 + '=' * (-len(payload_b64) % 4)).decode()
-                            payload = json.loads(payload_json)
-                            
-                            # Check expiration
-                            try:
-                                # Handle different datetime formats
-                                expires_str = payload['expires_at']
-                                if 'Z' in expires_str:
-                                    expires_str = expires_str.replace('Z', '+00:00')
-                                expires_at = datetime.fromisoformat(expires_str)
-                            except ValueError:
-                                # Fallback: try parsing without timezone
-                                expires_at = datetime.fromisoformat(payload['expires_at'].split('+')[0].split('Z')[0])
-                            
-                            if datetime.utcnow() < expires_at:
-                                token_valid = True
-                                token_user_id = payload.get('user_id')
-                                print(f"JWT token validated for user {token_user_id} in guild {guild.id}")
-                            else:
-                                print(f"JWT token expired for guild {guild.id}")
-                                return None, web.json_response({"error": "Token expired"}, status=401)
+                        if datetime.utcnow() < expires_at:
+                            token_valid = True
+                            token_user_id = payload.get('user_id')
+                            print(f"JWT token validated for user {token_user_id} in guild {guild.id}")
                         else:
-                            print(f"JWT signature validation failed for guild {guild.id}")
-                            return None, web.json_response({"error": "Invalid token signature"}, status=403)
+                            print(f"JWT token expired for guild {guild.id}")
+                            return None, web.json_response({"error": "Token expired"}, status=401)
+                    else:
+                        print(f"JWT signature validation failed for guild {guild.id}")
+                        return None, web.json_response({"error": "Invalid token signature"}, status=403)
                 except Exception as e:
                     print(f"JWT validation error: {e}")
                     return None, web.json_response({"error": f"Token validation failed: {str(e)}"}, status=400)
