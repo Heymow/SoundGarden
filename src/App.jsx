@@ -9,6 +9,7 @@ import History from "./pages/History";
 import Artists from "./pages/Artists";
 import Teams from "./pages/Teams";
 import { artistsData, teamsData } from "./data/mockData";
+import LavaLamp from "./components/LavaLamp";
 
 // Component to handle auth callback before redirecting
 function AuthCallbackHandler() {
@@ -68,6 +69,7 @@ function AppContent() {
 
   return (
     <div className="app-root">
+
       <div className="main-banner">
         <h1 className="main-banner-title">🌿 SoundGarden</h1>
         <p className="main-banner-subtitle">SUNO AI MUSIC COMMUNITY</p>
@@ -118,6 +120,15 @@ export default function App() {
     <AuthProvider>
       <AudioPlayerProvider>
         <AppContent />
+
+        <LavaLamp
+          blobCount={8}
+          colors={['rgba(255, 255, 255, 0.3)', 'rgba(255, 215, 0, 0.4)', 'rgba(255, 165, 0, 0.3)']}
+          size="medium"
+          opacity={0.4}
+          animationDuration="25s"
+        />
+
       </AudioPlayerProvider>
     </AuthProvider>
   );

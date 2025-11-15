@@ -10,7 +10,7 @@ export default function History({ onPlaySong, onNavigateToTeam, onNavigateToArti
   // If a challenge is selected, show the details view
   if (selectedChallenge) {
     return (
-      <WeekDetails 
+      <WeekDetails
         challenge={selectedChallenge}
         onBack={() => setSelectedChallenge(null)}
         onPlaySong={onPlaySong}
@@ -34,30 +34,32 @@ export default function History({ onPlaySong, onNavigateToTeam, onNavigateToArti
           const songId = challenge.id;
           const isThisSongPlaying = currentSong?.id === songId && isPlaying;
           const isThisSongCurrent = currentSong?.id === songId;
-          
+
           return (
-            <div 
-              key={challenge.id} 
+            <div
+              key={challenge.id}
               className="history-card"
               onClick={() => setSelectedChallenge(challenge)}
               style={{ cursor: 'pointer' }}
             >
+
               <div className="history-card-header">
                 <h3>Week {challenge.weekNumber} - {challenge.year}</h3>
                 <span className="history-date">{new Date(challenge.endDate).toLocaleDateString()}</span>
               </div>
-              
+
+
               <div className="history-theme">
                 <strong>Theme:</strong> {challenge.theme}
               </div>
-              
+
               <div className="history-winner">
                 <div className="winner-icon">🏆</div>
                 <div className="winner-details">
                   <div className="winner-song">{challenge.winner.title}</div>
                   <div className="winner-team">
                     {onNavigateToTeam ? (
-                      <span 
+                      <span
                         className="team-chip clickable-chip"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -74,7 +76,7 @@ export default function History({ onPlaySong, onNavigateToTeam, onNavigateToArti
                     {challenge.winner.votes} votes · {challenge.totalSubmissions} submissions
                   </div>
                 </div>
-                <button 
+                <button
                   className={`history-play-btn ${isThisSongPlaying ? 'playing' : ''}`}
                   onClick={(e) => {
                     e.stopPropagation();
