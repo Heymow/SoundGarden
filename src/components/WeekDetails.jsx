@@ -1,6 +1,7 @@
 import React from "react";
 import { useAudioPlayer } from "../context/AudioPlayerContext";
 
+
 export default function WeekDetails({ challenge, onBack, onPlaySong, onNavigateToTeam, onNavigateToArtist }) {
   const { currentSong, isPlaying, togglePlayPause } = useAudioPlayer();
 
@@ -20,6 +21,7 @@ export default function WeekDetails({ challenge, onBack, onPlaySong, onNavigateT
 
   return (
     <section className="page week-details-page">
+
       <button className="btn-back" onClick={onBack}>
         ← Back to History
       </button>
@@ -36,9 +38,10 @@ export default function WeekDetails({ challenge, onBack, onPlaySong, onNavigateT
       {/* Winner Section */}
       {challenge.winner && (
         <div className="week-winner-section">
+
           <h3 className="winner-section-title">🏆 Winner</h3>
           <div className="winner-card-large">
-            <div 
+            <div
               className="winner-image"
               onClick={() => {
                 const winnerSong = sortedSongs.find(s => s.isWinner);
@@ -49,7 +52,7 @@ export default function WeekDetails({ challenge, onBack, onPlaySong, onNavigateT
               style={{ cursor: 'pointer' }}
             >
               <img src={challenge.winner.imageUrl} alt={challenge.winner.title} />
-              <div 
+              <div
                 className={`play-overlay ${currentSong?.id === sortedSongs.find(s => s.isWinner)?.id && isPlaying ? 'playing' : ''}`}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -89,8 +92,8 @@ export default function WeekDetails({ challenge, onBack, onPlaySong, onNavigateT
                   <React.Fragment key={participant}>
                     {idx > 0 && ' & '}
                     {onNavigateToArtist ? (
-                      <span 
-                        className="participant-chip" 
+                      <span
+                        className="participant-chip"
                         onClick={() => onNavigateToArtist(participant)}
                       >
                         {participant}
@@ -103,8 +106,8 @@ export default function WeekDetails({ challenge, onBack, onPlaySong, onNavigateT
               </div>
               {onNavigateToTeam && challenge.winner.participants.length >= 2 && (
                 <div className="winner-team-chip-container">
-                  <span 
-                    className="team-chip clickable-chip" 
+                  <span
+                    className="team-chip clickable-chip"
                     onClick={() => onNavigateToTeam(challenge.winner.participants.join(' & '))}
                   >
                     {challenge.winner.participants.join(' & ')}
@@ -112,9 +115,9 @@ export default function WeekDetails({ challenge, onBack, onPlaySong, onNavigateT
                 </div>
               )}
               <div className="winner-votes">🎵 {challenge.winner.votes} votes</div>
-              <a 
-                href={challenge.winner.sunoUrl} 
-                target="_blank" 
+              <a
+                href={challenge.winner.sunoUrl}
+                target="_blank"
                 rel="noopener noreferrer"
                 className="btn-suno-large"
               >
@@ -132,19 +135,19 @@ export default function WeekDetails({ challenge, onBack, onPlaySong, onNavigateT
           {sortedSongs.map((song, index) => {
             const isThisSongPlaying = currentSong?.id === song.id && isPlaying;
             const isThisSongCurrent = currentSong?.id === song.id;
-            
+
             return (
               <div key={song.id} className={`submission-card ${song.isWinner ? 'is-winner' : ''}`}>
                 {song.isWinner && <div className="winner-badge">🏆 Winner</div>}
                 <div className="submission-rank">#{index + 1}</div>
-                
-                <div 
+
+                <div
                   className="submission-image"
                   onClick={() => onPlaySong && onPlaySong(song)}
                   style={{ cursor: 'pointer' }}
                 >
                   <img src={song.imageUrl} alt={song.title} />
-                  <div 
+                  <div
                     className={`play-overlay ${isThisSongPlaying ? 'playing' : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -171,7 +174,7 @@ export default function WeekDetails({ challenge, onBack, onPlaySong, onNavigateT
                     {isThisSongPlaying ? '⏸' : '▶'}
                   </div>
                 </div>
-                
+
                 <div className="submission-details">
                   <h4 className="submission-title">{song.title}</h4>
                   <div className="submission-participants">
@@ -179,8 +182,8 @@ export default function WeekDetails({ challenge, onBack, onPlaySong, onNavigateT
                       <React.Fragment key={participant}>
                         {idx > 0 && ' & '}
                         {onNavigateToArtist ? (
-                          <span 
-                            className="participant-chip" 
+                          <span
+                            className="participant-chip"
                             onClick={() => onNavigateToArtist(participant)}
                           >
                             {participant}
@@ -193,8 +196,8 @@ export default function WeekDetails({ challenge, onBack, onPlaySong, onNavigateT
                   </div>
                   {onNavigateToTeam && song.participants.length >= 2 && (
                     <div className="submission-team-chip-container">
-                      <span 
-                        className="team-chip clickable-chip" 
+                      <span
+                        className="team-chip clickable-chip"
                         onClick={() => onNavigateToTeam(song.participants.join(' & '))}
                       >
                         {song.participants.join(' & ')}
@@ -206,12 +209,12 @@ export default function WeekDetails({ challenge, onBack, onPlaySong, onNavigateT
                       <span key={idx} className="suno-account">{account}</span>
                     ))}
                   </div>
-                  
+
                   <div className="submission-actions">
                     <span className="submission-votes">🎵 {song.votes} votes</span>
-                    <a 
-                      href={song.sunoUrl} 
-                      target="_blank" 
+                    <a
+                      href={song.sunoUrl}
+                      target="_blank"
                       rel="noopener noreferrer"
                       className="btn-suno-small"
                     >

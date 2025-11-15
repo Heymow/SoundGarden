@@ -3,11 +3,11 @@ import { useAudioPlayer } from '../context/AudioPlayerContext';
 
 export default function WinnerBanner({ winner, theme, onNavigateToTeam }) {
   const { currentSong, isPlaying, playSong, togglePlayPause } = useAudioPlayer();
-  
+
   if (!winner) return null;
 
   const teamName = winner.participants.join(' & ');
-  
+
   // Check if this is the current song
   const isThisSongPlaying = currentSong?.id === winner.id && isPlaying;
   const isThisSongCurrent = currentSong?.id === winner.id;

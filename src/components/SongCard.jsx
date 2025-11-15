@@ -3,7 +3,7 @@ import { useAudioPlayer } from '../context/AudioPlayerContext';
 
 export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, onLoginRequired, onPlaySong, onNavigateToTeam, onNavigateToArtist }) {
   const { currentSong, isPlaying, togglePlayPause } = useAudioPlayer();
-  
+
   // Check if this song is currently playing
   const isThisSongPlaying = currentSong?.id === song.id && isPlaying;
   const isThisSongCurrent = currentSong?.id === song.id;
@@ -46,13 +46,13 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
 
   return (
     <div className="song-card">
-      <div 
-        className="song-image" 
+      <div
+        className="song-image"
         onClick={handleImageClick}
         style={{ cursor: 'pointer' }}
       >
         <img src={song.imageUrl || 'https://via.placeholder.com/200'} alt={song.title} />
-        <div 
+        <div
           className={`play-overlay ${isThisSongPlaying ? 'playing' : ''}`}
           onClick={handlePlayClick}
           onKeyDown={(e) => {
@@ -68,7 +68,7 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
           {isThisSongPlaying ? '⏸' : '▶'}
         </div>
       </div>
-      
+
       <div className="song-details">
         <h3 className="song-title">{song.title}</h3>
         <p className="song-participants">
@@ -76,8 +76,8 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
             <React.Fragment key={participant}>
               {idx > 0 && ' & '}
               {onNavigateToArtist ? (
-                <span 
-                  className="participant-chip" 
+                <span
+                  className="participant-chip"
                   onClick={() => handleParticipantClick(participant)}
                 >
                   {participant}
@@ -90,8 +90,8 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
         </p>
         {onNavigateToTeam && song.participants.length >= 2 && (
           <div className="song-team-chip-container">
-            <span 
-              className="team-chip clickable-chip" 
+            <span
+              className="team-chip clickable-chip"
               onClick={() => onNavigateToTeam(song.participants.join(' & '))}
             >
               {song.participants.join(' & ')}
@@ -103,10 +103,10 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
             <span key={idx} className="suno-account">{account}</span>
           ))}
         </div>
-        
+
         <div className="song-actions">
           {phase === 'voting' && (
-            <button 
+            <button
               className={`btn-vote ${hasVoted ? 'voted' : ''}`}
               onClick={handleVoteClick}
               disabled={hasVoted}
@@ -114,21 +114,22 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
               {hasVoted ? '✓ Voted' : '🎤 Vote'}
             </button>
           )}
-          
-          <a 
-            href={song.sunoUrl} 
-            target="_blank" 
+
+          <a
+            href={song.sunoUrl}
+            target="_blank"
             rel="noopener noreferrer"
             className="btn-suno"
           >
             🎵 Listen on Suno
           </a>
-          
+
           {phase === 'voting' && song.votes !== undefined && (
             <span className="vote-count">{song.votes} votes</span>
           )}
         </div>
       </div>
+
     </div>
   );
 }
