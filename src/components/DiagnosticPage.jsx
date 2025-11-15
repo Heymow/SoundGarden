@@ -48,6 +48,47 @@ export default function DiagnosticPage() {
         }
     };
 
+    // Test spécifique pour bot local (0.0.0.0:8080 -> localhost:8080)  
+    const testLocalBotServer = async () => {
+        setLoading(true);
+        clearResults();
+
+        addResult("🏠 Testing local bot server (Discord shows 0.0.0.0:8080)...", "info");
+
+        const localVariants = [
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "http://0.0.0.0:8080",  // Unlikely to work but let's try
+        ];
+
+        let found = false;
+        for (const testUrl of localVariants) {
+            addResult(`🧪 Testing: ${testUrl}`, "info");
+
+            try {
+                const result = await testBasicConnection(testUrl);
+                if (result.success) {
+                    found = true;
+                    addResult(`🎉 SUCCESS! Bot found on ${testUrl}`, "success");
+                    addResult(`💡 Update your .env: VITE_BOT_API_URL=${testUrl}`, "warning");
+                    break;
+                }
+            } catch (error) {
+                addResult(`❌ Failed: ${error.message}`, "error");
+            }
+        }
+
+        if (!found) {
+            addResult("❌ Local bot server not accessible", "error");
+            addResult("🔧 Possible issues:", "warning");
+            addResult("  • CORS not configured: Run '!cw apiconfig cors *' in Discord", "warning");
+            addResult("  • Firewall blocking port 8080", "warning");
+            addResult("  • Bot API server crashed: Run '!cw apiserver restart' in Discord", "warning");
+        }
+
+        setLoading(false);
+    };
+
     // Scanner plusieurs ports
     const scanPorts = async () => {
         setLoading(true);
@@ -198,15 +239,42 @@ export default function DiagnosticPage() {
                     />
                 </div>
 
-                {/* Railway / Cloud Bot Detection */}
+                {/* Local & Cloud Bot Detection */}
                 <div style={{
                     background: "#e7f3ff",
                     padding: "15px",
                     borderRadius: "5px",
                     margin: "15px 0"
                 }}>
+                    <strong>🏠 Local Bot Detection:</strong>
+                    <p>If your bot runs locally (Discord shows "Running on 0.0.0.0:8080"):</p>
+                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>
+                        <button
+                            onClick={() => testLocalBotServer()}
+                            disabled={loading}
+                            style={{
+                                padding: "8px 16px",
+                                backgroundColor: "#28a745",
+                                color: "white",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: loading ? "not-allowed" : "pointer"
+                            }}
+                        >
+                            🏠 Test Local Bot Server
+                        </button>
+                    </div>
+                </div>
+
+                {/* Railway / Cloud Bot Detection */}
+                <div style={{
+                    background: "#fff3cd",
+                    padding: "15px",
+                    borderRadius: "5px",
+                    margin: "15px 0"
+                }}>
                     <strong>🚂 Railway / Cloud Bot Detection:</strong>
-                    <p>If your bot runs on Railway or another cloud service, try these:</p>
+                    <p>If your bot runs on Railway or another cloud service:</p>
                     <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>
                         <button
                             onClick={() => testRailwayVariants()}
