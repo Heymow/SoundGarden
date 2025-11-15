@@ -151,6 +151,7 @@ body{
   border:1px solid rgba(74,222,128,0.15);
   border-radius:var(--radius);
   padding:20px;
+  padding-bottom: 5px;
   margin-bottom:24px;
   display: flex;
   flex-direction: row;
@@ -252,7 +253,7 @@ body{
   padding-left: 3px;
 }
 .song-image:hover .play-overlay, .play-overlay.playing{opacity:1}
-.winner-title{margin:0 0 8px 0;color:var(--accent);font-size:1.3rem}
+.winner-title{margin:0 0 8px 0;color:var(--accent);font-size:1.3rem;padding-top: 20px;}
 .winner-theme{margin:4px 0;color:var(--muted);font-size:0.9rem}
 .winner-team{margin:4px 0;color:var(--text);font-weight:500}
 .winner-votes{margin:4px 0;color:var(--accent-2);font-weight:500}
