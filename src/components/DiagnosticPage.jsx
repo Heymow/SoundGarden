@@ -193,21 +193,136 @@ export default function DiagnosticPage() {
 
         if (!result.success) {
             addResult("💡 Bot API not on same domain as backend", "warning");
+            addResult("💡 Your bot Discord needs to be deployed separately!", "warning");
         }
 
         setLoading(false);
     };
 
-    return (
-        <div style={{ padding: "20px", maxWidth: "800px", margin: "0 auto" }}>
+    // Tester votre bot RedBot spécifique
+    const testYourRedBot = async () => {
+        setLoading(true);
+        clearResults();
+
+        addResult("🤖 Testing your specific RedBot instance...", "info");
+        
+        // Votre bot RedBot - Railway expose automatiquement sur port 443 (HTTPS)
+        const botUrls = [
+            "https://worker-production-31cd.up.railway.app",  // Railway standard (pas besoin de :8080)
+            "https://worker-production-31cd.up.railway.app:8080"  // Au cas où le port serait explicite
+        ];
+
+        let found = false;
+        for (const url of botUrls) {
+            addResult(`🧪 Testing your RedBot: ${url}`, "info");
+            const result = await testBasicConnection(url);
+            if (result.success) {
+                addResult(`✅ FOUND! Your RedBot API works: ${url}`, "success");
+                addResult(`🎯 Update your VITE_BOT_API_URL to: ${url}`, "success");
+                addResult(`📝 The CollabWarz cog API server is accessible!`, "success");
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            addResult("❌ RedBot API not accessible!", "error");
+            addResult("🔍 Possible issues:", "warning");
+            addResult("   • CollabWarz cog not loaded: !load collabwarz", "info");
+            addResult("   • API server not started: !cw apiserver start", "info");
+            addResult("   • Wrong CORS config: !cw apiconfig cors *", "info");
+        }
+
+        setLoading(false);
+    };
+
+    // Checker si le bot Discord est déployé sur Railway
+    const checkBotDeploymentStatus = async () => {
+        setLoading(true);
+        clearResults();
+
+        addResult("🚂 Searching for Discord bots on Railway instances...", "info");
+
+        // Test des patterns typiques pour bot Discord + votre RedBot
+        const botUrls = [
+            "https://worker-production-31cd.up.railway.app",  // VOTRE BOT REDBOT
+            "https://soundgarden-bot-production.up.railway.app",
+            "https://collabwarz-production.up.railway.app", 
+            "https://discord-bot-production.up.railway.app",
+            "https://soundgarden-discord-production.up.railway.app",
+            "https://red-discord-bot-production.up.railway.app",
+            "https://red-bot-production.up.railway.app"
+        ];
+
+        let found = false;
+        for (const url of botUrls) {
+            addResult(`🧪 Testing: ${url}`, "info");
+            const result = await testBasicConnection(url);
+            if (result.success) {
+                addResult(`✅ FOUND! Discord bot at: ${url}`, "success");
+                addResult(`🎯 Update your VITE_BOT_API_URL to: ${url}`, "success");
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            addResult("❌ No bot APIs found!", "error");
+            addResult("💡 Check if CollabWarz cog is loaded and API started", "warning");
+        }
+
+        setLoading(false);
+    };    return (
+        <div style={{
+            padding: "20px",
+            maxWidth: "800px",
+            margin: "0 auto",
+            backgroundColor: "#f8f9fa",
+            minHeight: "100vh"
+        }}>
             <div style={{
-                background: "#f8f9fa",
+                background: "#ffffff",
                 padding: "20px",
                 borderRadius: "8px",
-                marginBottom: "20px"
+                marginBottom: "20px",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                color: "#333"
             }}>
-                <h1>🔧 Bot API Diagnostic Tool</h1>
-                <p><strong>Use this tool to diagnose connection issues WITHOUT needing authentication.</strong></p>
+                <h1 style={{ color: "#333", marginBottom: "15px" }}>🔧 Bot API Diagnostic Tool</h1>
+                <p style={{ color: "#666", marginBottom: "15px" }}><strong>Use this tool to diagnose connection issues WITHOUT needing authentication.</strong></p>
+
+                <div style={{
+                    background: "#e3f2fd",
+                    padding: "15px",
+                    borderRadius: "5px",
+                    margin: "15px 0",
+                    border: "1px solid #2196f3"
+                }}>
+                    <h3 style={{ color: "#1976d2", marginTop: 0 }}>🏗️ Votre architecture :</h3>
+                    <ul style={{ color: "#333", margin: "10px 0" }}>
+                        <li><strong>Backend Node.js</strong> (Railway soundgarden-production-0d5e) → API principal</li>
+                        <li><strong>RedBot + CollabWarz cog</strong> (Railway worker-production-31cd) → Bot Discord</li>
+                        <li><strong>Frontend React</strong> (cette instance Railway) → Interface web</li>
+                    </ul>
+                    <div style={{
+                        backgroundColor: "#d4edda",
+                        padding: "10px",
+                        borderRadius: "4px",
+                        marginTop: "10px",
+                        border: "1px solid #c3e6cb"
+                    }}>
+                        <strong style={{ color: "#155724" }}>🎯 Votre bot RedBot :</strong>
+                        <code style={{ 
+                            display: "block", 
+                            margin: "5px 0",
+                            padding: "5px",
+                            backgroundColor: "#f8f9fa",
+                            borderRadius: "3px"
+                        }}>
+                            https://worker-production-31cd.up.railway.app
+                        </code>
+                    </div>
+                </div>
 
                 <div style={{
                     background: "#fff3cd",
@@ -237,6 +352,38 @@ export default function DiagnosticPage() {
                             borderRadius: "4px"
                         }}
                     />
+                </div>
+
+                {/* Your RedBot Test */}
+                <div style={{
+                    background: "#d4edda",
+                    padding: "15px",
+                    borderRadius: "5px",
+                    margin: "15px 0",
+                    border: "2px solid #28a745"
+                }}>
+                    <strong style={{ color: "#155724" }}>🤖 Test YOUR RedBot (Recommended):</strong>
+                    <p style={{ color: "#155724", margin: "10px 0" }}>
+                        Test your specific RedBot instance with CollabWarz cog:
+                    </p>
+                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>
+                        <button
+                            onClick={() => testYourRedBot()}
+                            disabled={loading}
+                            style={{
+                                padding: "12px 20px",
+                                backgroundColor: "#28a745",
+                                color: "white",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: loading ? "not-allowed" : "pointer",
+                                fontWeight: "bold",
+                                fontSize: "16px"
+                            }}
+                        >
+                            🎯 Test RedBot API
+                        </button>
+                    </div>
                 </div>
 
                 {/* Local & Cloud Bot Detection */}
@@ -271,11 +418,45 @@ export default function DiagnosticPage() {
                     background: "#fff3cd",
                     padding: "15px",
                     borderRadius: "5px",
-                    margin: "15px 0"
+                    margin: "15px 0",
+                    border: "1px solid #ffc107"
                 }}>
-                    <strong>🚂 Railway / Cloud Bot Detection:</strong>
-                    <p>If your bot runs on Railway or another cloud service:</p>
+                    <strong style={{ color: "#856404" }}>🚂 Railway Bot Detection:</strong>
+                    <p style={{ color: "#856404", margin: "10px 0" }}>Votre bot Discord doit AUSSI être hébergé sur Railway !</p>
+
+                    <div style={{
+                        backgroundColor: "#d1ecf1",
+                        padding: "10px",
+                        borderRadius: "4px",
+                        marginBottom: "15px",
+                        border: "1px solid #bee5eb"
+                    }}>
+                        <strong style={{ color: "#0c5460" }}>💡 Votre architecture :</strong>
+                        <ul style={{ color: "#0c5460", margin: "5px 0", paddingLeft: "20px" }}>
+                            <li>Instance Railway #1 → Backend Node.js (port 3001)</li>
+                            <li>Instance Railway #2 → Bot Discord + cog CollabWarz (port 8080)</li>
+                            <li>Instance Railway #3 → Frontend SoundGarden</li>
+                        </ul>
+                        <p style={{ color: "#0c5460", margin: "5px 0 0 0", fontStyle: "italic" }}>
+                            Il faut trouver l'URL de votre instance Railway #2 !
+                        </p>
+                    </div>
                     <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>
+                        <button
+                            onClick={() => checkBotDeploymentStatus()}
+                            disabled={loading}
+                            style={{
+                                padding: "8px 16px",
+                                backgroundColor: "#dc3545",
+                                color: "white",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: loading ? "not-allowed" : "pointer",
+                                fontWeight: "bold"
+                            }}
+                        >
+                            🚨 Check Bot Deployment
+                        </button>
                         <button
                             onClick={() => testRailwayVariants()}
                             disabled={loading}
@@ -369,6 +550,45 @@ export default function DiagnosticPage() {
                 </div>
             </div>
 
+            {/* Instructions spécifiques */}
+            <div style={{
+                background: "#ffffff",
+                padding: "20px",
+                borderRadius: "8px",
+                marginBottom: "20px",
+                border: "1px solid #17a2b8",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
+            }}>
+                <h3 style={{ color: "#17a2b8", marginTop: 0 }}>🎯 Comment trouver l'URL de votre bot Discord :</h3>
+
+                <div style={{ marginBottom: "15px" }}>
+                    <strong>1. Dans votre Railway Dashboard :</strong>
+                    <ul style={{ margin: "5px 0", color: "#333" }}>
+                        <li>Cherchez le projet où vous avez déployé votre bot Discord</li>
+                        <li>Cliquez dessus → onglet "Settings" → "Domains"</li>
+                        <li>Copiez l'URL (ex: <code>https://votre-bot-xxxxx.up.railway.app</code>)</li>
+                    </ul>
+                </div>
+
+                <div style={{ marginBottom: "15px" }}>
+                    <strong>2. Dans Discord :</strong>
+                    <ul style={{ margin: "5px 0", color: "#333" }}>
+                        <li>Tapez <code>!cw apiconfig</code> pour voir la configuration</li>
+                        <li>Si "Host" montre une URL Railway → c'est celle-là !</li>
+                    </ul>
+                </div>
+
+                <div style={{
+                    backgroundColor: "#f0f8ff",
+                    padding: "10px",
+                    borderRadius: "4px",
+                    border: "1px solid #17a2b8"
+                }}>
+                    <strong style={{ color: "#17a2b8" }}>💡 Astuce :</strong>
+                    <span style={{ color: "#333" }}> Une fois l'URL trouvée, utilisez le bouton "🎯 Test Custom URL" ci-dessous pour la tester !</span>
+                </div>
+            </div>
+
             {/* Results */}
             {results.length > 0 && (
                 <div style={{
@@ -391,17 +611,19 @@ export default function DiagnosticPage() {
                             <div
                                 key={index}
                                 style={{
-                                    padding: "5px 0",
-                                    borderBottom: "1px solid #eee",
+                                    padding: "8px 0",
+                                    borderBottom: "1px solid #e9ecef",
                                     color: result.type === "error" ? "#dc3545" :
                                         result.type === "success" ? "#28a745" :
-                                            result.type === "warning" ? "#ffc107" : "#333"
+                                            result.type === "warning" ? "#fd7e14" : "#495057"
                                 }}
                             >
-                                <span style={{ color: "#666", marginRight: "10px" }}>
+                                <span style={{ color: "#6c757d", marginRight: "10px", fontSize: "12px" }}>
                                     [{result.timestamp}]
                                 </span>
-                                {result.message}
+                                <span style={{ fontWeight: result.type === "error" || result.type === "success" ? "bold" : "normal" }}>
+                                    {result.message}
+                                </span>
                             </div>
                         ))}
                     </div>
