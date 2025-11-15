@@ -1,0 +1,7 @@
+{
+  "author": ["SoundGarden"],
+  "description": "SoundGarden's custom Red-DiscordBot cogs repository - includes Collab Warz competition automation bot with AI-powered announcements, flexible scheduling, integrated voting, and comprehensive data tracking",
+  "install_msg": "Thanks for adding the SoundGarden cogs repository! Use `[p]cog install soundgarden collabwarz` to install the Collab Warz competition bot.",
+  "short": "SoundGarden cogs repository",
+  "name": "SoundGarden"
+}

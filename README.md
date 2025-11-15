@@ -59,13 +59,35 @@ The API will be available at http://localhost:3001
 
 ### Discord Bot
 
-See [discord-bot/README.md](discord-bot/README.md) for detailed bot setup instructions.
+The Collab Warz bot is a Red-DiscordBot cog that can be installed directly from this GitHub repository.
 
-Quick setup:
+#### Installation from GitHub (Recommended)
+
+```bash
+# Add the SoundGarden cogs repository
+[p]repo add soundgarden https://github.com/Heymow/SoundGarden
+
+# Install the Collab Warz cog
+[p]cog install soundgarden collabwarz
+
+# Load the cog
+[p]load collabwarz
+
+# Basic configuration
+[p]cw setchannel #collab-warz
+[p]cw settheme "Your First Theme"
+[p]cw toggle
+```
+
+#### Manual Installation
+
+If you prefer manual installation:
 1. Install Red-DiscordBot
-2. Copy `collabwarz.py` to your cogs folder
+2. Copy the entire `collabwarz` folder to your Red-DiscordBot cogs directory
 3. Load the cog: `[p]load collabwarz`
 4. Configure: `[p]cw setchannel #announcements`
+
+For detailed setup and configuration, see [collabwarz/README.md](collabwarz/README.md)
 
 ## Project Structure
 
@@ -80,9 +102,11 @@ Quick setup:
 ├── server/                # Backend API (Discord OAuth)
 │   ├── index.js           # Express server
 │   └── .env.example       # Environment variables template
-├── discord-bot/           # Discord Redbot cog
-│   ├── collabwarz.py     # Main cog file
-│   └── README.md         # Bot documentation
+├── collabwarz/            # Discord Redbot cog
+│   ├── __init__.py        # Cog initialization
+│   ├── collabwarz.py      # Main cog file
+│   ├── info.json          # Cog metadata
+│   └── README.md          # Bot documentation
 └── index.html            # HTML entry point
 ```
 
