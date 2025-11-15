@@ -53,7 +53,6 @@ export default function Current({ onPlaySong, onNavigateToTeam, onNavigateToArti
       <WinnerBanner 
         winner={previousChallenge.winner} 
         theme={previousChallenge.theme}
-        onPlay={onPlaySong}
         onNavigateToTeam={onNavigateToTeam}
       />
 

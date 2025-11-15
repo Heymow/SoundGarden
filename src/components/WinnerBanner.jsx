@@ -1,9 +1,27 @@
 import React from 'react';
+import { useAudioPlayer } from '../context/AudioPlayerContext';
 
-export default function WinnerBanner({ winner, theme, onPlay, onNavigateToTeam }) {
+export default function WinnerBanner({ winner, theme, onNavigateToTeam }) {
+  const { currentSong, isPlaying, playSong, togglePlayPause } = useAudioPlayer();
+  
   if (!winner) return null;
 
   const teamName = winner.participants.join(' & ');
+  
+  // Check if this is the current song
+  const isThisSongPlaying = currentSong?.id === winner.id && isPlaying;
+  const isThisSongCurrent = currentSong?.id === winner.id;
+
+  const handlePlayClick = (e) => {
+    e.stopPropagation();
+    if (isThisSongCurrent) {
+      // If this is the current song, toggle play/pause
+      togglePlayPause();
+    } else {
+      // Otherwise, play this song
+      playSong(winner);
+    }
+  };
 
   return (
     <div className='winner-container' style={{ backgroundImage: `url(${winner.imageUrl})`, backgroundSize: 'cover', transition: 'all 0.3s ease' }}
@@ -55,7 +73,7 @@ export default function WinnerBanner({ winner, theme, onPlay, onNavigateToTeam }
 
         <div
           className="winner-image"
-          onClick={() => onPlay && onPlay(winner)}
+          onClick={handlePlayClick}
           style={{
             cursor: 'pointer',
             transition: 'transform 0.3s ease, filter 0.3s ease',
@@ -75,11 +93,8 @@ export default function WinnerBanner({ winner, theme, onPlay, onNavigateToTeam }
         >
           <img src={winner.imageUrl || 'https://via.placeholder.com/150'} alt={winner.title} style={{ width: "25%", height: "auto", minWidth: "200px" }} />
           <button
-            className="winner-play-overlay"
-            onClick={(e) => {
-              e.stopPropagation();
-              onPlay && onPlay(winner);
-            }}
+            className={`winner-play-overlay ${isThisSongPlaying ? 'playing' : ''}`}
+            onClick={handlePlayClick}
             style={{
               transition: 'all 0.3s ease'
             }}
@@ -93,9 +108,9 @@ export default function WinnerBanner({ winner, theme, onPlay, onNavigateToTeam }
               e.target.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
               e.target.style.color = '#ffffffff';
             }}
-            aria-label="Play winning song"
+            aria-label={isThisSongPlaying ? "Pause winning song" : "Play winning song"}
           >
-            ▶
+            {isThisSongPlaying ? '⏸' : '▶'}
           </button>
         </div>
       </div>

@@ -15,7 +15,15 @@ export function AudioPlayerProvider({ children }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
   const audioRef = useRef(null);
+
+  // Update volume when it changes
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, [volume]);
 
   // Initialize audio element
   useEffect(() => {
@@ -73,6 +81,7 @@ export function AudioPlayerProvider({ children }) {
     if (audioRef.current) {
       if (isPlaying) {
         audioRef.current.pause();
+        setIsPlaying(false);
       } else {
         audioRef.current.play()
           .then(() => setIsPlaying(true))
@@ -105,10 +114,12 @@ export function AudioPlayerProvider({ children }) {
         isPlaying,
         currentTime,
         duration,
+        volume,
         playSong,
         togglePlayPause,
         closeSong,
         seekTo,
+        setVolume,
       }}
     >
       {children}

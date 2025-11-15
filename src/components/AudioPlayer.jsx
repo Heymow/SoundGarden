@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useAudioPlayer } from '../context/AudioPlayerContext';
 
 export default function AudioPlayer() {
-  const { currentSong, isPlaying, currentTime, duration, togglePlayPause, closeSong, seekTo } = useAudioPlayer();
+  const { currentSong, isPlaying, currentTime, duration, togglePlayPause, closeSong, seekTo, volume, setVolume } = useAudioPlayer();
   const [isVisible, setIsVisible] = useState(false);
+  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
 
   useEffect(() => {
     if (currentSong) {
@@ -24,6 +25,11 @@ export default function AudioPlayer() {
     const newTime = (clickX / width) * duration;
     
     seekTo(newTime);
+  };
+
+  const handleVolumeChange = (e) => {
+    const newVolume = parseFloat(e.target.value);
+    setVolume(newVolume);
   };
 
   const formatTime = (time) => {
@@ -75,6 +81,30 @@ export default function AudioPlayer() {
               />
             </div>
             <span className="audio-player-time">{formatTime(duration)}</span>
+          </div>
+
+          <div 
+            className="audio-player-volume-container"
+            onMouseEnter={() => setShowVolumeSlider(true)}
+            onMouseLeave={() => setShowVolumeSlider(false)}
+          >
+            <button 
+              className="audio-player-volume-btn"
+              aria-label="Volume"
+            >
+              {volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊'}
+            </button>
+            <div className={`audio-player-volume-slider ${showVolumeSlider ? 'visible' : ''}`}>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={volume}
+                onChange={handleVolumeChange}
+                aria-label="Volume slider"
+              />
+            </div>
           </div>
 
           <button 
