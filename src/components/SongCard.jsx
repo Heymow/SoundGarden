@@ -7,11 +7,14 @@ export default function SongCard({ song, phase, onVote, hasVoted, isLoggedIn, on
   // Check if this song is currently playing
   const isThisSongPlaying = currentSong?.id === song.id && isPlaying;
   const isThisSongCurrent = currentSong?.id === song.id;
-  const handleImageClick = () => {
-    if (onPlaySong) {
-      onPlaySong(song);
-    } else {
-      window.open(song.sunoUrl, '_blank');
+  const handleImageClick = (e) => {
+    // If clicking directly on the image (not the play overlay), toggle play/pause
+    if (e.target.tagName === 'IMG') {
+      if (isThisSongCurrent) {
+        togglePlayPause();
+      } else if (onPlaySong) {
+        onPlaySong(song);
+      }
     }
   };
 
