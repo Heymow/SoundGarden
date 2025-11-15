@@ -2993,14 +2993,13 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             port = await self.config.guild(guild).api_server_port()
             host = await self.config.guild(guild).api_server_host()
             
-            # Use Railway PORT environment variable if available, otherwise use configured port
+            # Force port 8080 for Railway deployment
             import os
-            railway_port = os.environ.get('PORT')
-            if railway_port:
-                port = int(railway_port)
-                print(f"Using Railway PORT environment variable: {port}")
+            if 'RAILWAY_ENVIRONMENT' in os.environ or 'railway' in str(os.environ.get('HOSTNAME', '')).lower():
+                port = 8080
+                print(f"Railway environment detected, forcing port: {port}")
             else:
-                print(f"No Railway PORT found, using configured port: {port}")
+                print(f"Local environment, using configured port: {port}")
             
             app = self._start_api_server(guild)
             if not app:
