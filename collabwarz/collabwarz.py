@@ -3048,11 +3048,16 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             )
             
             if railway_detected:
-                # Force a different port to avoid conflicts with other Railway services
-                port = 3001  # Use port 3001 instead of the conflicted 8080
-                print(f"Railway environment detected, forcing non-conflicting port: {port}")
+                # Try to find an available port for this specific service
+                service_id = os.environ.get('RAILWAY_SERVICE_ID', 'unknown')
+                # Use a port based on service ID to ensure uniqueness
+                if '76eb1da0' in service_id:  # This specific bot service
+                    port = 9000  # Unique port for bot service
+                else:
+                    port = 8080  # Fallback
+                print(f"Railway environment detected, using unique port: {port}")
+                print(f"Service ID: {service_id}")
                 print(f"Ignoring Railway PORT={os.environ.get('PORT')} due to conflicts")
-                print(f"Environment vars: RAILWAY_SERVICE_ID={os.environ.get('RAILWAY_SERVICE_ID')}")
             else:
                 print(f"Local environment, using configured port: {port}")
                 print(f"HOSTNAME: {os.environ.get('HOSTNAME')}")
