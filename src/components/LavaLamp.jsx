@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import './LavaLamp.css';
 
 /**
  * LavaLamp - Composant d'effet de fond animé réutilisable

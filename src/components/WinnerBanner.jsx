@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAudioPlayer } from '../context/AudioPlayerContext';
+import LavaLamp from './LavaLamp';
 
 export default function WinnerBanner({ winner, theme, onNavigateToTeam }) {
   const { currentSong, isPlaying, playSong, togglePlayPause } = useAudioPlayer();
@@ -24,7 +25,7 @@ export default function WinnerBanner({ winner, theme, onNavigateToTeam }) {
   };
 
   return (
-    <div className='winner-container' style={{ backgroundImage: `url(${winner.imageUrl})`, backgroundSize: 'cover', transition: 'all 0.3s ease' }}
+    <div className='winner-container lava-lamp-container' style={{ backgroundImage: `url(${winner.imageUrl})`, backgroundSize: 'cover', transition: 'all 0.3s ease' }}
       onMouseEnter={e => {
         // e.currentTarget.style.transform = 'rotate3d(1, 2, 0, 5deg)';
         e.currentTarget.style.scale = '1.01';
@@ -34,6 +35,14 @@ export default function WinnerBanner({ winner, theme, onNavigateToTeam }) {
         e.currentTarget.style.scale = '1';
       }}
     >
+      <LavaLamp
+        blobCount={3}
+        colors={['rgba(255, 255, 255, 0.3)', 'rgba(255, 215, 0, 0.4)', 'rgba(255, 165, 0, 0.3)']}
+        size="medium"
+        opacity={0.6}
+        animationDuration="25s"
+      />
+
       <div className="winner-banner">
         <div className="winner-details">
           <div className="winner-badge">🏆 Last Week's Winner</div>
