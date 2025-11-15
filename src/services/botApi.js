@@ -129,6 +129,43 @@ const fetchWithAuth = async (endpoint, options = {}) => {
 // ============= Debug and Testing =============
 
 /**
+ * Test multiple common ports to find the bot API server
+ */
+export const scanForBotApi = async () => {
+  const commonPorts = [8080, 3000, 3001, 5000, 8000, 8888, 9000];
+  const baseHost = BOT_API_URL.replace(/:\d+$/, ""); // Remove port from URL
+
+  console.log(`🔍 Scanning for bot API server...`);
+
+  for (const port of commonPorts) {
+    const testUrl = `${baseHost}:${port}/api/public/status`;
+    console.log(`🧪 Testing port ${port}...`);
+
+    try {
+      const response = await fetch(testUrl, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(3000), // 3 second timeout
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`✅ Found bot API on port ${port}:`, data);
+        return { success: true, port, url: `${baseHost}:${port}`, data };
+      }
+    } catch (error) {
+      // Continue to next port
+      console.log(`❌ Port ${port}: ${error.message}`);
+    }
+  }
+
+  return {
+    success: false,
+    error: `No bot API server found on common ports: ${commonPorts.join(", ")}`,
+  };
+};
+
+/**
  * Test bot API server connectivity without authentication
  */
 export const testBotApiConnection = async () => {
@@ -160,6 +197,46 @@ export const testBotApiConnection = async () => {
       success: false,
       error: `Connection failed: ${error.message}. Check if bot API server is running on ${BOT_API_URL}`,
     };
+  }
+};
+
+/**
+ * Get current bot API configuration
+ */
+export const getCurrentApiConfig = () => {
+  return {
+    currentUrl: BOT_API_URL,
+    configuredUrl: import.meta.env.VITE_BOT_API_URL || "Not set",
+    defaultUrl: "http://localhost:8080",
+  };
+};
+
+/**
+ * Test a specific URL for bot API
+ */
+export const testSpecificUrl = async (testUrl) => {
+  const url = `${testUrl}/api/public/status`;
+  console.log(`🧪 Testing specific URL: ${url}`);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return { success: true, data, url: testUrl };
+    } else {
+      const text = await response.text();
+      return {
+        success: false,
+        error: `HTTP ${response.status}: ${text.substring(0, 100)}`,
+      };
+    }
+  } catch (error) {
+    return { success: false, error: error.message };
   }
 };
 

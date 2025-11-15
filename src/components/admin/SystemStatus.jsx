@@ -77,15 +77,25 @@ export default function SystemStatus() {
     showSuccess("🔍 Running comprehensive diagnostics...");
 
     try {
-      // Test bot API connection
+      // First try the configured URL
       const apiTest = await botApi.testBotApiConnection();
 
       if (apiTest.success) {
         showSuccess("✅ Diagnostics passed: Bot API is reachable and responding");
         setSystemHealth(prev => ({ ...prev, apiServer: true, botOnline: true }));
       } else {
-        showError(`❌ Diagnostics failed: ${apiTest.error}`);
+        showError(`❌ Configured URL failed: ${apiTest.error}`);
         setSystemHealth(prev => ({ ...prev, apiServer: false }));
+
+        // If configured URL fails, scan for the server
+        showSuccess("🔍 Scanning for bot API server on other ports...");
+        const scanResult = await botApi.scanForBotApi();
+
+        if (scanResult.success) {
+          showSuccess(`✅ Found bot API server on port ${scanResult.port}! Please update your configuration to use ${scanResult.url}`);
+        } else {
+          showError(`❌ No bot API server found: ${scanResult.error}`);
+        }
       }
     } catch (err) {
       showError(`❌ Diagnostics error: ${err.message}`);
@@ -232,14 +242,19 @@ export default function SystemStatus() {
         <div className="admin-card-content">
           <div className="diagnostic-info">
             <p>Test the connection between the admin panel and the Discord bot API server.</p>
-            <p><strong>Troubleshooting steps:</strong></p>
+            <div className="error-info" style={{ background: '#fff3cd', padding: '10px', borderRadius: '5px', margin: '10px 0' }}>
+              <strong>🚨 Current Issue:</strong> Getting HTML error "Cannot GET /api/admin/status"
+              <br />This means the bot API server is not running or not accessible.
+            </div>
+            <p><strong>Fix this by running these Discord commands:</strong></p>
             <ol>
-              <li>Ensure the Discord bot is online and loaded</li>
-              <li>Run <code>!cw apiserver start</code> in Discord</li>
-              <li>Check that the API server is running on the correct port</li>
-              <li>Verify CORS settings with <code>!cw apiconfig cors</code></li>
-              <li>Generate a fresh admin token with <code>!cw admintoken generate</code></li>
+              <li><code>!cw help</code> - Verify the bot is loaded and responding</li>
+              <li><code>!cw apiserver start</code> - Start the API server</li>
+              <li><code>!cw apiserver status</code> - Confirm it's running</li>
+              <li><code>!cw admintoken debug</code> - Check configuration</li>
+              <li>If still failing, try <code>!cw apiconfig cors *</code> to allow all origins</li>
             </ol>
+            <p><strong>Expected result:</strong> API server should start on a port (usually 8080)</p>
           </div>
           <button
             className="admin-btn btn-info"
