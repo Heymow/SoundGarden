@@ -872,7 +872,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     print(f"CORS middleware error: {e}")
                     return web.json_response({"error": "CORS error"}, status=500)
             
-            app.middlewares.append(cors_middleware)
+            # Temporarily disable CORS middleware to fix TypeError
+            # app.middlewares.append(cors_middleware)
             
             # Define API routes
             app.router.add_get('/api/members', self._handle_members_request)
@@ -968,7 +969,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             # Get members list
             members_data = await self._get_guild_members_for_api(guild)
             
-            return web.json_response({
+            response = web.json_response({
                 "guild": {
                     "id": str(guild.id),
                     "name": guild.name,
@@ -977,6 +978,13 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "members": members_data,
                 "timestamp": datetime.utcnow().isoformat()
             })
+            
+            # Add CORS headers directly
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+            
+            return response
             
         except Exception as e:
             print(f"Error handling members request: {e}")
