@@ -105,7 +105,7 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                     <div className="member-card-info">
                       <span className="member-name">{member.name}</span>
                       {onNavigateToArtist && (
-                        <span className="member-card-hint">Click to view artist →</span>
+                        <span className="member-card-hint">View artist →</span>
                       )}
                     </div>
                     {member.sunoProfile && (
@@ -134,45 +134,45 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                   const songId = `victory-${idx}`;
                   const isThisSongPlaying = currentSong?.id === songId && isPlaying;
                   const isThisSongCurrent = currentSong?.id === songId;
-                  
+
                   return (
-                  <div key={idx} className="victory-item">
-                    <div className="victory-info">
-                      <div className="victory-title">{song.title}</div>
-                      <div className="victory-meta">
-                        {song.week} • Theme: {song.theme} • {song.votes} votes
+                    <div key={idx} className="victory-item">
+                      <div className="victory-info">
+                        <div className="victory-title">{song.title}</div>
+                        <div className="victory-meta">
+                          {song.week} • Theme: {song.theme} • {song.votes} votes
+                        </div>
                       </div>
+                      <button
+                        className="victory-play-btn"
+                        onClick={() => {
+                          if (isThisSongCurrent) {
+                            togglePlayPause();
+                          } else {
+                            onPlaySong && onPlaySong({
+                              id: songId,
+                              title: song.title,
+                              participants: song.participants,
+                              imageUrl: 'https://picsum.photos/seed/victory-' + idx + '/200/200',
+                              audioUrl: `/test-audio/song-${(idx % 7) + 1}.wav`,
+                              sunoUrl: song.sunoUrl
+                            });
+                          }
+                        }}
+                        aria-label={isThisSongPlaying ? `Pause ${song.title}` : `Play ${song.title}`}
+                      >
+                        {isThisSongPlaying ? '⏸' : '▶'}
+                      </button>
+                      <a
+                        href={song.sunoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-suno"
+                      >
+                        🎵 Listen on Suno
+                      </a>
+                      <span className="victory-icon">🏆</span>
                     </div>
-                    <button
-                      className="victory-play-btn"
-                      onClick={() => {
-                        if (isThisSongCurrent) {
-                          togglePlayPause();
-                        } else {
-                          onPlaySong && onPlaySong({
-                            id: songId,
-                            title: song.title,
-                            participants: song.participants,
-                            imageUrl: 'https://picsum.photos/seed/victory-' + idx + '/200/200',
-                            audioUrl: `/test-audio/song-${(idx % 7) + 1}.wav`,
-                            sunoUrl: song.sunoUrl
-                          });
-                        }
-                      }}
-                      aria-label={isThisSongPlaying ? `Pause ${song.title}` : `Play ${song.title}`}
-                    >
-                      {isThisSongPlaying ? '⏸' : '▶'}
-                    </button>
-                    <a
-                      href={song.sunoUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn-suno"
-                    >
-                      🎵 Listen on Suno
-                    </a>
-                    <span className="victory-icon">🏆</span>
-                  </div>
                   );
                 })}
               </div>
@@ -192,46 +192,46 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                         const songId = `song-${weekIdx}-${songIdx}`;
                         const isThisSongPlaying = currentSong?.id === songId && isPlaying;
                         const isThisSongCurrent = currentSong?.id === songId;
-                        
+
                         return (
-                        <div key={songIdx} className="song-card-compact">
-                          <div className="song-card-compact-header">
-                            <div className="song-card-title">
-                              {song.title}
-                              {song.isWinner && <span> 🏆</span>}
+                          <div key={songIdx} className="song-card-compact">
+                            <div className="song-card-compact-header">
+                              <div className="song-card-title">
+                                {song.title}
+                                {song.isWinner && <span> 🏆</span>}
+                              </div>
+                              <button
+                                className="song-play-btn-compact"
+                                onClick={() => {
+                                  if (isThisSongCurrent) {
+                                    togglePlayPause();
+                                  } else {
+                                    onPlaySong && onPlaySong({
+                                      id: songId,
+                                      title: song.title,
+                                      participants: song.participants,
+                                      imageUrl: 'https://picsum.photos/seed/song-' + weekIdx + '-' + songIdx + '/200/200',
+                                      audioUrl: `/test-audio/song-${((weekIdx + songIdx) % 7) + 1}.wav`,
+                                      sunoUrl: song.sunoUrl
+                                    });
+                                  }
+                                }}
+                                aria-label={isThisSongPlaying ? `Pause ${song.title}` : `Play ${song.title}`}
+                              >
+                                {isThisSongPlaying ? '⏸' : '▶'}
+                              </button>
                             </div>
-                            <button
-                              className="song-play-btn-compact"
-                              onClick={() => {
-                                if (isThisSongCurrent) {
-                                  togglePlayPause();
-                                } else {
-                                  onPlaySong && onPlaySong({
-                                    id: songId,
-                                    title: song.title,
-                                    participants: song.participants,
-                                    imageUrl: 'https://picsum.photos/seed/song-' + weekIdx + '-' + songIdx + '/200/200',
-                                    audioUrl: `/test-audio/song-${((weekIdx + songIdx) % 7) + 1}.wav`,
-                                    sunoUrl: song.sunoUrl
-                                  });
-                                }
-                              }}
-                              aria-label={isThisSongPlaying ? `Pause ${song.title}` : `Play ${song.title}`}
+                            <div className="song-card-theme">Theme: {song.theme}</div>
+                            <div className="song-card-votes">{song.votes} votes</div>
+                            <a
+                              href={song.sunoUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn-suno"
                             >
-                              {isThisSongPlaying ? '⏸' : '▶'}
-                            </button>
+                              🎵 Listen on Suno
+                            </a>
                           </div>
-                          <div className="song-card-theme">Theme: {song.theme}</div>
-                          <div className="song-card-votes">{song.votes} votes</div>
-                          <a
-                            href={song.sunoUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="btn-suno"
-                          >
-                            🎵 Listen on Suno
-                          </a>
-                        </div>
                         );
                       })}
                     </div>
