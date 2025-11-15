@@ -298,7 +298,7 @@ Web interface eliminates ALL legitimate error sources:
 ```
 [p]cw sunoconfig enable         # Enable song metadata fetching
 [p]cw testsuno https://suno.com/song/abc123  # Test metadata extraction
-[p]cw testsunourl https://suno.com/s/abc123   # Test URL validation
+[p]cw testsunourl https://suno.com/s/kFacPCnBlw9n9oEP   # Test URL validation
 [p]cw sunoconfig status         # Check integration status
 ```
 

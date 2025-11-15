@@ -3204,19 +3204,19 @@ https://suno.com/song/3b172539-fc21-4f37-937c-a641ed52da26
 ```
 ❌ INVALID: Missing team name
 @charlie our song is ready!
-https://suno.com/s/validID123
+https://suno.com/s/validID123abc89
 → Bot response: "❌ Team name missing: Please include `Team name: YourTeamName`"
 
 ❌ INVALID: Partner not on server  
 Team name: External Collab
 @unknown_user from another server
-https://suno.com/s/track123
+https://suno.com/s/track123abc89de
 → Bot response: "❌ @unknown_user is not a member of the SoundGarden Discord server"
 
 ❌ INVALID: No partner mentioned
 Team name: Solo Project
 My new track without collaboration
-https://suno.com/s/solo456
+https://suno.com/s/solo456abc89def
 → Bot response: "❌ Partner mention missing: Please mention your collaboration partner with @username"
 
 ❌ INVALID: Forbidden platform (SoundCloud)

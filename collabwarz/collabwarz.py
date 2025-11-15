@@ -3288,10 +3288,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         url = url.strip()
         
         # Pattern for Suno URLs
-        # Format 1: https://suno.com/s/[alphanumeric string]
+        # Format 1: https://suno.com/s/[16 character alphanumeric string]
         # Format 2: https://suno.com/song/[UUID format]
         suno_patterns = [
-            r'^https://suno\.com/s/[a-zA-Z0-9]+$',  # Short format
+            r'^https://suno\.com/s/[a-zA-Z0-9]{16}$',  # Short format (exactly 16 chars)
             r'^https://suno\.com/song/[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$'  # UUID format
         ]
         
@@ -3317,7 +3317,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             return []
             
         # Pattern to find URLs that might be Suno links
-        url_pattern = r'https://suno\.com/(?:s/[a-zA-Z0-9]+|song/[a-fA-F0-9-]+)'
+        url_pattern = r'https://suno\.com/(?:s/[a-zA-Z0-9]{16}|song/[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})'
         
         found_urls = re.findall(url_pattern, text)
         
@@ -7090,7 +7090,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     "`[p]cw sunoconfig enable/disable`\n"
                     "`[p]cw sunoconfig url https://api.suno-proxy.click`\n"
                     "`[p]cw testsuno https://suno.com/song/abc123`\n"
-                    "For URL validation: `[p]cw testsunourl https://suno.com/s/example123`"
+                    "For URL validation: `[p]cw testsunourl https://suno.com/s/kFacPCnBlw9n9oEP`"
                 ),
                 inline=False
             )
@@ -7512,23 +7512,23 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             # Status sample
             current_phase = await self.config.guild(ctx.guild).current_phase()
             current_theme = await self.config.guild(ctx.guild).current_theme()
-            submissions = await self.config.guild(ctx.guild).submissions()
+            submitted_teams = await self.config.guild(ctx.guild).submitted_teams()
             
             embed.add_field(
                 name="📊 Current Status Sample",
                 value=(
                     f"Phase: `{current_phase}`\n"
                     f"Theme: `{current_theme}`\n"
-                    f"Teams: `{len(submissions)}`"
+                    f"Teams: `{len(submitted_teams)}`"
                 ),
                 inline=True
             )
             
             # History sample  
-            history = await self.config.guild(ctx.guild).competition_history()
+            weeks_db = await self.config.guild(ctx.guild).weeks_db()
             embed.add_field(
                 name="📚 History Sample",
-                value=f"Total competitions: `{len(history)}`",
+                value=f"Total competitions: `{len(weeks_db)}`",
                 inline=True
             )
             
@@ -7738,7 +7738,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             # Show example usage
             embed.add_field(
                 name="📝 Usage",
-                value=f"`{ctx.prefix}cw testsunourl https://suno.com/s/example123`",
+                value=f"`{ctx.prefix}cw testsunourl https://suno.com/s/kFacPCnBlw9n9oEP`",
                 inline=False
             )
             
