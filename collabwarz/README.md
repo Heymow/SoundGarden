@@ -106,9 +106,39 @@ pip install aiohttp
 ```
 
 ### 2. Cog Installation
+
+#### Option A: Install from GitHub Repository (Recommended)
+
+This is the easiest way to install and will allow for easy updates:
+
 ```bash
-# Copy collabwarz.py to Red's cogs folder
-# Then in Discord:
+# Add the SoundGarden cogs repository
+[p]repo add soundgarden https://github.com/Heymow/SoundGarden
+
+# Install the Collab Warz cog
+[p]cog install soundgarden collabwarz
+
+# Load the cog
+[p]load collabwarz
+```
+
+To update to the latest version:
+```bash
+[p]cog update collabwarz
+[p]reload collabwarz
+```
+
+#### Option B: Manual Installation
+
+If you prefer manual installation:
+```bash
+# 1. Clone or download the repository
+git clone https://github.com/Heymow/SoundGarden.git
+
+# 2. Copy the collabwarz folder to your Red-DiscordBot cogs directory
+# Example path: ~/.local/share/Red-DiscordBot/data/<instance_name>/cogs/
+
+# 3. Load the cog in Discord
 [p]load collabwarz
 ```
 
