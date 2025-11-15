@@ -1237,10 +1237,19 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             
             # Get voting results if available
             # Get internal voting results
-            voting_results = None
-            current_week = self._get_current_week()
-            all_voting_results = await self.config.guild(guild).voting_results()
-            voting_results = all_voting_results.get(current_week, {})
+            voting_results = {}
+            try:
+                current_week = self._get_current_week()
+                all_voting_results = await self.config.guild(guild).voting_results()
+                voting_results = all_voting_results.get(current_week, {})
+            except Exception as e:
+                print(f"Error getting voting results: {e}")
+            
+            next_phase_time = None
+            try:
+                next_phase_time = self._get_next_phase_time()
+            except Exception as e:
+                print(f"Error getting next phase time: {e}")
             
             status = {
                 "phase": current_phase,
@@ -1249,7 +1258,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "week_cancelled": week_cancelled,
                 "team_count": team_count,
                 "voting_results": voting_results,
-                "next_phase_change": self._get_next_phase_time(),
+                "next_phase_change": next_phase_time,
                 "timestamp": datetime.utcnow().isoformat()
             }
             
