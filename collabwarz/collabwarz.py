@@ -894,6 +894,9 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             app.router.add_get('/api/public/stats/leaderboard', self._handle_public_stats_leaderboard)
             app.router.add_get('/api/public/user/{user_id}/membership', self._handle_public_user_membership)
             
+            # Test endpoint
+            app.router.add_get('/api/ping', self._handle_ping)
+            
             app.router.add_options('/api/public/{path:.*}', self._handle_options_request)
             
             # Admin API routes
@@ -1691,6 +1694,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         except Exception as e:
             print(f"Error getting public status: {e}")
             return web.json_response({"error": "Failed to get status"}, status=500)
+    
+    async def _handle_ping(self, request):
+        """Simple ping endpoint for testing"""
+        return web.json_response({"status": "ok", "message": "CollabWarz API is running"})
     
     async def _handle_public_submissions(self, request):
         """Get current week submissions for frontend users"""
