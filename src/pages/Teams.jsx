@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
+import { useAudioPlayer } from '../context/AudioPlayerContext';
 import { teamsData } from '../data/mockData';
 
 export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNavigateToArtist }) {
+  const { currentSong, isPlaying, togglePlayPause } = useAudioPlayer();
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
 
@@ -100,7 +102,12 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                     onClick={() => onNavigateToArtist && onNavigateToArtist(member.name)}
                     style={{ cursor: onNavigateToArtist ? 'pointer' : 'default' }}
                   >
-                    <span className="member-name">{member.name}</span>
+                    <div className="member-card-info">
+                      <span className="member-name">{member.name}</span>
+                      {onNavigateToArtist && (
+                        <span className="member-card-hint">Click to view artist →</span>
+                      )}
+                    </div>
                     {member.sunoProfile && (
                       <a
                         href={member.sunoProfile}
@@ -123,7 +130,12 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
             <div className="victories-section">
               <h3>🏆 Victories</h3>
               <div className="victories-list">
-                {victoriousSongs.map((song, idx) => (
+                {victoriousSongs.map((song, idx) => {
+                  const songId = `victory-${idx}`;
+                  const isThisSongPlaying = currentSong?.id === songId && isPlaying;
+                  const isThisSongCurrent = currentSong?.id === songId;
+                  
+                  return (
                   <div key={idx} className="victory-item">
                     <div className="victory-info">
                       <div className="victory-title">{song.title}</div>
@@ -133,17 +145,23 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                     </div>
                     <button
                       className="victory-play-btn"
-                      onClick={() => onPlaySong && onPlaySong({
-                        id: `victory-${idx}`,
-                        title: song.title,
-                        participants: song.participants,
-                        imageUrl: 'https://picsum.photos/seed/victory-' + idx + '/200/200',
-                        audioUrl: `/test-audio/song-${(idx % 7) + 1}.wav`,
-                        sunoUrl: song.sunoUrl
-                      })}
-                      aria-label={`Play ${song.title}`}
+                      onClick={() => {
+                        if (isThisSongCurrent) {
+                          togglePlayPause();
+                        } else {
+                          onPlaySong && onPlaySong({
+                            id: songId,
+                            title: song.title,
+                            participants: song.participants,
+                            imageUrl: 'https://picsum.photos/seed/victory-' + idx + '/200/200',
+                            audioUrl: `/test-audio/song-${(idx % 7) + 1}.wav`,
+                            sunoUrl: song.sunoUrl
+                          });
+                        }
+                      }}
+                      aria-label={isThisSongPlaying ? `Pause ${song.title}` : `Play ${song.title}`}
                     >
-                      ▶
+                      {isThisSongPlaying ? '⏸' : '▶'}
                     </button>
                     <a
                       href={song.sunoUrl}
@@ -155,7 +173,8 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                     </a>
                     <span className="victory-icon">🏆</span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -169,7 +188,12 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                   <div key={weekIdx} className="week-songs-group">
                     <div className="week-date-header">{week}</div>
                     <div className="songs-grid">
-                      {songs.map((song, songIdx) => (
+                      {songs.map((song, songIdx) => {
+                        const songId = `song-${weekIdx}-${songIdx}`;
+                        const isThisSongPlaying = currentSong?.id === songId && isPlaying;
+                        const isThisSongCurrent = currentSong?.id === songId;
+                        
+                        return (
                         <div key={songIdx} className="song-card-compact">
                           <div className="song-card-compact-header">
                             <div className="song-card-title">
@@ -178,17 +202,23 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                             </div>
                             <button
                               className="song-play-btn-compact"
-                              onClick={() => onPlaySong && onPlaySong({
-                                id: `song-${weekIdx}-${songIdx}`,
-                                title: song.title,
-                                participants: song.participants,
-                                imageUrl: 'https://picsum.photos/seed/song-' + weekIdx + '-' + songIdx + '/200/200',
-                                audioUrl: `/test-audio/song-${((weekIdx + songIdx) % 7) + 1}.wav`,
-                                sunoUrl: song.sunoUrl
-                              })}
-                              aria-label={`Play ${song.title}`}
+                              onClick={() => {
+                                if (isThisSongCurrent) {
+                                  togglePlayPause();
+                                } else {
+                                  onPlaySong && onPlaySong({
+                                    id: songId,
+                                    title: song.title,
+                                    participants: song.participants,
+                                    imageUrl: 'https://picsum.photos/seed/song-' + weekIdx + '-' + songIdx + '/200/200',
+                                    audioUrl: `/test-audio/song-${((weekIdx + songIdx) % 7) + 1}.wav`,
+                                    sunoUrl: song.sunoUrl
+                                  });
+                                }
+                              }}
+                              aria-label={isThisSongPlaying ? `Pause ${song.title}` : `Play ${song.title}`}
                             >
-                              ▶
+                              {isThisSongPlaying ? '⏸' : '▶'}
                             </button>
                           </div>
                           <div className="song-card-theme">Theme: {song.theme}</div>
@@ -202,7 +232,8 @@ export default function Teams({ selectedTeam, setSelectedTeam, onPlaySong, onNav
                             🎵 Listen on Suno
                           </a>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
