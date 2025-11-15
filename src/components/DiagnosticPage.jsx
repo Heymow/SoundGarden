@@ -205,7 +205,7 @@ export default function DiagnosticPage() {
         clearResults();
 
         addResult("🤖 Testing your specific RedBot instance...", "info");
-        
+
         // Votre bot RedBot - Railway expose automatiquement sur port 443 (HTTPS)
         const botUrls = [
             "https://worker-production-31cd.up.railway.app",  // Railway standard (pas besoin de :8080)
@@ -247,7 +247,7 @@ export default function DiagnosticPage() {
         const botUrls = [
             "https://worker-production-31cd.up.railway.app",  // VOTRE BOT REDBOT
             "https://soundgarden-bot-production.up.railway.app",
-            "https://collabwarz-production.up.railway.app", 
+            "https://collabwarz-production.up.railway.app",
             "https://discord-bot-production.up.railway.app",
             "https://soundgarden-discord-production.up.railway.app",
             "https://red-discord-bot-production.up.railway.app",
@@ -272,7 +272,7 @@ export default function DiagnosticPage() {
         }
 
         setLoading(false);
-    };    return (
+    }; return (
         <div style={{
             padding: "20px",
             maxWidth: "800px",
@@ -312,8 +312,8 @@ export default function DiagnosticPage() {
                         border: "1px solid #c3e6cb"
                     }}>
                         <strong style={{ color: "#155724" }}>🎯 Votre bot RedBot :</strong>
-                        <code style={{ 
-                            display: "block", 
+                        <code style={{
+                            display: "block",
                             margin: "5px 0",
                             padding: "5px",
                             backgroundColor: "#f8f9fa",
