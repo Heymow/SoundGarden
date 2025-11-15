@@ -1738,8 +1738,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         """Simple test endpoint without any validation"""
         return web.json_response({
             "status": "success",
-            "message": "Test endpoint works",
-            "timestamp": datetime.utcnow().isoformat()
+            "message": "Test endpoint works"
         })
     
     async def _handle_public_submissions(self, request):
