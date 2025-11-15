@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import * as botApi from "../../services/botApi";
 
 export default function AnnouncementSystem() {
   const [announcementType, setAnnouncementType] = useState("custom");
@@ -10,40 +11,77 @@ export default function AnnouncementSystem() {
   const [autoVotingStart, setAutoVotingStart] = useState(true);
   const [autoReminders, setAutoReminders] = useState(true);
   const [requireConfirmation, setRequireConfirmation] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
-  const handleSendAnnouncement = () => {
-    if (announcementType === "custom" && !customMessage.trim()) {
-      alert("❌ Please enter a message");
-      return;
-    }
-    // TODO: Call Discord bot API to send announcement
-    const message = announcementType === "custom" ? customMessage : announcementType;
-    alert(`✅ Sending ${announcementType} announcement...`);
-    console.log("Announcement details:", { type: announcementType, message, useAI, includeEveryone });
+  const showSuccess = (message) => {
+    setSuccess(message);
+    setError(null);
+    setTimeout(() => setSuccess(null), 5000);
   };
 
-  const handleSendTestMessage = () => {
+  const showError = (message) => {
+    setError(message);
+    setSuccess(null);
+    setTimeout(() => setError(null), 5000);
+  };
+
+  const handleSendAnnouncement = async () => {
     if (announcementType === "custom" && !customMessage.trim()) {
-      alert("❌ Please enter a message");
+      showError("❌ Please enter a message");
       return;
     }
-    alert("🧪 Sending test message to test channel...");
+    
+    setLoading(true);
+    try {
+      const message = announcementType === "custom" ? customMessage : announcementType;
+      await botApi.sendAnnouncement(announcementType, message);
+      showSuccess(`✅ Sending ${announcementType} announcement...`);
+      if (announcementType === "custom") {
+        setCustomMessage("");
+      }
+    } catch (err) {
+      showError(`❌ Failed to send announcement: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendTestMessage = async () => {
+    if (announcementType === "custom" && !customMessage.trim()) {
+      showError("❌ Please enter a message");
+      return;
+    }
+    setLoading(true);
+    try {
+      await botApi.sendAnnouncement("test", customMessage);
+      showSuccess("🧪 Test message sent to test channel");
+    } catch (err) {
+      showError(`❌ Failed to send test message: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleViewAnnouncement = (announcement) => {
-    alert(`📄 Viewing announcement: ${announcement}`);
+    showSuccess(`📄 Viewing announcement: ${announcement}`);
   };
 
-  const handleSaveAutoSettings = () => {
-    const settings = {
-      autoAnnouncements,
-      autoSubmissionStart,
-      autoVotingStart,
-      autoReminders,
-      requireConfirmation,
-    };
-    console.log("Saving auto-announcement settings:", settings);
-    alert("✅ Auto-announcement settings saved successfully!");
+  const handleSaveAutoSettings = async () => {
+    setLoading(true);
+    try {
+      const updates = {
+        auto_announce: autoAnnouncements,
+        require_confirmation: requireConfirmation,
+      };
+      await botApi.updateAdminConfig(updates);
+      showSuccess("✅ Auto-announcement settings saved successfully!");
+    } catch (err) {
+      showError(`❌ Failed to save settings: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const announcementTypes = [

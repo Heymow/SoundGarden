@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import * as botApi from "../../services/botApi";
 
 export default function CompetitionManagement() {
   const [currentPhase, setCurrentPhase] = useState("voting");
@@ -9,65 +10,145 @@ export default function CompetitionManagement() {
   const [reputationPoints, setReputationPoints] = useState(2);
   const [autoAnnounce, setAutoAnnounce] = useState(true);
   const [validateFormat, setValidateFormat] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
-  const handlePhaseChange = (newPhase) => {
-    setCurrentPhase(newPhase);
-    // TODO: Call Discord bot API to change phase
-    alert(`✅ Phase changed to: ${newPhase}`);
+  // Load current status on mount
+  useEffect(() => {
+    loadStatus();
+  }, []);
+
+  const loadStatus = async () => {
+    try {
+      const status = await botApi.getAdminStatus();
+      if (status.phase) setCurrentPhase(status.phase);
+      if (status.theme) setCurrentTheme(status.theme);
+    } catch (err) {
+      console.error("Failed to load status:", err);
+    }
   };
 
-  const handleThemeUpdate = () => {
+  const showSuccess = (message) => {
+    setSuccess(message);
+    setError(null);
+    setTimeout(() => setSuccess(null), 5000);
+  };
+
+  const showError = (message) => {
+    setError(message);
+    setSuccess(null);
+    setTimeout(() => setError(null), 5000);
+  };
+
+  const handlePhaseChange = async (newPhase) => {
+    setLoading(true);
+    try {
+      await botApi.setPhase(newPhase);
+      setCurrentPhase(newPhase);
+      showSuccess(`✅ Phase changed to: ${newPhase}`);
+    } catch (err) {
+      showError(`❌ Failed to change phase: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleThemeUpdate = async () => {
     if (!currentTheme.trim()) {
-      alert("❌ Please enter a theme");
+      showError("❌ Please enter a theme");
       return;
     }
-    // TODO: Call Discord bot API to update theme
-    alert(`✅ Theme updated to: ${currentTheme}`);
+    setLoading(true);
+    try {
+      await botApi.setTheme(currentTheme);
+      showSuccess(`✅ Theme updated to: ${currentTheme}`);
+    } catch (err) {
+      showError(`❌ Failed to update theme: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleGenerateTheme = () => {
-    // TODO: Call Discord bot API to generate AI theme
-    alert("🤖 Generating AI theme...");
-    // Simulate AI generation
-    setTimeout(() => {
-      const themes = ["Neon Dreams", "Ocean Waves", "Desert Sunset", "Arctic Winds", "Jungle Rhythm"];
-      const randomTheme = themes[Math.floor(Math.random() * themes.length)];
-      setNextTheme(randomTheme);
-      alert(`✅ AI generated theme: "${randomTheme}"`);
-    }, 1000);
+  const handleGenerateTheme = async () => {
+    setLoading(true);
+    try {
+      const result = await botApi.generateAITheme();
+      if (result.theme) {
+        setNextTheme(result.theme);
+        showSuccess(`✅ AI generated theme: "${result.theme}"`);
+      } else {
+        showError("❌ Failed to generate theme");
+      }
+    } catch (err) {
+      showError(`❌ Failed to generate theme: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleNextWeek = () => {
+  const handleNextWeek = async () => {
     if (confirm("Are you sure you want to start the next week? This will begin a new competition cycle.")) {
-      // TODO: Call Discord bot API to start next week
-      alert("✅ Starting next week...");
+      setLoading(true);
+      try {
+        await botApi.startNextWeek();
+        showSuccess("✅ Starting next week...");
+        await loadStatus();
+      } catch (err) {
+        showError(`❌ Failed to start next week: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
-  const handleCancelWeek = () => {
+  const handleCancelWeek = async () => {
     if (confirm("Are you sure you want to cancel this week's competition? This action cannot be undone.")) {
-      // TODO: Call Discord bot API to cancel week
-      alert("✅ Week cancelled");
+      setLoading(true);
+      try {
+        await botApi.cancelWeek();
+        showSuccess("✅ Week cancelled");
+        await loadStatus();
+      } catch (err) {
+        showError(`❌ Failed to cancel week: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
-  const handleEndWeek = () => {
+  const handleEndWeek = async () => {
     if (confirm("Are you sure you want to end this week and announce results?")) {
-      // TODO: Call Discord bot API to end week
-      alert("✅ Week ended - announcing results");
+      setLoading(true);
+      try {
+        await botApi.endWeek();
+        showSuccess("✅ Week ended - announcing results");
+        await loadStatus();
+      } catch (err) {
+        showError(`❌ Failed to end week: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
-  const handleSaveSettings = () => {
-    // TODO: Call API to save competition settings
-    const settings = {
-      minTeams,
-      reputationPoints,
-      autoAnnounce,
-      validateFormat,
-    };
-    console.log("Saving settings:", settings);
-    alert("✅ Competition settings saved successfully!");
+  const handleSaveSettings = async () => {
+    setLoading(true);
+    try {
+      const updates = {
+        min_teams_required: minTeams,
+        rep_reward_amount: reputationPoints,
+        auto_announce: autoAnnounce,
+        validate_discord_submissions: validateFormat,
+        biweekly_mode: biweeklyMode,
+      };
+      await botApi.updateAdminConfig(updates);
+      showSuccess("✅ Competition settings saved successfully!");
+    } catch (err) {
+      showError(`❌ Failed to save settings: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -78,6 +159,18 @@ export default function CompetitionManagement() {
           Manage competition phases, themes, and schedules
         </p>
       </div>
+
+      {/* Status Messages */}
+      {success && (
+        <div className="admin-alert alert-success">
+          {success}
+        </div>
+      )}
+      {error && (
+        <div className="admin-alert alert-error">
+          {error}
+        </div>
+      )}
 
       {/* Phase Control */}
       <div className="admin-card">
@@ -95,36 +188,42 @@ export default function CompetitionManagement() {
               <button
                 className={`phase-btn ${currentPhase === "submission" ? "active" : ""}`}
                 onClick={() => handlePhaseChange("submission")}
+                disabled={loading}
               >
                 🎵 Submission
               </button>
               <button
                 className={`phase-btn ${currentPhase === "voting" ? "active" : ""}`}
                 onClick={() => handlePhaseChange("voting")}
+                disabled={loading}
               >
                 🗳️ Voting
               </button>
               <button
                 className={`phase-btn ${currentPhase === "paused" ? "active" : ""}`}
                 onClick={() => handlePhaseChange("paused")}
+                disabled={loading}
               >
                 ⏸️ Paused
               </button>
               <button
                 className={`phase-btn ${currentPhase === "ended" ? "active" : ""}`}
                 onClick={() => handlePhaseChange("ended")}
+                disabled={loading}
               >
                 🏁 Ended
               </button>
               <button
                 className={`phase-btn ${currentPhase === "cancelled" ? "active" : ""}`}
                 onClick={() => handlePhaseChange("cancelled")}
+                disabled={loading}
               >
                 ❌ Cancelled
               </button>
               <button
                 className={`phase-btn ${currentPhase === "inactive" ? "active" : ""}`}
                 onClick={() => handlePhaseChange("inactive")}
+                disabled={loading}
               >
                 ⏰ Inactive
               </button>
@@ -157,7 +256,7 @@ export default function CompetitionManagement() {
                 placeholder="Enter theme..."
                 className="admin-input"
               />
-              <button onClick={handleThemeUpdate} className="admin-btn btn-primary">
+              <button onClick={handleThemeUpdate} className="admin-btn btn-primary" disabled={loading}>
                 Update Theme
               </button>
             </div>
@@ -173,7 +272,7 @@ export default function CompetitionManagement() {
                 placeholder="Enter next week's theme..."
                 className="admin-input"
               />
-              <button onClick={handleGenerateTheme} className="admin-btn btn-secondary">
+              <button onClick={handleGenerateTheme} className="admin-btn btn-secondary" disabled={loading}>
                 🤖 Generate AI Theme
               </button>
             </div>
@@ -202,13 +301,13 @@ export default function CompetitionManagement() {
             </div>
 
             <div className="schedule-actions">
-              <button onClick={handleNextWeek} className="admin-btn btn-success">
+              <button onClick={handleNextWeek} className="admin-btn btn-success" disabled={loading}>
                 ▶️ Start Next Week
               </button>
-              <button onClick={handleEndWeek} className="admin-btn btn-info">
+              <button onClick={handleEndWeek} className="admin-btn btn-info" disabled={loading}>
                 🏆 End Week & Announce Winner
               </button>
-              <button onClick={handleCancelWeek} className="admin-btn btn-danger">
+              <button onClick={handleCancelWeek} className="admin-btn btn-danger" disabled={loading}>
                 ❌ Cancel This Week
               </button>
             </div>
@@ -275,7 +374,9 @@ export default function CompetitionManagement() {
               </label>
             </div>
           </div>
-          <button className="admin-btn btn-primary" onClick={handleSaveSettings}>Save Settings</button>
+          <button className="admin-btn btn-primary" onClick={handleSaveSettings} disabled={loading}>
+            {loading ? "Saving..." : "Save Settings"}
+          </button>
         </div>
       </div>
     </div>

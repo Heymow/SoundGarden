@@ -1,51 +1,66 @@
 import React, { useState } from "react";
+import * as botApi from "../../services/botApi";
 
 export default function AIConfiguration() {
   const [aiEnabled, setAiEnabled] = useState(true);
   const [apiUrl, setApiUrl] = useState("https://api.openai.com/v1/chat/completions");
-  const [apiKey, setApiKey] = useState("sk-*********************");
+  const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("gpt-3.5-turbo");
   const [temperature, setTemperature] = useState(0.8);
   const [maxTokens, setMaxTokens] = useState(150);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
-  const handleTestAI = () => {
-    alert("🧪 Testing AI connection...");
-    // TODO: Call API to test AI connection
-    setTimeout(() => {
-      const success = Math.random() > 0.2; // 80% success rate for demo
-      if (success) {
-        alert("✅ AI connection successful! Model is responding correctly.");
-      } else {
-        alert("❌ AI connection failed. Please check your API key and endpoint.");
-      }
-    }, 1500);
+  const showSuccess = (message) => {
+    setSuccess(message);
+    setError(null);
+    setTimeout(() => setSuccess(null), 5000);
   };
 
-  const handleSaveConfig = () => {
-    if (!apiUrl.trim()) {
-      alert("❌ Please enter an API URL");
-      return;
+  const showError = (message) => {
+    setError(message);
+    setSuccess(null);
+    setTimeout(() => setError(null), 5000);
+  };
+
+  const handleTestAI = async () => {
+    setLoading(true);
+    try {
+      await botApi.testAI();
+      showSuccess("✅ AI connection successful! Model is responding correctly.");
+    } catch (err) {
+      showError(`❌ AI connection failed: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
-    if (!apiKey.trim()) {
-      alert("❌ Please enter an API key");
+  };
+
+  const handleSaveConfig = async () => {
+    if (!apiUrl.trim()) {
+      showError("❌ Please enter an API URL");
       return;
     }
     
-    const config = {
-      enabled: aiEnabled,
-      apiUrl,
-      model,
-      temperature,
-      maxTokens,
-    };
-    console.log("Saving AI configuration:", config);
-    alert("✅ AI configuration saved successfully!");
-    // TODO: Call API to save configuration
+    setLoading(true);
+    try {
+      const updates = {
+        ai_api_url: apiUrl,
+        ai_model: model,
+        ai_temperature: temperature,
+        ai_max_tokens: maxTokens,
+      };
+      await botApi.updateAdminConfig(updates);
+      showSuccess("✅ AI configuration saved successfully!");
+    } catch (err) {
+      showError(`❌ Failed to save AI configuration: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleEditTemplate = (templateName) => {
-    alert(`✏️ Opening template editor for: ${templateName}`);
-    // TODO: Open template editor modal
+    showSuccess(`✏️ Opening template editor for: ${templateName}`);
   };
 
   return (

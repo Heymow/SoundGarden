@@ -1,48 +1,152 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import * as botApi from "../../services/botApi";
 
 export default function VotingManagement() {
   const [votingStats, setVotingStats] = useState({
-    totalVotes: 142,
-    uniqueVoters: 45,
-    averageVotesPerSubmission: 28.4,
+    totalVotes: 0,
+    uniqueVoters: 0,
+    averageVotesPerSubmission: 0,
   });
-  const [selectedWeek, setSelectedWeek] = useState("2024-W03");
+  const [selectedWeek, setSelectedWeek] = useState("");
+  const [auditData, setAuditData] = useState(null);
+  const [votingResults, setVotingResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
-  const handleLoadAudit = () => {
-    alert(`🔍 Loading detailed vote audit for ${selectedWeek}...`);
-    // TODO: Call API to load vote audit
+  // Load initial data
+  useEffect(() => {
+    loadStatus();
+  }, []);
+
+  const loadStatus = async () => {
+    try {
+      const status = await botApi.getAdminStatus();
+      if (status.voting_results) {
+        const results = Object.entries(status.voting_results).map(([team, votes]) => ({
+          team,
+          votes,
+        }));
+        results.sort((a, b) => b.votes - a.votes);
+        setVotingResults(results);
+        
+        const totalVotes = results.reduce((sum, r) => sum + r.votes, 0);
+        const uniqueVoters = totalVotes; // Simplified - each vote is unique in this context
+        const avgVotes = results.length > 0 ? totalVotes / results.length : 0;
+        
+        setVotingStats({
+          totalVotes,
+          uniqueVoters,
+          averageVotesPerSubmission: Math.round(avgVotes * 10) / 10,
+        });
+      }
+    } catch (err) {
+      console.error("Failed to load status:", err);
+    }
   };
 
-  const handleResetVotes = () => {
+  const showSuccess = (message) => {
+    setSuccess(message);
+    setError(null);
+    setTimeout(() => setSuccess(null), 5000);
+  };
+
+  const showError = (message) => {
+    setError(message);
+    setSuccess(null);
+    setTimeout(() => setError(null), 5000);
+  };
+
+  const handleLoadAudit = async () => {
+    if (!selectedWeek) {
+      showError("❌ Please select a week");
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const data = await botApi.getVoteDetails(selectedWeek);
+      setAuditData(data);
+      showSuccess(`✅ Loaded detailed vote audit for ${selectedWeek}`);
+    } catch (err) {
+      showError(`❌ Failed to load vote audit: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetVotes = async () => {
     if (confirm("⚠️ Are you sure you want to reset ALL votes? This action CANNOT be undone!")) {
       if (confirm("⚠️ FINAL WARNING: This will permanently delete all votes for the current week. Continue?")) {
-        alert("🔄 Resetting all votes...");
-        setVotingStats({
-          totalVotes: 0,
-          uniqueVoters: 0,
-          averageVotesPerSubmission: 0,
-        });
-        // TODO: Call API to reset votes
+        setLoading(true);
+        try {
+          await botApi.resetVotes();
+          showSuccess("🔄 All votes have been reset");
+          await loadStatus();
+        } catch (err) {
+          showError(`❌ Failed to reset votes: ${err.message}`);
+        } finally {
+          setLoading(false);
+        }
       }
     }
   };
 
-  const handleRemoveInvalidVotes = () => {
+  const handleRemoveInvalidVotes = async () => {
     if (confirm("Are you sure you want to remove invalid votes? This will check for duplicate votes and votes from non-members.")) {
-      alert("🗑️ Checking for and removing invalid votes...");
-      // TODO: Call API to remove invalid votes
-      setTimeout(() => {
-        alert("✅ Removed 3 invalid votes");
-      }, 1000);
+      setLoading(true);
+      try {
+        const result = await botApi.removeInvalidVotes();
+        showSuccess(`✅ ${result.message || "Invalid votes removed"}`);
+        await loadStatus();
+      } catch (err) {
+        showError(`❌ Failed to remove invalid votes: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
-  const handleExportResults = () => {
-    alert("📊 Exporting voting results to CSV...");
-    // TODO: Call API to export results
-    setTimeout(() => {
-      alert("✅ Results exported successfully!");
-    }, 1000);
+  const handleExportResults = async () => {
+    setLoading(true);
+    try {
+      const result = await botApi.exportVotingResults(selectedWeek);
+      showSuccess("✅ Results exported successfully!");
+      // If the API returns download data, trigger download
+      if (result.csv_data) {
+        const blob = new Blob([result.csv_data], { type: "text/csv" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `voting-results-${selectedWeek || "current"}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      showError(`❌ Failed to export results: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemoveVote = async (userId, username) => {
+    if (!selectedWeek || !auditData) {
+      showError("❌ Please load an audit first");
+      return;
+    }
+    
+    if (confirm(`Remove vote from ${username}?`)) {
+      setLoading(true);
+      try {
+        await botApi.removeVote(selectedWeek, userId);
+        showSuccess(`✅ Vote from ${username} removed`);
+        await handleLoadAudit(); // Reload audit data
+      } catch (err) {
+        showError(`❌ Failed to remove vote: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
+    }
   };
 
   return (
@@ -53,6 +157,18 @@ export default function VotingManagement() {
           Monitor voting activity and manage results
         </p>
       </div>
+
+      {/* Status Messages */}
+      {success && (
+        <div className="admin-alert alert-success">
+          {success}
+        </div>
+      )}
+      {error && (
+        <div className="admin-alert alert-error">
+          {error}
+        </div>
+      )}
 
       {/* Voting Stats */}
       <div className="admin-stats-grid">
@@ -83,38 +199,30 @@ export default function VotingManagement() {
       <div className="admin-card">
         <h3 className="admin-card-title">📊 Current Voting Results</h3>
         <div className="admin-card-content">
-          <div className="voting-results-list">
-            <div className="result-item winner">
-              <div className="result-rank">🥇</div>
-              <div className="result-info">
-                <div className="result-team">Team Alpha - "Cosmic Journey"</div>
-                <div className="result-bar">
-                  <div className="result-bar-fill" style={{ width: "85%" }}></div>
-                </div>
-              </div>
-              <div className="result-votes">42 votes</div>
+          {votingResults.length > 0 ? (
+            <div className="voting-results-list">
+              {votingResults.map((result, index) => {
+                const maxVotes = votingResults[0]?.votes || 1;
+                const percentage = (result.votes / maxVotes) * 100;
+                const rank = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `${index + 1}.`;
+                
+                return (
+                  <div key={result.team} className={`result-item ${index === 0 ? "winner" : ""}`}>
+                    <div className="result-rank">{rank}</div>
+                    <div className="result-info">
+                      <div className="result-team">{result.team}</div>
+                      <div className="result-bar">
+                        <div className="result-bar-fill" style={{ width: `${percentage}%` }}></div>
+                      </div>
+                    </div>
+                    <div className="result-votes">{result.votes} votes</div>
+                  </div>
+                );
+              })}
             </div>
-            <div className="result-item">
-              <div className="result-rank">🥈</div>
-              <div className="result-info">
-                <div className="result-team">Team Beta - "Stellar Dreams"</div>
-                <div className="result-bar">
-                  <div className="result-bar-fill" style={{ width: "68%" }}></div>
-                </div>
-              </div>
-              <div className="result-votes">34 votes</div>
-            </div>
-            <div className="result-item">
-              <div className="result-rank">🥉</div>
-              <div className="result-info">
-                <div className="result-team">Team Gamma - "Nebula Sound"</div>
-                <div className="result-bar">
-                  <div className="result-bar-fill" style={{ width: "56%" }}></div>
-                </div>
-              </div>
-              <div className="result-votes">28 votes</div>
-            </div>
-          </div>
+          ) : (
+            <p>No voting results available yet.</p>
+          )}
         </div>
       </div>
 
@@ -134,7 +242,49 @@ export default function VotingManagement() {
               <option>2024-W01</option>
             </select>
           </div>
-          <button className="admin-btn btn-primary" onClick={handleLoadAudit}>Load Detailed Audit</button>
+          <button className="admin-btn btn-primary" onClick={handleLoadAudit} disabled={loading || !selectedWeek}>
+            {loading ? "Loading..." : "Load Detailed Audit"}
+          </button>
+          
+          {/* Display audit data if available */}
+          {auditData && (
+            <div className="audit-results">
+              <h4>Audit Results for {selectedWeek}</h4>
+              <p><strong>Theme:</strong> {auditData.theme}</p>
+              <p><strong>Total Votes:</strong> {auditData.total_votes || auditData.vote_details?.length || 0}</p>
+              
+              {auditData.vote_details && auditData.vote_details.length > 0 && (
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Voter</th>
+                      <th>Voted For</th>
+                      <th>Voted At</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditData.vote_details.map((vote, idx) => (
+                      <tr key={idx}>
+                        <td>{vote.username}</td>
+                        <td>{vote.voted_for}</td>
+                        <td>{vote.voted_at}</td>
+                        <td>
+                          <button 
+                            className="admin-btn-sm btn-danger"
+                            onClick={() => handleRemoveVote(vote.user_id, vote.username)}
+                            disabled={loading}
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
           
           <div className="admin-help-text">
             💡 View detailed voting information including individual votes and timestamps
@@ -147,9 +297,15 @@ export default function VotingManagement() {
         <h3 className="admin-card-title">⚙️ Voting Controls</h3>
         <div className="admin-card-content">
           <div className="voting-controls">
-            <button className="admin-btn btn-warning" onClick={handleResetVotes}>🔄 Reset All Votes</button>
-            <button className="admin-btn btn-danger" onClick={handleRemoveInvalidVotes}>🗑️ Remove Invalid Votes</button>
-            <button className="admin-btn btn-success" onClick={handleExportResults}>📊 Export Results</button>
+            <button className="admin-btn btn-warning" onClick={handleResetVotes} disabled={loading}>
+              🔄 Reset All Votes
+            </button>
+            <button className="admin-btn btn-danger" onClick={handleRemoveInvalidVotes} disabled={loading}>
+              🗑️ Remove Invalid Votes
+            </button>
+            <button className="admin-btn btn-success" onClick={handleExportResults} disabled={loading}>
+              📊 Export Results
+            </button>
           </div>
           <div className="admin-warning">
             ⚠️ These actions cannot be undone. Use with caution.

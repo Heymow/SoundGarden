@@ -1,53 +1,105 @@
 import React, { useState, useEffect } from "react";
+import * as botApi from "../../services/botApi";
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState({
     currentPhase: "voting",
     currentTheme: "Cosmic Dreams",
     activeWeek: "2024-W03",
-    totalSubmissions: 5,
-    totalVotes: 142,
-    activeTeams: 8,
-    totalArtists: 24,
+    totalSubmissions: 0,
+    totalVotes: 0,
+    activeTeams: 0,
+    totalArtists: 0,
     systemStatus: "operational",
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
-  const handleStartNewWeek = () => {
+  useEffect(() => {
+    loadStats();
+  }, []);
+
+  const loadStats = async () => {
+    try {
+      const status = await botApi.getAdminStatus();
+      setStats({
+        currentPhase: status.phase || "unknown",
+        currentTheme: status.theme || "Unknown Theme",
+        activeWeek: "Current",
+        totalSubmissions: status.team_count || 0,
+        totalVotes: status.voting_results ? Object.values(status.voting_results).reduce((a, b) => a + b, 0) : 0,
+        activeTeams: status.team_count || 0,
+        totalArtists: 0,
+        systemStatus: "operational",
+      });
+    } catch (err) {
+      console.error("Failed to load stats:", err);
+    }
+  };
+
+  const showSuccess = (message) => {
+    setSuccess(message);
+    setError(null);
+    setTimeout(() => setSuccess(null), 5000);
+  };
+
+  const showError = (message) => {
+    setError(message);
+    setSuccess(null);
+    setTimeout(() => setError(null), 5000);
+  };
+
+  const handleStartNewWeek = async () => {
     if (confirm("Are you sure you want to start a new week? This will create a new competition cycle.")) {
-      // TODO: Call API to start new week
-      alert("✅ New week started successfully!");
-      // Update stats
-      setStats(prev => ({
-        ...prev,
-        activeWeek: `2024-W${parseInt(prev.activeWeek.split('-W')[1]) + 1}`,
-        currentPhase: "submission",
-        totalSubmissions: 0,
-        totalVotes: 0,
-      }));
+      setLoading(true);
+      try {
+        await botApi.startNextWeek();
+        showSuccess("✅ New week started successfully!");
+        await loadStats();
+      } catch (err) {
+        showError(`❌ Failed to start new week: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
   const handleSendAnnouncement = () => {
-    // TODO: Navigate to announcements section or show quick announcement modal
-    alert("📢 Opening announcement composer...");
+    showSuccess("📢 Opening announcement composer...");
   };
 
-  const handleChangePhase = () => {
+  const handleChangePhase = async () => {
     const phases = ["submission", "voting", "paused", "ended"];
     const currentIndex = phases.indexOf(stats.currentPhase);
     const nextPhase = phases[(currentIndex + 1) % phases.length];
     
     if (confirm(`Change phase from "${stats.currentPhase}" to "${nextPhase}"?`)) {
-      setStats(prev => ({ ...prev, currentPhase: nextPhase }));
-      alert(`✅ Phase changed to: ${nextPhase}`);
+      setLoading(true);
+      try {
+        await botApi.setPhase(nextPhase);
+        showSuccess(`✅ Phase changed to: ${nextPhase}`);
+        await loadStats();
+      } catch (err) {
+        showError(`❌ Failed to change phase: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
-  const handleAnnounceWinner = () => {
+  const handleAnnounceWinner = async () => {
     if (confirm("Are you sure you want to announce the winner? This will end the current voting period.")) {
-      // TODO: Call API to calculate and announce winner
-      alert("🏆 Calculating results and announcing winner...");
-      setStats(prev => ({ ...prev, currentPhase: "ended" }));
+      setLoading(true);
+      try {
+        await botApi.endWeek();
+        showSuccess("🏆 Calculating results and announcing winner...");
+        await loadStats();
+      } catch (err) {
+        showError(`❌ Failed to announce winner: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 

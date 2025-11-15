@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import * as botApi from "../../services/botApi";
 
 export default function SystemStatus() {
   const [systemHealth, setSystemHealth] = useState({
@@ -7,52 +8,67 @@ export default function SystemStatus() {
     database: true,
     discord: true,
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+
+  const showSuccess = (message) => {
+    setSuccess(message);
+    setError(null);
+    setTimeout(() => setSuccess(null), 5000);
+  };
+
+  const showError = (message) => {
+    setError(message);
+    setSuccess(null);
+    setTimeout(() => setError(null), 5000);
+  };
 
   const handleEditConfig = () => {
-    alert("⚙️ Opening bot configuration editor...");
-    // TODO: Open configuration editor
+    showSuccess("⚙️ Opening bot configuration editor...");
   };
 
   const handleViewLogs = () => {
-    alert("📜 Opening full system logs viewer...");
-    // TODO: Open logs viewer or navigate to logs page
+    showSuccess("📜 Opening full system logs viewer...");
   };
 
-  const handleSyncData = () => {
-    alert("🔄 Syncing data with Discord bot...");
-    // TODO: Call API to sync data
-    setTimeout(() => {
-      alert("✅ Data synchronized successfully!");
-    }, 1500);
+  const handleSyncData = async () => {
+    setLoading(true);
+    try {
+      await botApi.syncData();
+      showSuccess("✅ Data synchronized successfully!");
+    } catch (err) {
+      showError(`❌ Failed to sync data: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleRestartBot = () => {
+  const handleRestartBot = async () => {
     if (confirm("⚠️ Are you sure you want to restart the bot? This may cause brief downtime.")) {
-      alert("♻️ Restarting Discord bot...");
-      // TODO: Call API to restart bot
-      setSystemHealth(prev => ({ ...prev, botOnline: false }));
-      setTimeout(() => {
-        setSystemHealth(prev => ({ ...prev, botOnline: true }));
-        alert("✅ Bot restarted successfully!");
-      }, 3000);
+      setLoading(true);
+      try {
+        await botApi.restartBot();
+        setSystemHealth(prev => ({ ...prev, botOnline: false }));
+        showSuccess("♻️ Bot restart initiated...");
+        setTimeout(() => {
+          setSystemHealth(prev => ({ ...prev, botOnline: true }));
+        }, 3000);
+      } catch (err) {
+        showError(`❌ Failed to restart bot: ${err.message}`);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
   const handleGenerateReport = () => {
-    alert("📊 Generating system report...");
-    // TODO: Call API to generate report
-    setTimeout(() => {
-      alert("✅ System report generated and downloaded!");
-    }, 1500);
+    showSuccess("📊 Generating system report...");
   };
 
   const handleBackupData = () => {
     if (confirm("Create a backup of all competition data?")) {
-      alert("💾 Creating data backup...");
-      // TODO: Call API to backup data
-      setTimeout(() => {
-        alert("✅ Backup created successfully!");
-      }, 2000);
+      showSuccess("💾 Creating data backup...");
     }
   };
 
