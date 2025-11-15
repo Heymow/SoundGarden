@@ -73,7 +73,7 @@ export default function AdminDashboard() {
     const phases = ["submission", "voting", "paused", "ended"];
     const currentIndex = phases.indexOf(stats.currentPhase);
     const nextPhase = phases[(currentIndex + 1) % phases.length];
-    
+
     if (confirm(`Change phase from "${stats.currentPhase}" to "${nextPhase}"?`)) {
       setLoading(true);
       try {
@@ -85,6 +85,22 @@ export default function AdminDashboard() {
       } finally {
         setLoading(false);
       }
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setLoading(true);
+    try {
+      const result = await botApi.testBotApiConnection();
+      if (result.success) {
+        showSuccess("✅ Bot API connection successful! Server is reachable.");
+      } else {
+        showError(`❌ Bot API connection failed: ${result.error}`);
+      }
+    } catch (err) {
+      showError(`❌ Connection test failed: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -196,6 +212,10 @@ export default function AdminDashboard() {
           <button className="admin-action-btn action-info" onClick={handleAnnounceWinner}>
             <span className="action-icon">🏆</span>
             <span>Announce Winner</span>
+          </button>
+          <button className="admin-action-btn action-secondary" onClick={handleTestConnection}>
+            <span className="action-icon">🔌</span>
+            <span>Test Connection</span>
           </button>
         </div>
       </div>

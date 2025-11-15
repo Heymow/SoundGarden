@@ -25,17 +25,49 @@ const fetchWithAuth = async (endpoint, options = {}) => {
     ...options.headers,
   };
 
+  console.log(`🔗 API Request: ${options.method || "GET"} ${url}`);
+  console.log(`🔑 Token: ${token.substring(0, 20)}...`);
+
   try {
     const response = await fetch(url, {
       ...options,
       headers,
     });
 
+    console.log(`📡 Response: ${response.status} ${response.statusText}`);
+    console.log(
+      `📋 Response Headers:`,
+      Object.fromEntries(response.headers.entries())
+    );
+
     // Handle non-OK responses
     if (!response.ok) {
-      const errorData = await response
-        .json()
-        .catch(() => ({ error: "Network or parsing error" }));
+      console.error(`❌ HTTP Error ${response.status}: ${response.statusText}`);
+
+      // Try to get response text for debugging
+      let responseText;
+      try {
+        responseText = await response.text();
+        console.log(`📄 Response Body:`, responseText);
+      } catch (e) {
+        console.error(`❌ Could not read response body:`, e);
+        responseText = "";
+      }
+
+      // Try to parse as JSON
+      let errorData;
+      try {
+        errorData = responseText
+          ? JSON.parse(responseText)
+          : { error: "Empty response" };
+      } catch (e) {
+        console.error(`❌ Response is not valid JSON:`, e);
+        errorData = {
+          error: `Non-JSON response: ${responseText.substring(0, 200)}${
+            responseText.length > 200 ? "..." : ""
+          }`,
+        };
+      }
 
       // Provide more specific error messages for common cases
       let errorMessage =
@@ -48,6 +80,11 @@ const fetchWithAuth = async (endpoint, options = {}) => {
       } else if (response.status === 403) {
         errorMessage = `Access denied: ${
           errorData.error || "Token does not have required permissions"
+        }`;
+      } else if (response.status === 404) {
+        errorMessage = `Not found: ${
+          errorData.error ||
+          "API endpoint not found - check if bot server is running"
         }`;
       } else if (response.status === 500) {
         errorMessage = `Server error: ${
@@ -62,10 +99,67 @@ const fetchWithAuth = async (endpoint, options = {}) => {
       throw new Error(errorMessage);
     }
 
-    return await response.json();
+    // Parse successful response
+    try {
+      const data = await response.json();
+      console.log(`✅ Success:`, data);
+      return data;
+    } catch (e) {
+      console.error(`❌ Failed to parse successful response as JSON:`, e);
+      const text = await response.text();
+      throw new Error(
+        `Server returned non-JSON response: ${text.substring(0, 200)}`
+      );
+    }
   } catch (error) {
-    console.error(`API Error (${endpoint}):`, error);
+    if (
+      error.name === "TypeError" &&
+      error.message.includes("Failed to fetch")
+    ) {
+      console.error(`❌ Network Error: Cannot connect to ${url}`);
+      throw new Error(
+        `Network error: Cannot connect to bot API server at ${url}. Make sure the server is running and the URL is correct.`
+      );
+    }
+    console.error(`❌ API Error (${endpoint}):`, error);
     throw error;
+  }
+};
+
+// ============= Debug and Testing =============
+
+/**
+ * Test bot API server connectivity without authentication
+ */
+export const testBotApiConnection = async () => {
+  const url = `${BOT_API_URL}/api/public/status`;
+  console.log(`🧪 Testing bot API connectivity: ${url}`);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    console.log(`📡 Test Response: ${response.status} ${response.statusText}`);
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log(`✅ Bot API is reachable:`, data);
+      return { success: true, data };
+    } else {
+      const text = await response.text();
+      console.log(`❌ Bot API responded with error:`, text);
+      return { success: false, error: `HTTP ${response.status}: ${text}` };
+    }
+  } catch (error) {
+    console.error(`❌ Cannot connect to bot API:`, error);
+    return {
+      success: false,
+      error: `Connection failed: ${error.message}. Check if bot API server is running on ${BOT_API_URL}`,
+    };
   }
 };
 

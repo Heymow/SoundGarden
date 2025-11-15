@@ -72,6 +72,29 @@ export default function SystemStatus() {
     }
   };
 
+  const handleRunDiagnostics = async () => {
+    setLoading(true);
+    showSuccess("🔍 Running comprehensive diagnostics...");
+
+    try {
+      // Test bot API connection
+      const apiTest = await botApi.testBotApiConnection();
+
+      if (apiTest.success) {
+        showSuccess("✅ Diagnostics passed: Bot API is reachable and responding");
+        setSystemHealth(prev => ({ ...prev, apiServer: true, botOnline: true }));
+      } else {
+        showError(`❌ Diagnostics failed: ${apiTest.error}`);
+        setSystemHealth(prev => ({ ...prev, apiServer: false }));
+      }
+    } catch (err) {
+      showError(`❌ Diagnostics error: ${err.message}`);
+      setSystemHealth(prev => ({ ...prev, apiServer: false, botOnline: false }));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="admin-section">
       <div className="admin-section-header">
@@ -200,6 +223,31 @@ export default function SystemStatus() {
             </div>
           </div>
           <button className="admin-btn btn-secondary" onClick={handleViewLogs}>View Full Logs</button>
+        </div>
+      </div>
+
+      {/* Diagnostics */}
+      <div className="admin-card">
+        <h3 className="admin-card-title">🔍 Connection Diagnostics</h3>
+        <div className="admin-card-content">
+          <div className="diagnostic-info">
+            <p>Test the connection between the admin panel and the Discord bot API server.</p>
+            <p><strong>Troubleshooting steps:</strong></p>
+            <ol>
+              <li>Ensure the Discord bot is online and loaded</li>
+              <li>Run <code>!cw apiserver start</code> in Discord</li>
+              <li>Check that the API server is running on the correct port</li>
+              <li>Verify CORS settings with <code>!cw apiconfig cors</code></li>
+              <li>Generate a fresh admin token with <code>!cw admintoken generate</code></li>
+            </ol>
+          </div>
+          <button
+            className="admin-btn btn-info"
+            onClick={handleRunDiagnostics}
+            disabled={loading}
+          >
+            {loading ? "🔄 Testing..." : "🔌 Run Connection Test"}
+          </button>
         </div>
       </div>
 
