@@ -3062,12 +3062,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             )
             
             if railway_detected:
-                # Avoid port conflicts by using a high alternative port
-                railway_port = os.environ.get('PORT', '8080')
-                base_port = int(railway_port)
-                port = base_port + 1000  # Use port 9080 instead of 8080
-                print(f"Railway environment detected, using alternative port: {port}")
-                print(f"Avoiding conflicted Railway PORT: {base_port}")
+                # Use a completely different port range to avoid all conflicts
+                port = 5000  # Use port 5000 - typically free
+                print(f"Railway environment detected, using dedicated API port: {port}")
+                print(f"Bypassing all Railway port conflicts")
                 print(f"Service ID: {os.environ.get('RAILWAY_SERVICE_ID')}")
             else:
                 print(f"Local environment, using configured port: {port}")
