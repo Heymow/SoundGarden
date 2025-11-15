@@ -3062,11 +3062,12 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             )
             
             if railway_detected:
-                # FORCE use Railway PORT and let Railway handle conflicts
+                # Avoid port conflicts by using a high alternative port
                 railway_port = os.environ.get('PORT', '8080')
-                port = int(railway_port)
-                print(f"Railway environment detected, FORCING Railway PORT: {port}")
-                print(f"Let Railway handle port conflicts")
+                base_port = int(railway_port)
+                port = base_port + 1000  # Use port 9080 instead of 8080
+                print(f"Railway environment detected, using alternative port: {port}")
+                print(f"Avoiding conflicted Railway PORT: {base_port}")
                 print(f"Service ID: {os.environ.get('RAILWAY_SERVICE_ID')}")
             else:
                 print(f"Local environment, using configured port: {port}")
