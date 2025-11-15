@@ -894,8 +894,9 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             app.router.add_get('/api/public/stats/leaderboard', self._handle_public_stats_leaderboard)
             app.router.add_get('/api/public/user/{user_id}/membership', self._handle_public_user_membership)
             
-            # Test endpoint
+            # Test endpoints
             app.router.add_get('/api/ping', self._handle_ping)
+            app.router.add_get('/api/test', self._handle_test)
             
             app.router.add_options('/api/public/{path:.*}', self._handle_options_request)
             
@@ -912,6 +913,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             app.router.add_delete('/api/admin/votes/{week}/{user_id}', self._handle_admin_remove_vote)
             app.router.add_delete('/api/admin/weeks/{week}', self._handle_admin_remove_week)
             app.router.add_get('/api/admin/votes/{week}/details', self._handle_admin_vote_details)
+            app.router.add_get('/api/admin/test', self._handle_admin_test)
             
             app.router.add_options('/api/admin/{path:.*}', self._handle_options_request)
             
@@ -1267,6 +1269,30 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         except Exception as e:
             print(f"Error getting admin status: {e}")
             return web.json_response({"error": "Failed to get status"}, status=500)
+    
+    async def _handle_admin_test(self, request):
+        """Simple admin test endpoint without heavy validation"""
+        try:
+            # Find the guild for this request
+            guild = None
+            for g in self.bot.guilds:
+                api_enabled = await self.config.guild(g).api_server_enabled()
+                if api_enabled:
+                    guild = g
+                    break
+            
+            if not guild:
+                return web.json_response({"error": "API not enabled"}, status=503)
+            
+            return web.json_response({
+                "status": "success",
+                "message": "Admin test endpoint works",
+                "guild_name": guild.name,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+        except Exception as e:
+            print(f"Error in admin test: {e}")
+            return web.json_response({"error": f"Admin test failed: {str(e)}"}, status=500)
     
     async def _handle_admin_submissions(self, request):
         """Get current submissions for admin panel"""
@@ -1707,6 +1733,14 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     async def _handle_ping(self, request):
         """Simple ping endpoint for testing"""
         return web.json_response({"status": "ok", "message": "CollabWarz API is running"})
+    
+    async def _handle_test(self, request):
+        """Simple test endpoint without any validation"""
+        return web.json_response({
+            "status": "success",
+            "message": "Test endpoint works",
+            "timestamp": datetime.utcnow().isoformat()
+        })
     
     async def _handle_public_submissions(self, request):
         """Get current week submissions for frontend users"""
