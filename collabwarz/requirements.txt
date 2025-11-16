@@ -5,8 +5,8 @@
 # - aiohttp
 # - asyncio
 
-# No additional dependencies required!
-# The cog uses only built-in Red-DiscordBot libraries.
+# Required for Redis communication with admin panel:
+redis>=4.5.0
 
 # Optional: If you want to test locally without Red-DiscordBot
 # discord.py>=2.0.0

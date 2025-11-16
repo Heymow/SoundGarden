@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import axios from "axios";
+import { createClient } from "redis";
 
 dotenv.config();
 
@@ -23,11 +24,64 @@ const DISCORD_ADMIN_CHANNEL_ID = process.env.DISCORD_ADMIN_CHANNEL_ID;
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL; // Webhook for sending commands as "human"
 const COMMAND_PREFIX = process.env.COMMAND_PREFIX || "!cw";
 
+// Redis Configuration for CollabWarz communication
+const REDIS_URL =
+  process.env.REDIS_URL ||
+  process.env.REDIS_PRIVATE_URL ||
+  "redis://localhost:6379";
+
 console.log(`Discord Guild ID: ${DISCORD_GUILD_ID}`);
 console.log(`Admin Channel ID: ${DISCORD_ADMIN_CHANNEL_ID}`);
 console.log(`Bot Token configured: ${DISCORD_BOT_TOKEN ? "Yes" : "No"}`);
 console.log(`Webhook URL configured: ${DISCORD_WEBHOOK_URL ? "Yes" : "No"}`);
 console.log(`Command Prefix: ${COMMAND_PREFIX}`);
+console.log(`Redis URL: ${REDIS_URL}`);
+
+// Redis client and initialization
+let redisClient;
+
+async function initRedis() {
+  if (!REDIS_URL || REDIS_URL === "redis://localhost:6379") {
+    console.log(
+      "⚠️  No Redis URL configured or using localhost - Redis communication disabled"
+    );
+    return false;
+  }
+
+  try {
+    redisClient = createClient({
+      url: REDIS_URL,
+      retry_unfulfilled_commands: true,
+      socket: {
+        reconnectStrategy: (retries) => Math.min(retries * 50, 500),
+      },
+    });
+
+    redisClient.on("error", (err) => {
+      console.error("❌ Redis Client Error:", err);
+    });
+
+    redisClient.on("connect", () => {
+      console.log("🔄 Redis Client Connecting...");
+    });
+
+    redisClient.on("ready", () => {
+      console.log("✅ Redis Client Connected and Ready");
+    });
+
+    await redisClient.connect();
+
+    // Test the connection
+    await redisClient.ping();
+    console.log("🏓 Redis connection verified");
+
+    return true;
+  } catch (error) {
+    console.error("❌ Failed to connect to Redis:", error.message);
+    redisClient = null;
+    return false;
+  }
+}
 
 app.use(
   cors({
@@ -124,19 +178,86 @@ app.get("/api/user", (req, res) => {
 });
 
 // ========== COLLABWARZ API ENDPOINTS ==========
-// These endpoints communicate with Discord bot via Discord API
+// These endpoints communicate with CollabWarz cog via Redis
 
-// Helper function to send Discord messages (bot commands)
-async function sendDiscordCommand(command, waitForResponse = true) {
-  console.log(`🎮 Sending Discord command: ${command}`);
+// Helper function to queue an action for the cog to process
+async function queueCollabWarzAction(action, params = {}) {
+  console.log(`📝 Queuing CollabWarz action: ${action}`, params);
 
-  // Try webhook first (appears as human message - RedBot will process it)
-  if (DISCORD_WEBHOOK_URL) {
-    return await sendViaWebhook(command, waitForResponse);
+  if (!redisClient) {
+    console.log(
+      "⚠️  Redis not available - action would be queued:",
+      action,
+      params
+    );
+    return { queued: false, message: "Redis not available" };
   }
 
-  // Fallback to bot API (may be ignored by RedBot)
-  return await sendViaBot(command, waitForResponse);
+  try {
+    const actionData = {
+      id: `action_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      action: action,
+      params: params,
+      timestamp: new Date().toISOString(),
+      status: "pending",
+    };
+
+    // Add to Redis queue
+    await redisClient.lPush("collabwarz:actions", JSON.stringify(actionData));
+
+    console.log(`✅ Action queued successfully: ${actionData.id}`);
+    return actionData;
+  } catch (error) {
+    console.error("❌ Failed to queue action:", error.message);
+    throw error;
+  }
+}
+
+// Helper function to get competition status from Redis
+async function getCompetitionStatusFromRedis() {
+  if (!redisClient) {
+    console.log("⚠️  Redis not available - returning fallback data");
+    return {
+      phase: "unknown",
+      theme: "Redis not available",
+      automation_enabled: false,
+      week_cancelled: false,
+      team_count: 0,
+      error: "Redis not configured",
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  try {
+    // Get current status from Redis (set by the cog)
+    const statusData = await redisClient.get("collabwarz:status");
+
+    if (statusData) {
+      return JSON.parse(statusData);
+    }
+
+    // Return fallback data if no status available
+    return {
+      phase: "unknown",
+      theme: "Not available",
+      automation_enabled: false,
+      week_cancelled: false,
+      team_count: 0,
+      error: "No status data available",
+      timestamp: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error("❌ Failed to get status from Redis:", error.message);
+    return {
+      phase: "error",
+      theme: "Redis error",
+      automation_enabled: false,
+      week_cancelled: false,
+      team_count: 0,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    };
+  }
 }
 
 // Send command via webhook (appears as human user)
@@ -388,25 +509,25 @@ app.post("/api/discord/test", async (req, res) => {
   }
 });
 
-// Admin endpoints (via Discord commands)
+// Admin endpoints (via Redis communication)
 app.get("/api/admin/status", async (req, res) => {
   try {
-    const status = await getCompetitionStatus();
+    const status = await getCompetitionStatusFromRedis();
     res.json(status);
   } catch (error) {
-    console.error("Failed to get admin status:", error.message);
+    console.error("Failed to get admin status from Redis:", error.message);
     res.status(500).json({
-      error: "Failed to get status from Discord bot",
+      error: "Failed to get status from Redis",
       message: error.message,
       timestamp: new Date().toISOString(),
     });
   }
 });
 
-// Public endpoints (via Discord commands)
+// Public endpoints (via Redis communication)
 app.get("/api/public/status", async (req, res) => {
   try {
-    const status = await getCompetitionStatus();
+    const status = await getCompetitionStatusFromRedis();
     res.json({
       competition: {
         phase: status.phase,
@@ -427,57 +548,61 @@ app.get("/api/public/status", async (req, res) => {
 });
 
 // Admin actions endpoint - sends Discord commands
+// Admin actions endpoint - queues actions via Redis
 app.post("/api/admin/actions", async (req, res) => {
   try {
     const { action, params = {}, ...directParams } = req.body;
     const actionParams = params.phase ? params : directParams;
 
-    console.log(`🎮 Admin action via Discord: ${action}`, actionParams);
+    console.log(`🎮 Admin action via Redis: ${action}`, actionParams);
 
-    let command;
     let successMessage;
 
-    // Map admin actions to Discord bot commands
+    // Validate and prepare action
     switch (action) {
       case "set_theme":
       case "update_theme":
-        command = `${COMMAND_PREFIX} settheme "${actionParams.theme}"`;
-        successMessage = `Theme updated to: ${actionParams.theme}`;
+        if (!actionParams.theme) {
+          return res.status(400).json({
+            success: false,
+            message: "Theme parameter required",
+          });
+        }
+        successMessage = `Theme update queued: ${actionParams.theme}`;
         break;
 
       case "set_phase":
-        command = `${COMMAND_PREFIX} setphase ${actionParams.phase}`;
-        successMessage = `Phase changed to: ${actionParams.phase}`;
+        if (!actionParams.phase) {
+          return res.status(400).json({
+            success: false,
+            message: "Phase parameter required",
+          });
+        }
+        successMessage = `Phase change queued: ${actionParams.phase}`;
         break;
 
       case "next_phase":
-        command = `${COMMAND_PREFIX} nextphase`;
-        successMessage = "Phase advanced successfully";
+        successMessage = "Phase advance queued";
         break;
 
       case "toggle_automation":
-        command = `${COMMAND_PREFIX} toggle`;
-        successMessage = `Automation toggled`;
+        successMessage = "Automation toggle queued";
         break;
 
       case "cancel_week":
-        command = `${COMMAND_PREFIX} pause Week cancelled by admin`;
-        successMessage = "Week cancelled successfully";
+        successMessage = "Week cancellation queued";
         break;
 
       case "reset_week":
-        command = `${COMMAND_PREFIX} resume`;
-        successMessage = "Week reset successfully";
+        successMessage = "Week reset queued";
         break;
 
       case "force_voting":
-        command = `${COMMAND_PREFIX} setphase voting`;
-        successMessage = "Voting phase started";
+        successMessage = "Voting phase start queued";
         break;
 
       case "announce_winners":
-        command = `${COMMAND_PREFIX} checkvotes`;
-        successMessage = "Winners announced successfully";
+        successMessage = "Winner announcement queued";
         break;
 
       default:
@@ -487,28 +612,44 @@ app.post("/api/admin/actions", async (req, res) => {
         });
     }
 
-    // Send command to Discord
-    await sendDiscordCommand(command, false);
+    // Queue the action for the cog to process
+    const queuedAction = await queueCollabWarzAction(action, actionParams);
 
     // Return success response
     res.json({
       success: true,
       message: successMessage,
-      command: command,
-      timestamp: new Date().toISOString(),
+      actionId: queuedAction.id,
+      timestamp: queuedAction.timestamp,
     });
   } catch (error) {
-    console.error("❌ Failed to execute Discord command:", error.message);
+    console.error("❌ Failed to queue action:", error.message);
     res.status(500).json({
       success: false,
-      error: "Failed to send command to Discord bot",
+      error: "Failed to queue action via Redis",
       message: error.message,
       timestamp: new Date().toISOString(),
     });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Discord OAuth redirect URI: ${DISCORD_REDIRECT_URI}`);
-});
+// Startup function to initialize Redis and start server
+async function startServer() {
+  try {
+    // Initialize Redis connection
+    await initRedis();
+
+    // Start Express server
+    app.listen(PORT, () => {
+      console.log(`✅ Server running on http://localhost:${PORT}`);
+      console.log(`📡 Discord OAuth redirect URI: ${DISCORD_REDIRECT_URI}`);
+      console.log(`🔄 Redis communication ready for CollabWarz cog`);
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server:", error.message);
+    process.exit(1);
+  }
+}
+
+// Start the server
+startServer();

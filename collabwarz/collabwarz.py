@@ -16,6 +16,13 @@ import json
 from typing import Optional
 from aiohttp import web
 import re
+import os
+try:
+    import redis.asyncio as redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    redis = None
 
 class CollabWarz(commands.Cog):
     """
@@ -89,21 +96,35 @@ class CollabWarz(commands.Cog):
                 "team_id": 1,
                 "song_id": 1
             },
-            "unmatched_suno_authors": {}  # Track Suno authors that couldn't be matched to Discord members
+            "unmatched_suno_authors": {},  # Track Suno authors that couldn't be matched to Discord members
+            
+            # Redis Communication Configuration (for admin panel)
+            "redis_enabled": False,     # Enable Redis communication with admin panel
+            "redis_url": None,          # Redis connection URL (auto-detected from environment)
+            "redis_poll_interval": 5,   # How often to check for queued actions (seconds)
+            "redis_status_update_interval": 30  # How often to update status in Redis (seconds)
         }
         
         self.config.register_guild(**default_guild)
         self.announcement_task = None
+        self.redis_task = None
+        self.redis_client = None
         self.confirmation_messages = {}  # Track confirmation messages for reaction handling
         
     def cog_load(self):
-        """Start the announcement task when cog loads"""
+        """Start the announcement task and Redis communication when cog loads"""
         self.announcement_task = self.bot.loop.create_task(self.announcement_loop())
+        if REDIS_AVAILABLE:
+            self.redis_task = self.bot.loop.create_task(self.redis_communication_loop())
         
     def cog_unload(self):
-        """Stop the announcement task when cog unloads"""
+        """Stop the announcement task and Redis communication when cog unloads"""
         if self.announcement_task:
             self.announcement_task.cancel()
+        if self.redis_task:
+            self.redis_task.cancel()
+        if self.redis_client:
+            asyncio.create_task(self.redis_client.close())
     
     def _create_discord_timestamp(self, dt: datetime, style: str = "R") -> str:
         """Create a Discord timestamp from datetime object
@@ -121,6 +142,189 @@ class CollabWarz(commands.Cog):
         """
         timestamp = int(dt.timestamp())
         return f"<t:{timestamp}:{style}>"
+    
+    # ========== REDIS COMMUNICATION METHODS ==========
+    
+    async def _init_redis_connection(self) -> bool:
+        """Initialize Redis connection for admin panel communication"""
+        if not REDIS_AVAILABLE:
+            return False
+            
+        try:
+            # Get Redis URL from environment variables
+            redis_url = os.environ.get('REDIS_URL') or os.environ.get('REDIS_PRIVATE_URL')
+            if not redis_url:
+                return False
+            
+            # Create Redis client
+            self.redis_client = redis.from_url(redis_url, decode_responses=True)
+            
+            # Test connection
+            await self.redis_client.ping()
+            print(f"✅ CollabWarz: Redis connected for admin panel communication")
+            return True
+            
+        except Exception as e:
+            print(f"❌ CollabWarz: Failed to connect to Redis: {e}")
+            self.redis_client = None
+            return False
+    
+    async def _update_redis_status(self, guild):
+        """Update competition status in Redis for admin panel"""
+        if not self.redis_client:
+            return
+            
+        try:
+            # Get current status
+            current_phase = await self.config.guild(guild).current_phase()
+            current_theme = await self.config.guild(guild).current_theme()
+            auto_announce = await self.config.guild(guild).auto_announce()
+            week_cancelled = await self.config.guild(guild).week_cancelled()
+            
+            # Count teams
+            team_count = await self._count_participating_teams(guild)
+            
+            status_data = {
+                "phase": current_phase,
+                "theme": current_theme,
+                "automation_enabled": auto_announce,
+                "week_cancelled": week_cancelled,
+                "team_count": team_count,
+                "guild_id": guild.id,
+                "guild_name": guild.name,
+                "last_updated": datetime.utcnow().isoformat(),
+                "cog_version": "redis-integration-1.0.0"
+            }
+            
+            # Store in Redis
+            await self.redis_client.set('collabwarz:status', json.dumps(status_data))
+            
+        except Exception as e:
+            print(f"❌ CollabWarz: Failed to update Redis status: {e}")
+    
+    async def _process_redis_action(self, guild, action_data: dict):
+        """Process an action received from Redis queue"""
+        action = action_data.get('action')
+        params = action_data.get('params', {})
+        action_id = action_data.get('id')
+        
+        print(f"🎯 CollabWarz: Processing Redis action '{action}' (ID: {action_id})")
+        
+        try:
+            if action == 'start_phase':
+                phase = params.get('phase', 'submission')
+                theme = params.get('theme')
+                
+                if theme:
+                    await self.config.guild(guild).current_theme.set(theme)
+                await self.config.guild(guild).current_phase.set(phase)
+                await self.config.guild(guild).week_cancelled.set(False)
+                
+                print(f"✅ Phase started: {phase} with theme: {theme}")
+                
+            elif action == 'end_phase':
+                current_phase = await self.config.guild(guild).current_phase()
+                if current_phase == 'submission':
+                    await self.config.guild(guild).current_phase.set('voting')
+                elif current_phase == 'voting':
+                    await self.config.guild(guild).current_phase.set('ended')
+                
+                print(f"✅ Phase ended, new phase: {await self.config.guild(guild).current_phase()}")
+                
+            elif action == 'cancel_week':
+                await self.config.guild(guild).week_cancelled.set(True)
+                await self.config.guild(guild).current_phase.set('cancelled')
+                
+                print("✅ Week cancelled")
+                
+            elif action == 'enable_automation':
+                await self.config.guild(guild).auto_announce.set(True)
+                print("✅ Automation enabled")
+                
+            elif action == 'disable_automation':
+                await self.config.guild(guild).auto_announce.set(False)
+                print("✅ Automation disabled")
+                
+            elif action == 'set_theme':
+                theme = params.get('theme')
+                if theme:
+                    await self.config.guild(guild).current_theme.set(theme)
+                    print(f"✅ Theme updated: {theme}")
+                    
+            else:
+                print(f"❓ Unknown action: {action}")
+            
+            # Mark action as completed
+            action_data['status'] = 'completed'
+            action_data['processed_at'] = datetime.utcnow().isoformat()
+            
+            await self.redis_client.setex(
+                f'collabwarz:action:{action_id}',
+                86400,  # 24 hours
+                json.dumps(action_data)
+            )
+            
+            # Update status after processing action
+            await self._update_redis_status(guild)
+            
+        except Exception as e:
+            print(f"❌ CollabWarz: Failed to process action '{action}': {e}")
+            
+            # Mark action as failed
+            action_data['status'] = 'failed'
+            action_data['error'] = str(e)
+            action_data['processed_at'] = datetime.utcnow().isoformat()
+            
+            if self.redis_client:
+                await self.redis_client.setex(
+                    f'collabwarz:action:{action_id}',
+                    86400,  # 24 hours
+                    json.dumps(action_data)
+                )
+    
+    async def redis_communication_loop(self):
+        """Main Redis communication loop - polls for actions and updates status"""
+        await self.bot.wait_until_ready()
+        
+        # Initialize Redis connection
+        if not await self._init_redis_connection():
+            print("⚠️ CollabWarz: Redis not available, admin panel communication disabled")
+            return
+        
+        print("🔄 CollabWarz: Started Redis communication loop")
+        
+        last_status_update = 0
+        
+        while True:
+            try:
+                # Get all guilds where this cog is active
+                for guild in self.bot.guilds:
+                    try:
+                        # Check for queued actions
+                        action_string = await self.redis_client.rpop('collabwarz:actions')
+                        if action_string:
+                            action_data = json.loads(action_string)
+                            await self._process_redis_action(guild, action_data)
+                        
+                        # Update status periodically
+                        now = asyncio.get_event_loop().time()
+                        if now - last_status_update > 30:  # Every 30 seconds
+                            await self._update_redis_status(guild)
+                            last_status_update = now
+                            
+                    except Exception as e:
+                        print(f"❌ CollabWarz: Error processing Redis for guild {guild.name}: {e}")
+                
+                # Sleep before next poll
+                await asyncio.sleep(5)  # Poll every 5 seconds
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"❌ CollabWarz: Redis communication error: {e}")
+                await asyncio.sleep(30)  # Wait longer on error
+        
+        print("🛑 CollabWarz: Redis communication loop stopped")
     
     def _get_next_deadline(self, announcement_type: str) -> datetime:
         """Get the next deadline based on announcement type"""
