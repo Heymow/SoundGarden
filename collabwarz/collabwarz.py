@@ -622,16 +622,14 @@ class CollabWarz(commands.Cog):
                             try:
                                 status_data = await self._update_redis_status(guild)
                                 # If we have status data and backend configured, post it.
-                                # Use a dedicated temporary session for status POST to avoid 'Session is closed' issues
                                 if status_data and backend_url and backend_token:
                                     status_url = backend_url.rstrip('/') + '/api/collabwarz/status'
                                     try:
                                         headers = { 'X-CW-Token': backend_token }
                                         print(f"🔁 CollabWarz: Posting status to backend for {guild.name}")
-                                        async with aiohttp.ClientSession() as status_session:
-                                            async with status_session.post(status_url, json=status_data, headers=headers, timeout=10) as sresp:
-                                                if sresp.status != 200:
-                                                    print(f"⚠️ CollabWarz: Failed to export status to backend (HTTP {sresp.status})")
+                                        async with session.post(status_url, json=status_data, headers=headers, timeout=10) as sresp:
+                                            if sresp.status != 200:
+                                                print(f"⚠️ CollabWarz: Failed to export status to backend (HTTP {sresp.status})")
                                     except Exception as ee:
                                         print(f"❌ CollabWarz: Error exporting status to backend: {ee}")
                                         print(traceback.format_exc())
