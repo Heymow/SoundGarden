@@ -103,11 +103,17 @@ class CollabWarz(commands.Cog):
             "redis_url": None,          # Redis connection URL (auto-detected from environment)
             "redis_poll_interval": 5,   # How often to check for queued actions (seconds)
             "redis_status_update_interval": 30  # How often to update status in Redis (seconds)
+            ,
+            # Backend polling configuration (use backend API instead of direct Redis)
+            "backend_url": None,        # Backend base URL for collabwarz API
+            "backend_token": None,      # Shared secret token for cog<->backend auth
+            "backend_poll_interval": 10 # Poll interval in seconds when using backend
         }
         
         self.config.register_guild(**default_guild)
         self.announcement_task = None
         self.redis_task = None
+        self.backend_task = None
         self.redis_client = None
         self.confirmation_messages = {}  # Track confirmation messages for reaction handling
         
@@ -116,6 +122,8 @@ class CollabWarz(commands.Cog):
         self.announcement_task = self.bot.loop.create_task(self.announcement_loop())
         if REDIS_AVAILABLE:
             self.redis_task = self.bot.loop.create_task(self.redis_communication_loop())
+        # Start backend polling loop (it will early-return if not configured)
+        self.backend_task = self.bot.loop.create_task(self.backend_communication_loop())
         
     def cog_unload(self):
         """Stop the announcement task and Redis communication when cog unloads"""
@@ -145,25 +153,55 @@ class CollabWarz(commands.Cog):
     
     # ========== REDIS COMMUNICATION METHODS ==========
     
-    async def _init_redis_connection(self) -> bool:
-        """Initialize Redis connection for admin panel communication"""
+    async def _init_redis_connection(self, guild_for_config=None) -> bool:
+        """Initialize Redis connection for admin panel communication.
+
+        Tries in this order:
+        1. Explicit `redis_url` passed in `guild_for_config` (if provided)
+        2. Environment variables `REDIS_URL` or `REDIS_PRIVATE_URL`
+        3. Any guild config that has `redis_enabled` True and a `redis_url` value
+
+        This allows setting the Redis URL at runtime via the cog config (no restart required).
+        """
         if not REDIS_AVAILABLE:
             return False
-            
+
         try:
-            # Get Redis URL from environment variables
-            redis_url = os.environ.get('REDIS_URL') or os.environ.get('REDIS_PRIVATE_URL')
+            # 1) If a specific guild requested a URL, try it first
+            redis_url = None
+            if guild_for_config:
+                try:
+                    redis_url = await self.config.guild(guild_for_config).redis_url()
+                except Exception:
+                    redis_url = None
+
+            # 2) Environment variables (global, highest priority if present)
+            if not redis_url:
+                redis_url = os.environ.get('REDIS_URL') or os.environ.get('REDIS_PRIVATE_URL')
+
+            # 3) Fallback: look for any guild config that enabled redis and supplied a URL
+            if not redis_url:
+                for g in self.bot.guilds:
+                    try:
+                        enabled = await self.config.guild(g).redis_enabled()
+                        url = await self.config.guild(g).redis_url()
+                        if enabled and url:
+                            redis_url = url
+                            break
+                    except Exception:
+                        continue
+
             if not redis_url:
                 return False
-            
+
             # Create Redis client
             self.redis_client = redis.from_url(redis_url, decode_responses=True)
-            
+
             # Test connection
             await self.redis_client.ping()
-            print(f"✅ CollabWarz: Redis connected for admin panel communication")
+            print(f"✅ CollabWarz: Redis connected for admin panel communication ({redis_url})")
             return True
-            
+
         except Exception as e:
             print(f"❌ CollabWarz: Failed to connect to Redis: {e}")
             self.redis_client = None
@@ -325,6 +363,255 @@ class CollabWarz(commands.Cog):
                 await asyncio.sleep(30)  # Wait longer on error
         
         print("🛑 CollabWarz: Redis communication loop stopped")
+
+    async def backend_communication_loop(self):
+        """Poll the external backend for actions when configured.
+
+        This allows the cog to operate without direct Redis access by polling
+        the backend on Instance 2 for queued actions.
+        """
+        await self.bot.wait_until_ready()
+
+        print("🔁 CollabWarz: Backend communication loop starting (polling backend API)")
+
+        while True:
+            try:
+                for guild in self.bot.guilds:
+                    try:
+                        backend_url = await self.config.guild(guild).backend_url()
+                        backend_token = await self.config.guild(guild).backend_token()
+                        poll_interval = await self.config.guild(guild).backend_poll_interval()
+
+                        if not backend_url or not backend_token:
+                            # Not configured for this guild
+                            continue
+
+                        # Build request
+                        next_url = backend_url.rstrip("/") + "/api/collabwarz/next-action"
+
+                        async with aiohttp.ClientSession() as session:
+                            try:
+                                headers = {"X-CW-Token": backend_token}
+                                async with session.get(next_url, headers=headers, timeout=10) as resp:
+                                    if resp.status == 204:
+                                        # No action available
+                                        pass
+                                    elif resp.status == 200:
+                                        body = await resp.json()
+                                        action = body.get("action")
+                                        if action:
+                                            # Process action locally
+                                            await self._process_redis_action(guild, action)
+
+                                            # Report result back to backend
+                                            result_url = backend_url.rstrip("/") + "/api/collabwarz/action-result"
+                                            result_payload = {
+                                                "id": action.get("id"),
+                                                "status": "completed",
+                                                "details": {"processed_by": "collabwarz_cog"},
+                                            }
+                                            try:
+                                                async with session.post(result_url, json=result_payload, headers=headers, timeout=10) as presp:
+                                                    if presp.status != 200:
+                                                        print(f"⚠️ CollabWarz: Backend result post returned {presp.status}")
+                                            except Exception as e:
+                                                print(f"❌ CollabWarz: Failed posting result to backend: {e}")
+                                    else:
+                                        print(f"❌ CollabWarz: Unexpected backend response: {resp.status}")
+                            except asyncio.TimeoutError:
+                                print("⚠️ CollabWarz: Backend poll timed out")
+                            except Exception as e:
+                                print(f"❌ CollabWarz: Error polling backend: {e}")
+
+                        # Sleep according to guild poll interval
+                        await asyncio.sleep(poll_interval or 10)
+
+                    except Exception as e:
+                        print(f"❌ CollabWarz: Error in backend loop for guild {guild.name}: {e}")
+                        continue
+
+                # Short sleep between full guild iterations
+                await asyncio.sleep(1)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"❌ CollabWarz: Backend communication loop error: {e}")
+                await asyncio.sleep(10)
+
+        print("🛑 CollabWarz: Backend communication loop stopped")
+
+    # ========== RUNTIME REDIS MANAGEMENT COMMANDS ==========
+
+    @commands.group()
+    @checks.is_owner()
+    async def redis(self, ctx: commands.Context):
+        """Manage Redis configuration for the admin panel (owner-only)."""
+        if not ctx.invoked_subcommand:
+            await ctx.send("Available subcommands: `seturl <url>`, `enable`, `disable`, `status`")
+
+    @redis.command(name="seturl")
+    async def redis_seturl(self, ctx: commands.Context, url: str):
+        """Set the Redis URL for this guild and start Redis communication immediately."""
+        if not ctx.guild:
+            await ctx.send("This command must be run in a guild.")
+            return
+
+        await self.config.guild(ctx.guild).redis_url.set(url)
+        await self.config.guild(ctx.guild).redis_enabled.set(True)
+
+        # Restart the redis task if running
+        if self.redis_task:
+            try:
+                self.redis_task.cancel()
+            except Exception:
+                pass
+            self.redis_task = None
+
+        # Start a new loop that will pick up the guild-specific URL
+        self.redis_task = self.bot.loop.create_task(self.redis_communication_loop())
+        await ctx.send("✅ Redis URL saved and Redis communication started (guild-level).")
+
+    @redis.command(name="enable")
+    async def redis_enable(self, ctx: commands.Context):
+        """Enable Redis communication for this guild."""
+        if not ctx.guild:
+            await ctx.send("This command must be run in a guild.")
+            return
+
+        await self.config.guild(ctx.guild).redis_enabled.set(True)
+        if not self.redis_task:
+            self.redis_task = self.bot.loop.create_task(self.redis_communication_loop())
+        await ctx.send("✅ Redis communication enabled for this guild.")
+
+    @redis.command(name="disable")
+    async def redis_disable(self, ctx: commands.Context):
+        """Disable Redis communication for this guild."""
+        if not ctx.guild:
+            await ctx.send("This command must be run in a guild.")
+            return
+
+        await self.config.guild(ctx.guild).redis_enabled.set(False)
+        if self.redis_task:
+            try:
+                self.redis_task.cancel()
+            except Exception:
+                pass
+            self.redis_task = None
+        await ctx.send("✅ Redis communication disabled for this guild.")
+
+    @redis.command(name="status")
+    async def redis_status(self, ctx: commands.Context):
+        """Show Redis configuration/status for this guild."""
+        if not ctx.guild:
+            await ctx.send("This command must be run in a guild.")
+            return
+
+        enabled = await self.config.guild(ctx.guild).redis_enabled()
+        url = await self.config.guild(ctx.guild).redis_url()
+        client_connected = bool(self.redis_client)
+
+        msg = (
+            f"Redis enabled (guild): {enabled}\n"
+            f"Redis URL (guild): {url or '(not set)'}\n"
+            f"Redis library available: {REDIS_AVAILABLE}\n"
+            f"Redis client connected: {client_connected}"
+        )
+        await ctx.send(f"``\n{msg}\n``")
+
+    @redis.command(name="ping")
+    async def redis_ping(self, ctx: commands.Context):
+        """Ping the Redis server to verify connectivity."""
+        if not REDIS_AVAILABLE:
+            await ctx.send("⚠️ Le paquet Python `redis` n'est pas installé sur cette instance.")
+            return
+
+        # Ensure we have a client (try to initialize using guild config)
+        if not self.redis_client:
+            ok = await self._init_redis_connection(ctx.guild)
+            if not ok:
+                await ctx.send("❌ Impossible de se connecter à Redis (pas d'URL trouvée ou échec de connexion).")
+                return
+
+        try:
+            pong = await self.redis_client.ping()
+            await ctx.send(f"✅ Redis ping réussi: {pong}")
+        except Exception as e:
+            await ctx.send(f"❌ Erreur lors du ping Redis: {e}")
+
+    # ========== BACKEND (Instance 2) CONFIGURATION COMMANDS ==========
+
+    @commands.group()
+    @checks.is_owner()
+    async def backend(self, ctx: commands.Context):
+        """Manage backend API configuration for collabwarz (owner-only)."""
+        if not ctx.invoked_subcommand:
+            await ctx.send("Available subcommands: `set <url> <token>`, `status`, `disable`")
+
+    @backend.command(name="set")
+    async def backend_set(self, ctx: commands.Context, url: str, token: str):
+        """Configure backend URL and shared token for cog polling."""
+        if not ctx.guild:
+            await ctx.send("This command must be run in a guild.")
+            return
+
+        await self.config.guild(ctx.guild).backend_url.set(url)
+        await self.config.guild(ctx.guild).backend_token.set(token)
+        await self.config.guild(ctx.guild).backend_poll_interval.set(10)
+
+        # Restart backend task to pick up new config
+        if self.backend_task:
+            try:
+                self.backend_task.cancel()
+            except Exception:
+                pass
+            self.backend_task = None
+
+        self.backend_task = self.bot.loop.create_task(self.backend_communication_loop())
+        await ctx.send("✅ Backend configuration saved and polling started for this guild.")
+
+    @backend.command(name="disable")
+    async def backend_disable(self, ctx: commands.Context):
+        """Disable backend polling for this guild."""
+        if not ctx.guild:
+            await ctx.send("This command must be run in a guild.")
+            return
+
+        await self.config.guild(ctx.guild).backend_url.set(None)
+        await self.config.guild(ctx.guild).backend_token.set(None)
+
+        # Cancel backend task if running
+        if self.backend_task:
+            try:
+                self.backend_task.cancel()
+            except Exception:
+                pass
+            self.backend_task = None
+
+        await ctx.send("✅ Backend polling disabled for this guild.")
+
+    @backend.command(name="status")
+    async def backend_status(self, ctx: commands.Context):
+        """Show backend configuration/status for this guild."""
+        if not ctx.guild:
+            await ctx.send("This command must be run in a guild.")
+            return
+
+        url = await self.config.guild(ctx.guild).backend_url()
+        token = await self.config.guild(ctx.guild).backend_token()
+        poll_interval = await self.config.guild(ctx.guild).backend_poll_interval()
+        running = bool(self.backend_task)
+
+        token_display = (token[:6] + "..." ) if token else "(not set)"
+
+        msg = (
+            f"Backend URL: {url or '(not set)'}\n"
+            f"Backend token: {token_display}\n"
+            f"Poll interval: {poll_interval}s\n"
+            f"Backend task running: {running}"
+        )
+
+        await ctx.send(f"``\n{msg}\n``")
     
     def _get_next_deadline(self, announcement_type: str) -> datetime:
         """Get the next deadline based on announcement type"""

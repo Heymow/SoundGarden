@@ -30,6 +30,9 @@ const REDIS_URL =
   process.env.REDIS_PRIVATE_URL ||
   "redis://localhost:6379";
 
+// Shared secret for cog <-> backend auth (used by collabwarz cog)
+const COLLABWARZ_TOKEN = process.env.COLLABWARZ_TOKEN || null;
+
 console.log(`Discord Guild ID: ${DISCORD_GUILD_ID}`);
 console.log(`Admin Channel ID: ${DISCORD_ADMIN_CHANNEL_ID}`);
 console.log(`Bot Token configured: ${DISCORD_BOT_TOKEN ? "Yes" : "No"}`);
@@ -521,6 +524,85 @@ app.get("/api/admin/status", async (req, res) => {
       message: error.message,
       timestamp: new Date().toISOString(),
     });
+  }
+});
+
+// Simple middleware for cog auth
+function validateCogAuth(req, res) {
+  const header = req.header("x-cw-token") || req.header("X-CW-Token");
+  if (!COLLABWARZ_TOKEN) {
+    // If not configured, reject to avoid accidental exposure
+    return {
+      ok: false,
+      message: "Server not configured with COLLABWARZ_TOKEN",
+    };
+  }
+  if (!header || header !== COLLABWARZ_TOKEN) {
+    return { ok: false, message: "Invalid or missing X-CW-Token header" };
+  }
+  return { ok: true };
+}
+
+// Endpoint used by the cog to poll for the next action
+app.get("/api/collabwarz/next-action", async (req, res) => {
+  try {
+    const auth = validateCogAuth(req, res);
+    if (!auth.ok) {
+      return res.status(401).json({ success: false, message: auth.message });
+    }
+
+    if (!redisClient) {
+      return res.status(204).send();
+    }
+
+    const actionString = await redisClient.rPop("collabwarz:actions");
+    if (!actionString) {
+      return res.status(204).send();
+    }
+
+    const actionData = JSON.parse(actionString);
+    return res.json({ success: true, action: actionData });
+  } catch (error) {
+    console.error("❌ /api/collabwarz/next-action error:", error.message);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Endpoint used by the cog to post processing results
+app.post("/api/collabwarz/action-result", async (req, res) => {
+  try {
+    const auth = validateCogAuth(req, res);
+    if (!auth.ok) {
+      return res.status(401).json({ success: false, message: auth.message });
+    }
+
+    const { id, status, details } = req.body || {};
+    if (!id || !status) {
+      return res
+        .status(400)
+        .json({ success: false, message: "id and status are required" });
+    }
+
+    const resultData = {
+      id,
+      status,
+      details: details || null,
+      processed_at: new Date().toISOString(),
+    };
+
+    // Store a short-lived record for inspection
+    if (redisClient) {
+      await redisClient.setEx(
+        `collabwarz:action:${id}`,
+        86400,
+        JSON.stringify(resultData)
+      );
+    }
+
+    return res.json({ success: true, stored: !!redisClient });
+  } catch (error) {
+    console.error("❌ /api/collabwarz/action-result error:", error.message);
+    return res.status(500).json({ success: false, message: error.message });
   }
 });
 
