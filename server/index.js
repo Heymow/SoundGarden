@@ -16,6 +16,13 @@ const DISCORD_REDIRECT_URI =
   "http://localhost:3001/auth/discord/callback";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
+// Bot API Configuration (internal Railway communication)
+// Railway services can communicate internally via service names or internal URLs
+const BOT_API_URL = process.env.BOT_INTERNAL_URL || "https://worker-production-31cd.up.railway.app";
+const BOT_API_TOKEN = process.env.BOT_ADMIN_TOKEN; // JWT token for bot authentication
+
+console.log(`Bot API URL: ${BOT_API_URL}`);
+
 app.use(
   cors({
     origin: FRONTEND_URL,
@@ -111,18 +118,42 @@ app.get("/api/user", (req, res) => {
 });
 
 // ========== COLLABWARZ API ENDPOINTS ==========
-// These endpoints proxy/simulate the bot's CollabWarz API
+// These endpoints communicate with the Discord bot internally
 
-// In-memory storage for competition state (persists until server restart)
-let competitionState = {
-  phase: "submission",
-  theme: "Cosmic Dreams",
-  automation_enabled: true,
-  week_cancelled: false,
-  team_count: 0,
-  voting_results: {},
-  next_phase_change: null
-};
+// Helper function to call bot API with authentication
+async function callBotAPI(endpoint, options = {}) {
+  const url = `${BOT_API_URL}${endpoint}`;
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers
+  };
+
+  // Add bot authentication token if available
+  if (BOT_API_TOKEN) {
+    headers['Authorization'] = `Bearer ${BOT_API_TOKEN}`;
+  }
+
+  console.log(`🤖 Calling bot API: ${options.method || 'GET'} ${url}`);
+
+  try {
+    const response = await axios({
+      url,
+      method: options.method || 'GET',
+      data: options.data,
+      headers,
+      timeout: 10000
+    });
+
+    console.log(`✅ Bot API response: ${response.status}`);
+    return response.data;
+  } catch (error) {
+    console.error(`❌ Bot API error: ${error.message}`);
+    if (error.response) {
+      console.error(`Bot response: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
+    }
+    throw new Error(`Bot API communication failed: ${error.message}`);
+  }
+}
 
 // Test endpoints
 app.get("/api/ping", (req, res) => {
@@ -133,130 +164,70 @@ app.get("/api/test", (req, res) => {
   res.json({ status: "success", message: "Test endpoint works" });
 });
 
-// Admin endpoints (using persisted state)
-app.get("/api/admin/status", (req, res) => {
-  res.json({
-    ...competitionState,
-    timestamp: new Date().toISOString(),
-  });
+// Admin endpoints (communicating with bot)
+app.get("/api/admin/status", async (req, res) => {
+  try {
+    // Forward auth header to bot
+    const botResponse = await callBotAPI('/api/admin/status', {
+      headers: {
+        'Authorization': req.headers.authorization
+      }
+    });
+    res.json(botResponse);
+  } catch (error) {
+    console.error('Failed to get admin status from bot:', error.message);
+    // Fallback response if bot is unavailable
+    res.status(503).json({
+      error: 'Bot API unavailable',
+      message: 'Cannot connect to Discord bot',
+      fallback: true
+    });
+  }
 });
 
-// Public endpoints (using persisted state)
-app.get("/api/public/status", (req, res) => {
-  res.json({
-    competition: {
-      phase: competitionState.phase,
-      theme: competitionState.theme,
-      week_cancelled: competitionState.week_cancelled,
-      team_count: competitionState.team_count,
-    },
-    timestamp: new Date().toISOString(),
-  });
+// Public endpoints (communicating with bot)
+app.get("/api/public/status", async (req, res) => {
+  try {
+    const botResponse = await callBotAPI('/api/public/status');
+    res.json(botResponse);
+  } catch (error) {
+    console.error('Failed to get public status from bot:', error.message);
+    // Fallback response if bot is unavailable
+    res.status(503).json({
+      error: 'Bot API unavailable',
+      message: 'Cannot connect to Discord bot',
+      fallback: true
+    });
+  }
 });
 
-// Admin actions endpoint
-app.post("/api/admin/actions", (req, res) => {
-  const { action, params, ...directParams } = req.body;
+// Admin actions endpoint - communicates with bot
+app.post("/api/admin/actions", async (req, res) => {
+  try {
+    console.log(`🎮 Admin action request:`, req.body);
+    
+    // Forward the action to the bot with authentication
+    const botResponse = await callBotAPI('/api/admin/actions', {
+      method: 'POST',
+      data: req.body,
+      headers: {
+        'Authorization': req.headers.authorization
+      }
+    });
 
-  // Support both formats: { action, params: { ... } } and { action, ... }
-  const actionParams = params || directParams;
+    console.log(`✅ Bot executed action successfully:`, botResponse);
+    res.json(botResponse);
 
-  console.log(`Admin action received: ${action}`, actionParams);
-
-  // Mock responses for different actions
-  switch (action) {
-    case "update_theme":
-    case "set_theme":
-      // Update the persisted state
-      competitionState.theme = actionParams.theme;
-      res.json({
-        success: true,
-        message: `Theme updated to: ${actionParams.theme}`,
-        data: { theme: actionParams.theme },
-      });
-      break;
-
-    case "next_phase":
-      // Cycle through phases: submission -> voting -> paused -> ended -> submission
-      const phases = ["submission", "voting", "paused", "ended"];
-      const currentIndex = phases.indexOf(competitionState.phase);
-      const nextPhase = phases[(currentIndex + 1) % phases.length];
-      
-      // Update the persisted state
-      competitionState.phase = nextPhase;
-      res.json({
-        success: true,
-        message: `Phase advanced to: ${nextPhase}`,
-        data: { phase: nextPhase },
-      });
-      break;
-
-    case "set_phase":
-      // Update the persisted state
-      competitionState.phase = actionParams.phase;
-      res.json({
-        success: true,
-        message: `Phase changed to: ${actionParams.phase}`,
-        data: { phase: actionParams.phase },
-      });
-      break;
-
-    case "toggle_automation":
-      // Update the persisted state
-      competitionState.automation_enabled = actionParams.enabled;
-      res.json({
-        success: true,
-        message: `Automation ${actionParams.enabled ? "enabled" : "disabled"}`,
-        data: { automation_enabled: actionParams.enabled },
-      });
-      break;
-
-    case "cancel_week":
-      // Update the persisted state
-      competitionState.week_cancelled = true;
-      res.json({
-        success: true,
-        message: "Week cancelled successfully",
-        data: { week_cancelled: true },
-      });
-      break;
-
-    case "reset_week":
-      // Update the persisted state
-      competitionState.week_cancelled = false;
-      competitionState.phase = "submission";
-      res.json({
-        success: true,
-        message: "Week reset successfully",
-        data: { week_cancelled: false, phase: "submission" },
-      });
-      break;
-
-    case "force_voting":
-      // Update the persisted state
-      competitionState.phase = "voting";
-      res.json({
-        success: true,
-        message: "Voting phase started",
-        data: { phase: "voting" },
-      });
-      break;
-
-    case "announce_winners":
-      // Update the persisted state
-      competitionState.phase = "results";
-      res.json({
-        success: true,
-        message: "Winners announced successfully",
-        data: { phase: "results" },
-      });
-      break;
-
-    default:
-      res.status(400).json({
-        success: false,
-        message: `Unknown action: ${action}`,
-      });
+  } catch (error) {
+    console.error('❌ Failed to execute action via bot:', error.message);
+    
+    // Return a proper error response
+    res.status(500).json({
+      success: false,
+      error: 'Bot API communication failed',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
