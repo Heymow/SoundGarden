@@ -11,6 +11,9 @@ export default function TeamManagement() {
 
   useEffect(() => {
     loadSubmissions();
+    const handler = () => loadSubmissions();
+    window.addEventListener('admin:refresh', handler);
+    return () => window.removeEventListener('admin:refresh', handler);
   }, []);
 
   const loadSubmissions = async () => {
@@ -130,15 +133,15 @@ export default function TeamManagement() {
                     <div className="submission-meta">Submitted: {submission.submitted_at}</div>
                   </div>
                   <div className="submission-actions">
-                    <button 
-                      className="admin-btn-sm btn-success" 
+                    <button
+                      className="admin-btn-sm btn-success"
                       onClick={() => handleApproveSubmission(submission)}
                       disabled={loading}
                     >
                       ✓ Approve
                     </button>
-                    <button 
-                      className="admin-btn-sm btn-danger" 
+                    <button
+                      className="admin-btn-sm btn-danger"
                       onClick={() => handleRejectSubmission(submission)}
                       disabled={loading}
                     >

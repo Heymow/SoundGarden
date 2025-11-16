@@ -23,6 +23,11 @@ export default function AdminDashboard() {
     const qTimer = setInterval(() => { loadQueue(); }, 10000);
     return () => clearInterval(qTimer);
   }, []);
+  useEffect(() => {
+    const handler = () => { loadStats(); loadQueue(); };
+    window.addEventListener('admin:refresh', handler);
+    return () => window.removeEventListener('admin:refresh', handler);
+  }, [])
 
   const loadStats = async () => {
     try {
@@ -71,9 +76,13 @@ export default function AdminDashboard() {
     if (confirm("Are you sure you want to start a new week? This will create a new competition cycle.")) {
       setLoading(true);
       try {
-        await botApi.startNextWeek();
+        // Use the current theme if available; otherwise prompt the admin
+        const themeToUse = stats.currentTheme && stats.currentTheme !== 'Unknown Theme' ? stats.currentTheme : prompt('Enter a theme for the new week:');
+        if (!themeToUse) throw new Error('Theme required to start new week');
+        await botApi.startNextWeek(themeToUse);
         showSuccess("✅ New week started successfully!");
         await loadStats();
+        window.dispatchEvent(new Event('admin:refresh'));
       } catch (err) {
         showError(`❌ Failed to start new week: ${err.message}`);
       } finally {
@@ -97,6 +106,7 @@ export default function AdminDashboard() {
         await botApi.setPhase(nextPhase);
         showSuccess(`✅ Phase changed to: ${nextPhase}`);
         await loadStats();
+        window.dispatchEvent(new Event('admin:refresh'));
       } catch (err) {
         showError(`❌ Failed to change phase: ${err.message}`);
       } finally {
@@ -128,6 +138,7 @@ export default function AdminDashboard() {
         await botApi.announceWinners();
         showSuccess("🏆 Calculating results and announcing winner...");
         await loadStats();
+        window.dispatchEvent(new Event('admin:refresh'));
       } catch (err) {
         showError(`❌ Failed to announce winner: ${err.message}`);
       } finally {
@@ -233,6 +244,34 @@ export default function AdminDashboard() {
           <button className="admin-action-btn action-secondary" onClick={handleTestConnection}>
             <span className="action-icon">🔌</span>
             <span>Test Connection</span>
+          </button>
+          <button className="admin-action-btn action-danger" onClick={async () => {
+            if (!confirm('Clear all submissions for this week?')) return;
+            setLoading(true);
+            try {
+              await botApi.clearSubmissions();
+              showSuccess('✅ Submissions cleared');
+              window.dispatchEvent(new Event('admin:refresh'));
+            } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); }
+          }}>
+            <span className="action-icon">🧹</span>
+            <span>Clear Submissions</span>
+          </button>
+          <button className="admin-action-btn action-warning" onClick={async () => {
+            if (!confirm('Reset the current week state? This rolls back submissions/votes to zero.')) return;
+            setLoading(true);
+            try { await botApi.resetWeek(); showSuccess('✅ Week reset'); window.dispatchEvent(new Event('admin:refresh')); } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); }
+          }}>
+            <span className="action-icon">🔁</span>
+            <span>Reset Week</span>
+          </button>
+          <button className="admin-action-btn action-purple" onClick={async () => {
+            if (!confirm('Force the competition into voting phase now?')) return;
+            setLoading(true);
+            try { await botApi.forceVoting(); showSuccess('✅ Forced into voting'); window.dispatchEvent(new Event('admin:refresh')); } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); }
+          }}>
+            <span className="action-icon">⚡</span>
+            <span>Force Voting</span>
           </button>
         </div>
       </div>

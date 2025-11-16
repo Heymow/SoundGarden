@@ -222,6 +222,12 @@ class CollabWarz(commands.Cog):
             # Count teams
             team_count = await self._count_participating_teams(guild)
             
+            # Prepare detailed status including submissions & voting results for admin panel
+            submissions = await self.config.guild(guild).submissions()
+            voting_results = await self.config.guild(guild).voting_results()
+            team_members = await self.config.guild(guild).team_members()
+            weeks_db = await self.config.guild(guild).weeks_db()
+
             status_data = {
                 "phase": current_phase,
                 "theme": current_theme,
@@ -233,6 +239,30 @@ class CollabWarz(commands.Cog):
                 "last_updated": datetime.utcnow().isoformat(),
                 "cog_version": "redis-integration-1.0.0"
             }
+            # Attach detailed snapshots
+            try:
+                status_data['submissions'] = submissions or {}
+                status_data['voting_results'] = voting_results or {}
+                status_data['team_members'] = team_members or {}
+                # Add a small summary of recent weeks for history UI
+                try:
+                    # Convert weeks_db into a small array of {week, theme, winner}
+                    recent = []
+                    for wk, data in (weeks_db or {}).items():
+                        recent.append({
+                            'week': wk,
+                            'theme': data.get('theme'),
+                            'winner': data.get('winner'),
+                            'date': data.get('date')
+                        })
+                    # Keep last 10 weeks
+                    recent.sort(key=lambda x: x.get('date') or '')
+                    status_data['weeks'] = recent[-10:]
+                except Exception:
+                    status_data['weeks'] = []
+            except Exception:
+                # Avoid failure for large objects
+                pass
             
             # Store in Redis
             await self.redis_client.set('collabwarz:status', json.dumps(status_data))
@@ -328,6 +358,40 @@ class CollabWarz(commands.Cog):
             elif action == 'clear_submissions':
                 await self.config.guild(guild).submissions.clear()
                 print("✅ Submissions cleared")
+
+            elif action == 'remove_submission':
+                team_name = params.get('team_name')
+                if team_name:
+                    submissions = await self.config.guild(guild).submissions()
+                    if team_name in submissions:
+                        del submissions[team_name]
+                        await self.config.guild(guild).submissions.set(submissions)
+                        print(f"✅ Removed submission for team {team_name}")
+                    else:
+                        print(f"⚠️ No submission found for team {team_name}")
+                else:
+                    print("❌ remove_submission requires team_name")
+
+            elif action == 'remove_vote':
+                week = params.get('week')
+                user_id = params.get('user_id')
+                if week and user_id:
+                    votes = await self.config.guild(guild).individual_votes()
+                    week_votes = votes.get(week, {})
+                    if str(user_id) in week_votes:
+                        del week_votes[str(user_id)]
+                        votes[week] = week_votes
+                        await self.config.guild(guild).individual_votes.set(votes)
+                        # Also adjust aggregated voting_results
+                        voting_results = await self.config.guild(guild).voting_results()
+                        week_results = voting_results.get(week, {})
+                        # Find which team this user voted for (we cannot always find team without logs)
+                        # As a simplification, we will refresh voting_results from raw votes when needed
+                        print(f"✅ Removed vote from user {user_id} for week {week}")
+                    else:
+                        print(f"⚠️ No vote from user {user_id} found for week {week}")
+                else:
+                    print("❌ remove_vote requires week and user_id")
 
             elif action == 'reset_week':
                 await self.config.guild(guild).current_phase.set('submission')

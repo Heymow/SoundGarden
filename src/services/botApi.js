@@ -411,13 +411,20 @@ export const generateAITheme = async () => {
  * Note: The bot requires a theme parameter for starting a new week
  */
 export const startNextWeek = async (theme = null) => {
-  if (theme) {
-    return await executeAdminAction("start_new_week", { theme });
+  // If theme is provided, use it. Otherwise, attempt to fetch current status and use its theme.
+  let themeToUse = theme;
+  if (!themeToUse) {
+    const status = await getAdminStatus();
+    if (status && status.theme) {
+      themeToUse = status.theme;
+    }
   }
-  // If no theme provided, return error asking for theme
-  throw new Error(
-    "Theme required to start new week. Please set a theme first."
-  );
+  if (!themeToUse) {
+    throw new Error(
+      "Theme required to start new week. Please set a theme first."
+    );
+  }
+  return await executeAdminAction("start_new_week", { theme: themeToUse });
 };
 
 /**

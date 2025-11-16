@@ -17,6 +17,9 @@ export default function VotingManagement() {
   // Load initial data
   useEffect(() => {
     loadStatus();
+    const handler = () => loadStatus();
+    window.addEventListener('admin:refresh', handler);
+    return () => window.removeEventListener('admin:refresh', handler);
   }, []);
 
   const loadStatus = async () => {
@@ -29,11 +32,11 @@ export default function VotingManagement() {
         }));
         results.sort((a, b) => b.votes - a.votes);
         setVotingResults(results);
-        
+
         const totalVotes = results.reduce((sum, r) => sum + r.votes, 0);
         const uniqueVoters = totalVotes; // Simplified - each vote is unique in this context
         const avgVotes = results.length > 0 ? totalVotes / results.length : 0;
-        
+
         setVotingStats({
           totalVotes,
           uniqueVoters,
@@ -62,7 +65,7 @@ export default function VotingManagement() {
       showError("❌ Please select a week");
       return;
     }
-    
+
     setLoading(true);
     try {
       const data = await botApi.getVoteDetails(selectedWeek);
@@ -134,7 +137,7 @@ export default function VotingManagement() {
       showError("❌ Please load an audit first");
       return;
     }
-    
+
     if (confirm(`Remove vote from ${username}?`)) {
       setLoading(true);
       try {
@@ -205,7 +208,7 @@ export default function VotingManagement() {
                 const maxVotes = votingResults[0]?.votes || 1;
                 const percentage = (result.votes / maxVotes) * 100;
                 const rank = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `${index + 1}.`;
-                
+
                 return (
                   <div key={result.team} className={`result-item ${index === 0 ? "winner" : ""}`}>
                     <div className="result-rank">{rank}</div>
@@ -232,7 +235,7 @@ export default function VotingManagement() {
         <div className="admin-card-content">
           <div className="admin-form-group">
             <label>Select Week:</label>
-            <select 
+            <select
               className="admin-input"
               value={selectedWeek}
               onChange={(e) => setSelectedWeek(e.target.value)}
@@ -245,14 +248,14 @@ export default function VotingManagement() {
           <button className="admin-btn btn-primary" onClick={handleLoadAudit} disabled={loading || !selectedWeek}>
             {loading ? "Loading..." : "Load Detailed Audit"}
           </button>
-          
+
           {/* Display audit data if available */}
           {auditData && (
             <div className="audit-results">
               <h4>Audit Results for {selectedWeek}</h4>
               <p><strong>Theme:</strong> {auditData.theme}</p>
               <p><strong>Total Votes:</strong> {auditData.total_votes || auditData.vote_details?.length || 0}</p>
-              
+
               {auditData.vote_details && auditData.vote_details.length > 0 && (
                 <table className="admin-table">
                   <thead>
@@ -270,7 +273,7 @@ export default function VotingManagement() {
                         <td>{vote.voted_for}</td>
                         <td>{vote.voted_at}</td>
                         <td>
-                          <button 
+                          <button
                             className="admin-btn-sm btn-danger"
                             onClick={() => handleRemoveVote(vote.user_id, vote.username)}
                             disabled={loading}
@@ -285,7 +288,7 @@ export default function VotingManagement() {
               )}
             </div>
           )}
-          
+
           <div className="admin-help-text">
             💡 View detailed voting information including individual votes and timestamps
           </div>

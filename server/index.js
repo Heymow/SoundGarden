@@ -686,6 +686,19 @@ app.get("/api/public/status", async (req, res) => {
   }
 });
 
+// Return current submissions for admin UI
+app.get("/api/admin/submissions", verifyAdminAuth, async (req, res) => {
+  try {
+    const status = await getCompetitionStatusFromRedis();
+    const submissions = (status && status.submissions) || {};
+    const submissionsArr = Object.keys(submissions).map((k) => submissions[k]);
+    res.json({ submissions: submissionsArr });
+  } catch (error) {
+    console.error("Failed to get submissions from Redis:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Admin actions endpoint - sends Discord commands
 // Admin actions endpoint - queues actions via Redis
 app.post("/api/admin/actions", verifyAdminAuth, async (req, res) => {
@@ -741,6 +754,22 @@ app.post("/api/admin/actions", verifyAdminAuth, async (req, res) => {
       case "clear_submissions":
         successMessage = "Clear submissions queued";
         break;
+      case "remove_submission":
+        if (!actionParams.team_name) {
+          return res
+            .status(400)
+            .json({ success: false, message: "team_name parameter required" });
+        }
+        successMessage = `Remove submission queued for: ${actionParams.team_name}`;
+        break;
+      case "remove_vote":
+        if (!actionParams.week || !actionParams.user_id) {
+          return res
+            .status(400)
+            .json({ success: false, message: "week and user_id required" });
+        }
+        successMessage = `Remove vote queued for uid ${actionParams.user_id} on week ${actionParams.week}`;
+        break;
 
       case "cancel_week":
         successMessage = "Week cancellation queued";
@@ -785,6 +814,54 @@ app.post("/api/admin/actions", verifyAdminAuth, async (req, res) => {
     });
   }
 });
+
+// Delete submission via admin API (proxy to queue)
+app.delete(
+  "/api/admin/submissions/:team_name",
+  verifyAdminAuth,
+  async (req, res) => {
+    try {
+      const teamName = req.params.team_name;
+      if (!teamName)
+        return res.status(400).json({ error: "team_name is required" });
+      const queued = await queueCollabWarzAction("remove_submission", {
+        team_name: teamName,
+      });
+      return res.json({
+        success: true,
+        message: "Removal queued",
+        actionId: queued.id,
+      });
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Delete vote via admin API (proxy to queue)
+app.delete(
+  "/api/admin/votes/:week/:user_id",
+  verifyAdminAuth,
+  async (req, res) => {
+    try {
+      const week = req.params.week;
+      const userId = req.params.user_id;
+      if (!week || !userId)
+        return res.status(400).json({ error: "week and user_id are required" });
+      const queued = await queueCollabWarzAction("remove_vote", {
+        week,
+        user_id: userId,
+      });
+      return res.json({
+        success: true,
+        message: "Vote removal queued",
+        actionId: queued.id,
+      });
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
+  }
+);
 
 // Debug endpoint to inspect in-memory queue (only in non-production)
 app.get("/api/debug/queue", (req, res) => {
@@ -843,6 +920,32 @@ app.get("/api/admin/queue", verifyAdminAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("❌ /api/admin/queue error:", error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin history
+app.get("/api/admin/history", verifyAdminAuth, async (req, res) => {
+  try {
+    const status = await getCompetitionStatusFromRedis();
+    const weeks = (status && status.weeks) || [];
+    res.json({ weeks });
+  } catch (error) {
+    console.error("Failed to get admin history from Redis:", error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Get voting details for a specific week
+app.get("/api/admin/votes/:week/details", verifyAdminAuth, async (req, res) => {
+  try {
+    const week = req.params.week;
+    const status = await getCompetitionStatusFromRedis();
+    const voting =
+      (status && status.voting_results && status.voting_results[week]) || {};
+    res.json({ week, results: voting });
+  } catch (error) {
+    console.error("Failed to get vote details:", error.message);
     return res.status(500).json({ error: error.message });
   }
 });

@@ -63,6 +63,8 @@ export default function CompetitionManagement() {
     try {
       await botApi.setTheme(currentTheme);
       showSuccess(`✅ Theme updated to: ${currentTheme}`);
+      await loadStatus();
+      window.dispatchEvent(new Event('admin:refresh'));
     } catch (err) {
       showError(`❌ Failed to update theme: ${err.message}`);
     } finally {
@@ -91,9 +93,12 @@ export default function CompetitionManagement() {
     if (confirm("Are you sure you want to start the next week? This will begin a new competition cycle.")) {
       setLoading(true);
       try {
-        await botApi.startNextWeek();
+        const themeToUse = nextTheme && nextTheme.trim() ? nextTheme.trim() : currentTheme;
+        if (!themeToUse) throw new Error('Theme required to start new week');
+        await botApi.startNextWeek(themeToUse);
         showSuccess("✅ Starting next week...");
         await loadStatus();
+        window.dispatchEvent(new Event('admin:refresh'));
       } catch (err) {
         showError(`❌ Failed to start next week: ${err.message}`);
       } finally {
@@ -109,6 +114,7 @@ export default function CompetitionManagement() {
         await botApi.cancelWeek();
         showSuccess("✅ Week cancelled");
         await loadStatus();
+        window.dispatchEvent(new Event('admin:refresh'));
       } catch (err) {
         showError(`❌ Failed to cancel week: ${err.message}`);
       } finally {
@@ -124,6 +130,7 @@ export default function CompetitionManagement() {
         await botApi.announceWinners();
         showSuccess("✅ Week ended - announcing results");
         await loadStatus();
+        window.dispatchEvent(new Event('admin:refresh'));
       } catch (err) {
         showError(`❌ Failed to end week: ${err.message}`);
       } finally {
