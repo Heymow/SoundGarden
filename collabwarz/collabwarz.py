@@ -63,6 +63,9 @@ class CollabWarz(commands.Cog):
             "week_cancelled": False,    # Track if current week was cancelled
             "validate_discord_submissions": True, # Validate Discord submissions format
             "submitted_teams": {},      # Track teams that have submitted this week {week: [teams]}
+            # Legacy / older installations used a `submissions` map. Register it by default
+            # to avoid runtime attribute errors when other code expects `submissions`.
+            "submissions": {},          # Legacy mapping for admin-submitted web entries {team: {song, url, ...}}
             "team_members": {},         # Track team compositions {week: {team_name: [user_ids]}}
             "admin_channel": None,      # DEPRECATED: No longer used with AutoReputation API
             "rep_reward_amount": 2,     # Amount of rep points to give winners
@@ -124,6 +127,8 @@ class CollabWarz(commands.Cog):
             self.redis_task = self.bot.loop.create_task(self.redis_communication_loop())
         # Start backend polling loop (it will early-return if not configured)
         self.backend_task = self.bot.loop.create_task(self.backend_communication_loop())
+        # Run a migration check to ensure older guild configs have `submissions` registered
+        self.bot.loop.create_task(self._ensure_config_defaults())
         
     def cog_unload(self):
         """Stop the announcement task and Redis communication when cog unloads"""
@@ -133,6 +138,18 @@ class CollabWarz(commands.Cog):
             self.redis_task.cancel()
         if self.redis_client:
             asyncio.create_task(self.redis_client.close())
+        # Also ensure backend task is cancelled and any session cleaned up
+        if self.backend_task:
+            try:
+                self.backend_task.cancel()
+            except Exception:
+                pass
+            self.backend_task = None
+        if hasattr(self, 'backend_session') and self.backend_session:
+            try:
+                asyncio.create_task(self.backend_session.close())
+            except Exception:
+                pass
     
     def _create_discord_timestamp(self, dt: datetime, style: str = "R") -> str:
         """Create a Discord timestamp from datetime object
@@ -565,21 +582,21 @@ class CollabWarz(commands.Cog):
                             except Exception as e:
                                 print(f"❌ CollabWarz: Error polling backend: {e}")
 
-                        # After processing, update and export current status back to backend
-                        try:
-                            status_data = await self._update_redis_status(guild)
-                            # If we have status data and backend configured, post it
-                            if status_data and backend_url and backend_token:
-                                status_url = backend_url.rstrip('/') + '/api/collabwarz/status'
-                                try:
-                                    headers = { 'X-CW-Token': backend_token }
-                                    async with session.post(status_url, json=status_data, headers=headers, timeout=5) as sresp:
-                                        if sresp.status != 200:
-                                            print(f"⚠️ CollabWarz: Failed to export status to backend (HTTP {sresp.status})")
-                                except Exception as ee:
-                                    print(f"❌ CollabWarz: Error exporting status to backend: {ee}")
-                        except Exception as e:
-                            print(f"❌ CollabWarz: Failed to update and export status for guild {guild.name}: {e}")
+                            # After processing, update and export current status back to backend
+                            try:
+                                status_data = await self._update_redis_status(guild)
+                                # If we have status data and backend configured, post it
+                                if status_data and backend_url and backend_token:
+                                    status_url = backend_url.rstrip('/') + '/api/collabwarz/status'
+                                    try:
+                                        headers = { 'X-CW-Token': backend_token }
+                                        async with session.post(status_url, json=status_data, headers=headers, timeout=5) as sresp:
+                                            if sresp.status != 200:
+                                                print(f"⚠️ CollabWarz: Failed to export status to backend (HTTP {sresp.status})")
+                                    except Exception as ee:
+                                        print(f"❌ CollabWarz: Error exporting status to backend: {ee}")
+                            except Exception as e:
+                                print(f"❌ CollabWarz: Failed to update and export status for guild {guild.name}: {e}")
 
                         # Sleep according to guild poll interval
                         await asyncio.sleep(poll_interval or 10)
@@ -598,6 +615,28 @@ class CollabWarz(commands.Cog):
                 await asyncio.sleep(10)
 
         print("🛑 CollabWarz: Backend communication loop stopped")
+
+    async def _ensure_config_defaults(self):
+        """Ensure older guild configs include any newly added registration keys.
+
+        This ensures older installations still have the `submissions` mapping
+        available to minimize runtime attribute missing errors.
+        """
+        await self.bot.wait_until_ready()
+        for g in self.bot.guilds:
+            try:
+                cfg_all = await self.config.guild(g).all()
+            except Exception:
+                cfg_all = {}
+            if 'submissions' not in cfg_all:
+                try:
+                    subs_group = getattr(self.config.guild(g), 'submissions', None)
+                    if subs_group:
+                        await subs_group.set({})
+                        print(f"ℹ️ CollabWarz: Added missing `submissions` mapping for guild {g.name}")
+                except Exception:
+                    # If we failed to add `submissions`, don't crash; fall back to submitted_teams
+                    pass
 
     # ========== RUNTIME REDIS MANAGEMENT COMMANDS ==========
 
@@ -1089,6 +1128,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         # If the cog tracks submissions in weeks_db structure, try to flatten
         if not subs:
             weeks_db = cfg_all.get('weeks_db') or {}
+            # Fallback: no `submissions` mapping present, try the weeks_db/songs_db mappings
+            print(f"⚠️ CollabWarz: No 'submissions' mapping present for guild {guild.name} - falling back to other stores")
             # try to find current week
             try:
                 week_key = await self._get_competition_week_key(guild)
@@ -1113,7 +1154,9 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         # Clear primary submissions mapping if present
         if 'submissions' in cfg_all:
             try:
-                await self.config.guild(guild).submissions.clear()
+                subs_group = getattr(self.config.guild(guild), 'submissions', None)
+                if subs_group:
+                    await subs_group.clear()
             except Exception:
                 pass
         # Also clear submitted_teams entries for the current week
@@ -1164,8 +1207,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
 
         if 'submissions' in cfg_all:
             try:
-                await self.config.guild(guild).submissions.set(subs)
-                return True
+                subs_group = getattr(self.config.guild(guild), 'submissions', None)
+                if subs_group:
+                    await subs_group.set(subs)
+                    return True
             except Exception:
                 pass
 
