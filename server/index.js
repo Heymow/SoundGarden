@@ -133,7 +133,7 @@ app.get("/api/admin/status", (req, res) => {
     team_count: 0,
     voting_results: {},
     next_phase_change: null,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -144,21 +144,21 @@ app.get("/api/public/status", (req, res) => {
       phase: "submission",
       theme: "Cosmic Dreams",
       week_cancelled: false,
-      team_count: 0
+      team_count: 0,
     },
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
 // Admin actions endpoint
 app.post("/api/admin/actions", (req, res) => {
   const { action, params, ...directParams } = req.body;
-  
+
   // Support both formats: { action, params: { ... } } and { action, ... }
   const actionParams = params || directParams;
-  
+
   console.log(`Admin action received: ${action}`, actionParams);
-  
+
   // Mock responses for different actions
   switch (action) {
     case "update_theme":
@@ -166,70 +166,70 @@ app.post("/api/admin/actions", (req, res) => {
       res.json({
         success: true,
         message: `Theme updated to: ${actionParams.theme}`,
-        data: { theme: actionParams.theme }
+        data: { theme: actionParams.theme },
       });
       break;
-      
+
     case "next_phase":
       res.json({
         success: true,
         message: "Phase advanced successfully",
-        data: { phase: "voting" }
+        data: { phase: "voting" },
       });
       break;
-      
+
     case "set_phase":
       res.json({
         success: true,
         message: `Phase changed to: ${actionParams.phase}`,
-        data: { phase: actionParams.phase }
+        data: { phase: actionParams.phase },
       });
       break;
-      
+
     case "toggle_automation":
       res.json({
         success: true,
-        message: `Automation ${actionParams.enabled ? 'enabled' : 'disabled'}`,
-        data: { automation_enabled: actionParams.enabled }
+        message: `Automation ${actionParams.enabled ? "enabled" : "disabled"}`,
+        data: { automation_enabled: actionParams.enabled },
       });
       break;
-      
+
     case "cancel_week":
       res.json({
         success: true,
         message: "Week cancelled successfully",
-        data: { week_cancelled: true }
+        data: { week_cancelled: true },
       });
       break;
-      
+
     case "reset_week":
       res.json({
         success: true,
         message: "Week reset successfully",
-        data: { week_cancelled: false, phase: "submission" }
+        data: { week_cancelled: false, phase: "submission" },
       });
       break;
-      
+
     case "force_voting":
       res.json({
         success: true,
         message: "Voting phase started",
-        data: { phase: "voting" }
+        data: { phase: "voting" },
       });
       break;
-      
+
     case "announce_winners":
       res.json({
         success: true,
         message: "Winners announced successfully",
-        data: { phase: "results" }
+        data: { phase: "results" },
       });
       break;
-      
+
     default:
       res.status(400).json({
         success: false,
-        message: `Unknown action: ${action}`
+        message: `Unknown action: ${action}`,
       });
   }
 });
