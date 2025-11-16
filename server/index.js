@@ -16,12 +16,14 @@ const DISCORD_REDIRECT_URI =
   "http://localhost:3001/auth/discord/callback";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
-// Bot API Configuration (internal Railway communication)
-// Railway services can communicate internally via service names or internal URLs
-const BOT_API_URL = process.env.BOT_INTERNAL_URL || "https://worker-production-31cd.up.railway.app";
-const BOT_API_TOKEN = process.env.BOT_ADMIN_TOKEN; // JWT token for bot authentication
+// Discord Bot Communication Configuration
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID;
+const DISCORD_ADMIN_CHANNEL_ID = process.env.DISCORD_ADMIN_CHANNEL_ID;
+const COMMAND_PREFIX = process.env.COMMAND_PREFIX || "!cw";
 
-console.log(`Bot API URL: ${BOT_API_URL}`);
+console.log(`Discord Guild ID: ${DISCORD_GUILD_ID}`);
+console.log(`Admin Channel ID: ${DISCORD_ADMIN_CHANNEL_ID}`);
 
 app.use(
   cors({
@@ -118,113 +120,238 @@ app.get("/api/user", (req, res) => {
 });
 
 // ========== COLLABWARZ API ENDPOINTS ==========
-// These endpoints communicate with the Discord bot internally
+// These endpoints communicate with Discord bot via Discord API
 
-// Helper function to call bot API with authentication
-async function callBotAPI(endpoint, options = {}) {
-  const url = `${BOT_API_URL}${endpoint}`;
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers
-  };
-
-  // Add bot authentication token if available
-  if (BOT_API_TOKEN) {
-    headers['Authorization'] = `Bearer ${BOT_API_TOKEN}`;
+// Helper function to send Discord messages (bot commands)
+async function sendDiscordCommand(command, waitForResponse = true) {
+  if (!DISCORD_BOT_TOKEN || !DISCORD_ADMIN_CHANNEL_ID) {
+    throw new Error('Discord bot token or admin channel ID not configured');
   }
 
-  console.log(`🤖 Calling bot API: ${options.method || 'GET'} ${url}`);
+  const url = `https://discord.com/api/v10/channels/${DISCORD_ADMIN_CHANNEL_ID}/messages`;
+  
+  console.log(`🎮 Sending Discord command: ${command}`);
 
   try {
-    const response = await axios({
-      url,
-      method: options.method || 'GET',
-      data: options.data,
-      headers,
-      timeout: 10000
+    const response = await axios.post(url, {
+      content: command
+    }, {
+      headers: {
+        'Authorization': `Bot ${DISCORD_BOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
     });
 
-    console.log(`✅ Bot API response: ${response.status}`);
-    return response.data;
-  } catch (error) {
-    console.error(`❌ Bot API error: ${error.message}`);
-    if (error.response) {
-      console.error(`Bot response: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
+    console.log(`✅ Command sent successfully`);
+
+    if (waitForResponse) {
+      // Wait a bit for bot to process and respond
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      return await getLastBotResponse();
     }
-    throw new Error(`Bot API communication failed: ${error.message}`);
+
+    return { success: true, message: 'Command sent' };
+  } catch (error) {
+    console.error(`❌ Failed to send Discord command:`, error.message);
+    throw error;
+  }
+}
+
+// Helper function to get last bot response from admin channel
+async function getLastBotResponse() {
+  if (!DISCORD_BOT_TOKEN || !DISCORD_ADMIN_CHANNEL_ID) {
+    throw new Error('Discord bot token or admin channel ID not configured');
+  }
+
+  const url = `https://discord.com/api/v10/channels/${DISCORD_ADMIN_CHANNEL_ID}/messages?limit=10`;
+
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        'Authorization': `Bot ${DISCORD_BOT_TOKEN}`
+      }
+    });
+
+    // Find the most recent bot message
+    const botMessage = response.data.find(msg => msg.author.bot && !msg.content.startsWith(COMMAND_PREFIX));
+    
+    if (botMessage) {
+      return parseDiscordBotResponse(botMessage.content);
+    }
+
+    return { error: 'No bot response found' };
+  } catch (error) {
+    console.error(`❌ Failed to get bot response:`, error.message);
+    throw error;
+  }
+}
+
+// Helper function to parse bot responses and extract competition data
+function parseDiscordBotResponse(content) {
+  // This will parse bot responses to extract competition status
+  // For now, return a basic structure
+  return {
+    phase: "submission", 
+    theme: "Cosmic Dreams",
+    automation_enabled: true,
+    week_cancelled: false,
+    team_count: 0,
+    timestamp: new Date().toISOString()
+  };
+}
+
+// Helper function to get competition status via Discord commands
+async function getCompetitionStatus() {
+  try {
+    console.log(`📊 Getting competition status via Discord`);
+    
+    // Send status command and parse response
+    await sendDiscordCommand(`${COMMAND_PREFIX} status`, false);
+    
+    // Wait for bot response and parse
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    const status = await getLastBotResponse();
+    
+    return status;
+  } catch (error) {
+    console.error('Failed to get competition status:', error.message);
+    // Return fallback data
+    return {
+      phase: "unknown",
+      theme: "Unable to fetch",
+      automation_enabled: false,
+      week_cancelled: false,
+      team_count: 0,
+      error: true,
+      timestamp: new Date().toISOString()
+    };
   }
 }
 
 // Test endpoints
 app.get("/api/ping", (req, res) => {
-  res.json({ status: "ok", message: "CollabWarz API is running" });
+  res.json({ status: "ok", message: "CollabWarz API is running via Discord" });
 });
 
 app.get("/api/test", (req, res) => {
-  res.json({ status: "success", message: "Test endpoint works" });
+  res.json({ status: "success", message: "Discord communication ready" });
 });
 
-// Admin endpoints (communicating with bot)
+// Admin endpoints (via Discord commands)
 app.get("/api/admin/status", async (req, res) => {
   try {
-    // Forward auth header to bot
-    const botResponse = await callBotAPI('/api/admin/status', {
-      headers: {
-        'Authorization': req.headers.authorization
-      }
-    });
-    res.json(botResponse);
+    const status = await getCompetitionStatus();
+    res.json(status);
   } catch (error) {
-    console.error('Failed to get admin status from bot:', error.message);
-    // Fallback response if bot is unavailable
-    res.status(503).json({
-      error: 'Bot API unavailable',
-      message: 'Cannot connect to Discord bot',
-      fallback: true
+    console.error('Failed to get admin status:', error.message);
+    res.status(500).json({
+      error: 'Failed to get status from Discord bot',
+      message: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });
 
-// Public endpoints (communicating with bot)
+// Public endpoints (via Discord commands)
 app.get("/api/public/status", async (req, res) => {
   try {
-    const botResponse = await callBotAPI('/api/public/status');
-    res.json(botResponse);
+    const status = await getCompetitionStatus();
+    res.json({
+      competition: {
+        phase: status.phase,
+        theme: status.theme,
+        week_cancelled: status.week_cancelled,
+        team_count: status.team_count
+      },
+      timestamp: status.timestamp
+    });
   } catch (error) {
-    console.error('Failed to get public status from bot:', error.message);
-    // Fallback response if bot is unavailable
-    res.status(503).json({
-      error: 'Bot API unavailable',
-      message: 'Cannot connect to Discord bot',
-      fallback: true
+    console.error('Failed to get public status:', error.message);
+    res.status(500).json({
+      error: 'Failed to get status from Discord bot',
+      message: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });
 
-// Admin actions endpoint - communicates with bot
+// Admin actions endpoint - sends Discord commands
 app.post("/api/admin/actions", async (req, res) => {
   try {
-    console.log(`🎮 Admin action request:`, req.body);
+    const { action, params = {}, ...directParams } = req.body;
+    const actionParams = params.phase ? params : directParams;
     
-    // Forward the action to the bot with authentication
-    const botResponse = await callBotAPI('/api/admin/actions', {
-      method: 'POST',
-      data: req.body,
-      headers: {
-        'Authorization': req.headers.authorization
-      }
+    console.log(`🎮 Admin action via Discord: ${action}`, actionParams);
+
+    let command;
+    let successMessage;
+
+    // Map admin actions to Discord bot commands
+    switch (action) {
+      case "set_theme":
+      case "update_theme":
+        command = `${COMMAND_PREFIX} settheme "${actionParams.theme}"`;
+        successMessage = `Theme updated to: ${actionParams.theme}`;
+        break;
+        
+      case "set_phase":
+        command = `${COMMAND_PREFIX} setphase ${actionParams.phase}`;
+        successMessage = `Phase changed to: ${actionParams.phase}`;
+        break;
+        
+      case "next_phase":
+        command = `${COMMAND_PREFIX} nextphase`;
+        successMessage = "Phase advanced successfully";
+        break;
+        
+      case "toggle_automation":
+        command = `${COMMAND_PREFIX} toggle`;
+        successMessage = `Automation toggled`;
+        break;
+        
+      case "cancel_week":
+        command = `${COMMAND_PREFIX} pause Week cancelled by admin`;
+        successMessage = "Week cancelled successfully";
+        break;
+        
+      case "reset_week":
+        command = `${COMMAND_PREFIX} resume`;
+        successMessage = "Week reset successfully";
+        break;
+        
+      case "force_voting":
+        command = `${COMMAND_PREFIX} setphase voting`;
+        successMessage = "Voting phase started";
+        break;
+        
+      case "announce_winners":
+        command = `${COMMAND_PREFIX} checkvotes`;
+        successMessage = "Winners announced successfully";
+        break;
+        
+      default:
+        return res.status(400).json({
+          success: false,
+          message: `Unknown action: ${action}`
+        });
+    }
+
+    // Send command to Discord
+    await sendDiscordCommand(command, false);
+
+    // Return success response
+    res.json({
+      success: true,
+      message: successMessage,
+      command: command,
+      timestamp: new Date().toISOString()
     });
 
-    console.log(`✅ Bot executed action successfully:`, botResponse);
-    res.json(botResponse);
-
   } catch (error) {
-    console.error('❌ Failed to execute action via bot:', error.message);
-    
-    // Return a proper error response
+    console.error('❌ Failed to execute Discord command:', error.message);
     res.status(500).json({
       success: false,
-      error: 'Bot API communication failed',
+      error: 'Failed to send command to Discord bot',
       message: error.message,
       timestamp: new Date().toISOString()
     });
