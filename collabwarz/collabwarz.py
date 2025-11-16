@@ -189,6 +189,7 @@ class CollabWarz(commands.Cog):
         This allows setting the Redis URL at runtime via the cog config (no restart required).
         """
         if not REDIS_AVAILABLE:
+            print("⚠️ CollabWarz: redis.asyncio package not installed; install 'redis' package to enable Redis support")
             return False
 
         try:
@@ -217,6 +218,7 @@ class CollabWarz(commands.Cog):
                         continue
 
             if not redis_url:
+                print("🔍 CollabWarz: No Redis URL detected (config or REDIS_URL/REDIS_PRIVATE_URL). To enable Redis, set `REDIS_URL` env var or guild config redis_enabled + redis_url.")
                 return False
 
             # Create Redis client
@@ -255,6 +257,13 @@ class CollabWarz(commands.Cog):
             print(f"⚠️ CollabWarz: Redis client not available; not saving key {key}")
             return False
 
+        try:
+            await rc.setex(key, ttl, value)
+            return True
+        except Exception as e:
+            print(f"⚠️ CollabWarz: Unable to save key {key} with TTL {ttl} in Redis: {e}")
+            return False
+
     async def _post_with_temp_session(self, url, json_payload=None, headers=None, timeout=10):
         """Post to backend URL using a short-lived session and return (status, text)."""
         try:
@@ -266,7 +275,8 @@ class CollabWarz(commands.Cog):
                         text = None
                     return resp.status, text
         except Exception as e:
-            print(f"❌ CollabWarz: _post_with_temp_session error: {e}")
+            print(f"❌ CollabWarz: _post_with_temp_session error for {url}: {e} (type={type(e)})")
+            traceback.print_exc()
             return None, None
 
     async def _get_with_temp_session(self, url, headers=None, timeout=10):
@@ -285,7 +295,8 @@ class CollabWarz(commands.Cog):
                                 body = None
                     return resp.status, body
         except Exception as e:
-            print(f"❌ CollabWarz: _get_with_temp_session error: {e}")
+            print(f"❌ CollabWarz: _get_with_temp_session error for {url}: {e} (type={type(e)})")
+            traceback.print_exc()
             return None, None
 
     async def _safe_redis_set(self, key, value, guild=None):
@@ -314,13 +325,6 @@ class CollabWarz(commands.Cog):
             return True
         except Exception as e:
             print(f"⚠️ CollabWarz: Unable to set key {key} in Redis: {e}")
-            return False
-
-        try:
-            await rc.setex(key, ttl, value)
-            return True
-        except Exception as e:
-            print(f"⚠️ CollabWarz: Unable to save key {key} in Redis: {e}")
             return False
     
     async def _update_redis_status(self, guild):
@@ -392,8 +396,13 @@ class CollabWarz(commands.Cog):
                 # Avoid failure for large objects
                 pass
             
-            # Store in Redis if available (use safe helper to avoid race with None client)
-            await self._safe_redis_set('collabwarz:status', json.dumps(status_data), guild=guild)
+            # Store in Redis if available and feature enabled (use safe helper to avoid race with None client)
+            try:
+                redis_enabled = await self.config.guild(guild).redis_enabled()
+            except Exception:
+                redis_enabled = False
+            if redis_enabled:
+                await self._safe_redis_set('collabwarz:status', json.dumps(status_data), guild=guild)
 
             # Return the status data for potential backend export or other handling
             return status_data
@@ -562,7 +571,12 @@ class CollabWarz(commands.Cog):
             action_data['processed_at'] = datetime.utcnow().isoformat()
             
             # Use safe redis helper to store action result
-            await self._safe_redis_setex(f'collabwarz:action:{action_id}', 86400, json.dumps(action_data), guild=guild)
+            try:
+                redis_enabled = await self.config.guild(guild).redis_enabled()
+            except Exception:
+                redis_enabled = False
+            if redis_enabled:
+                await self._safe_redis_setex(f'collabwarz:action:{action_id}', 86400, json.dumps(action_data), guild=guild)
             
             # Update status after processing action
             await self._update_redis_status(guild)
@@ -591,7 +605,12 @@ class CollabWarz(commands.Cog):
             action_data['processed_at'] = datetime.utcnow().isoformat()
             
             # Save failed action status as well using safe helper
-            await self._safe_redis_setex(f'collabwarz:action:{action_id}', 86400, json.dumps(action_data), guild=guild)
+            try:
+                redis_enabled = await self.config.guild(guild).redis_enabled()
+            except Exception:
+                redis_enabled = False
+            if redis_enabled:
+                await self._safe_redis_setex(f'collabwarz:action:{action_id}', 86400, json.dumps(action_data), guild=guild)
     
     async def redis_communication_loop(self):
         """Main Redis communication loop - polls for actions and updates status"""
@@ -668,6 +687,8 @@ class CollabWarz(commands.Cog):
                         # Build request
                         next_url = backend_url.rstrip("/") + "/api/collabwarz/next-action"
 
+                        # Diagnostics: what mode are we in and whether redis is available
+                        print(f"🔁 CollabWarz: Handling guild {guild.name} (short_lived={getattr(self, 'backend_use_short_lived_sessions', False)}, redis={bool(self.redis_client)})")
                         headers = {"X-CW-Token": backend_token}
                         if getattr(self, 'backend_use_short_lived_sessions', False):
                             try:
