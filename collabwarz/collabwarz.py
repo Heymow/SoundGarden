@@ -288,7 +288,7 @@ class CollabWarz(commands.Cog):
                 await self.config.guild(guild).auto_announce.set(not current)
                 print(f"✅ Automation toggled: {not current}")
                 
-            elif action == 'set_theme':
+            elif action == 'set_theme' or action == 'update_theme':
                 theme = params.get('theme')
                 if theme:
                     await self.config.guild(guild).current_theme.set(theme)

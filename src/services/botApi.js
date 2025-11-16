@@ -432,8 +432,15 @@ export const cancelWeek = async () => {
  * Note: This might not be directly implemented. Use phase change instead.
  */
 export const endWeek = async () => {
-  // Try to set phase to ended as a fallback
-  return await setPhase("ended");
+  // Trigger winner announcement immediately
+  return await executeAdminAction("announce_winners");
+};
+
+/**
+ * Announce winners immediately (force computation)
+ */
+export const announceWinners = async () => {
+  return await executeAdminAction("announce_winners");
 };
 
 /**

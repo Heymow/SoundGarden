@@ -20,8 +20,8 @@ export default function AdminDashboard() {
   useEffect(() => {
     loadStats();
     loadQueue();
-    const qTimer = setInterval(()=>{ loadQueue(); }, 10000);
-    return ()=> clearInterval(qTimer);
+    const qTimer = setInterval(() => { loadQueue(); }, 10000);
+    return () => clearInterval(qTimer);
   }, []);
 
   const loadStats = async () => {
@@ -125,7 +125,7 @@ export default function AdminDashboard() {
     if (confirm("Are you sure you want to announce the winner? This will end the current voting period.")) {
       setLoading(true);
       try {
-        await botApi.endWeek();
+        await botApi.announceWinners();
         showSuccess("🏆 Calculating results and announcing winner...");
         await loadStats();
       } catch (err) {

@@ -612,8 +612,7 @@ app.post("/api/collabwarz/action-result", async (req, res) => {
         86400,
         JSON.stringify(resultData)
       );
-    }
-    else {
+    } else {
       // store in memory for inspection during tests/local runs
       inMemoryProcessed[id] = resultData;
     }
@@ -689,16 +688,18 @@ app.post("/api/admin/actions", async (req, res) => {
         break;
 
       case "toggle_automation":
-              case "start_new_week":
-                if (!actionParams.theme) {
-                  return res.status(400).json({ success: false, message: "Theme parameter required" });
-                }
-                successMessage = `Start new week: ${actionParams.theme}`;
-                break;
+      case "start_new_week":
+        if (!actionParams.theme) {
+          return res
+            .status(400)
+            .json({ success: false, message: "Theme parameter required" });
+        }
+        successMessage = `Start new week: ${actionParams.theme}`;
+        break;
 
-              case "clear_submissions":
-                successMessage = "Clear submissions queued";
-                break;
+      case "clear_submissions":
+        successMessage = "Clear submissions queued";
+        break;
         successMessage = "Automation toggle queued";
         break;
 
@@ -747,13 +748,14 @@ app.post("/api/admin/actions", async (req, res) => {
 });
 
 // Debug endpoint to inspect in-memory queue (only in non-production)
-app.get('/api/debug/queue', (req, res) => {
-  if (process.env.NODE_ENV === 'production') return res.status(403).json({ error: 'Forbidden' });
+app.get("/api/debug/queue", (req, res) => {
+  if (process.env.NODE_ENV === "production")
+    return res.status(403).json({ error: "Forbidden" });
   res.json({ queueLength: inMemoryQueue.length, queue: inMemoryQueue });
 });
 
 // Admin queue + processing state endpoint (used by frontend UI)
-app.get('/api/admin/queue', async (req, res) => {
+app.get("/api/admin/queue", async (req, res) => {
   try {
     if (!redisClient) {
       // In-memory fallback
@@ -761,34 +763,42 @@ app.get('/api/admin/queue', async (req, res) => {
         queueLength: inMemoryQueue.length,
         queue: inMemoryQueue.slice(0, 100),
         processed: Object.values(inMemoryProcessed).slice(-100),
-        backend: 'in-memory'
+        backend: "in-memory",
       });
     }
 
-    const queueRaw = await redisClient.lRange('collabwarz:actions', 0, 99);
+    const queueRaw = await redisClient.lRange("collabwarz:actions", 0, 99);
     const queue = queueRaw.map((s) => {
-      try { return JSON.parse(s); } catch (e) { return { raw: s }; }
+      try {
+        return JSON.parse(s);
+      } catch (e) {
+        return { raw: s };
+      }
     });
 
-    const keys = await redisClient.keys('collabwarz:action:*');
+    const keys = await redisClient.keys("collabwarz:action:*");
     let processed = [];
     if (keys && keys.length) {
       // Limit to latest 100
       const limited = keys.slice(-100);
       for (const key of limited) {
         const value = await redisClient.get(key);
-        try { processed.push(JSON.parse(value)); } catch (e) { processed.push({ raw: value }); }
+        try {
+          processed.push(JSON.parse(value));
+        } catch (e) {
+          processed.push({ raw: value });
+        }
       }
     }
 
     return res.json({
-      queueLength: await redisClient.lLen('collabwarz:actions'),
+      queueLength: await redisClient.lLen("collabwarz:actions"),
       queue,
       processed,
-      backend: 'redis'
+      backend: "redis",
     });
   } catch (error) {
-    console.error('❌ /api/admin/queue error:', error.message);
+    console.error("❌ /api/admin/queue error:", error.message);
     return res.status(500).json({ error: error.message });
   }
 });

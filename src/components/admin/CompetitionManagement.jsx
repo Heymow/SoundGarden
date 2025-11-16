@@ -121,7 +121,7 @@ export default function CompetitionManagement() {
     if (confirm("Are you sure you want to end this week and announce results?")) {
       setLoading(true);
       try {
-        await botApi.endWeek();
+        await botApi.announceWinners();
         showSuccess("✅ Week ended - announcing results");
         await loadStatus();
       } catch (err) {
