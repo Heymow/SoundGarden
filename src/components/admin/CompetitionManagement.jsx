@@ -183,7 +183,7 @@ export default function CompetitionManagement() {
                 {currentPhase.toUpperCase()}
               </span>
             </div>
-            
+
             <div className="phase-buttons">
               <button
                 className={`phase-btn ${currentPhase === "submission" ? "active" : ""}`}
@@ -337,26 +337,26 @@ export default function CompetitionManagement() {
           <div className="admin-settings-grid">
             <div className="setting-item">
               <label>Minimum Teams Required:</label>
-              <input 
-                type="number" 
+              <input
+                type="number"
                 value={minTeams}
                 onChange={(e) => setMinTeams(parseInt(e.target.value))}
-                className="admin-input-sm" 
+                className="admin-input-sm"
               />
             </div>
             <div className="setting-item">
               <label>Reputation Points for Winner:</label>
-              <input 
-                type="number" 
+              <input
+                type="number"
                 value={reputationPoints}
                 onChange={(e) => setReputationPoints(parseInt(e.target.value))}
-                className="admin-input-sm" 
+                className="admin-input-sm"
               />
             </div>
             <div className="setting-item">
               <label className="admin-checkbox-label">
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   checked={autoAnnounce}
                   onChange={(e) => setAutoAnnounce(e.target.checked)}
                 />
@@ -365,8 +365,8 @@ export default function CompetitionManagement() {
             </div>
             <div className="setting-item">
               <label className="admin-checkbox-label">
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   checked={validateFormat}
                   onChange={(e) => setValidateFormat(e.target.checked)}
                 />
