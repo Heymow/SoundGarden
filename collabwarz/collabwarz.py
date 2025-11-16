@@ -120,6 +120,7 @@ class CollabWarz(commands.Cog):
         self.backend_task = None
         self.redis_client = None
         self.backend_session = None
+        self.backend_session_loop = None
         self.confirmation_messages = {}  # Track confirmation messages for reaction handling
         
     def cog_load(self):
@@ -131,10 +132,8 @@ class CollabWarz(commands.Cog):
         self.backend_task = self.bot.loop.create_task(self.backend_communication_loop())
         # Run a migration check to ensure older guild configs have `submissions` registered
         self.bot.loop.create_task(self._ensure_config_defaults())
-        # Create persistent backend session
-        print("🔁 CollabWarz: Creating persistent backend HTTP session (cog_load)")
-        self.backend_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=10, keepalive_timeout=60))
-        print(f"🔁 CollabWarz: Backend session created. closed={getattr(self.backend_session, 'closed', 'n/a')}")
+        # Don't create backend session here — create it in the backend loop
+        print("🔁 CollabWarz: Backend session will be created lazily in backend_communication_loop (cog_load)")
         
     def cog_unload(self):
         """Stop the announcement task and Redis communication when cog unloads"""
@@ -589,6 +588,7 @@ class CollabWarz(commands.Cog):
                         # Build request
                         next_url = backend_url.rstrip("/") + "/api/collabwarz/next-action"
 
+                        await self._ensure_backend_session()
                         session = self.backend_session
                         print(f"🔁 CollabWarz: Using backend session for GET. closed={getattr(session, 'closed', 'n/a')}")
                         try:
@@ -612,12 +612,9 @@ class CollabWarz(commands.Cog):
                                             "status": "completed",
                                             "details": {"processed_by": "collabwarz_cog"},
                                         }
-                                        presp = await session.post(result_url, json=result_payload, headers=headers, timeout=10)
-                                        try:
+                                        async with session.post(result_url, json=result_payload, headers=headers, timeout=10) as presp:
                                             if presp.status != 200:
                                                 print(f"⚠️ CollabWarz: Backend result post returned {presp.status}")
-                                        finally:
-                                            presp.close()
                                 else:
                                     print(f"❌ CollabWarz: Unexpected backend response: {resp.status}")
                             finally:
@@ -636,12 +633,9 @@ class CollabWarz(commands.Cog):
                                 try:
                                     headers = { 'X-CW-Token': backend_token }
                                     print(f"🔁 CollabWarz: Posting status to backend for {guild.name} (session.closed={getattr(session, 'closed', 'n/a')})")
-                                    sresp = await session.post(status_url, json=status_data, headers=headers, timeout=10)
-                                    try:
+                                    async with session.post(status_url, json=status_data, headers=headers, timeout=10) as sresp:
                                         if sresp.status != 200:
                                             print(f"⚠️ CollabWarz: Failed to export status to backend (HTTP {sresp.status})")
-                                    finally:
-                                        sresp.close()
                                 except Exception as ee:
                                     print(f"❌ CollabWarz: Error exporting status to backend: {ee}")
                                     print(traceback.format_exc())
@@ -666,7 +660,7 @@ class CollabWarz(commands.Cog):
             except Exception as e:
                 print(f"❌ CollabWarz: Backend communication loop error: {e}")
                 await asyncio.sleep(10)
-
+        
         print("🛑 CollabWarz: Backend communication loop stopped")
 
     async def _ensure_config_defaults(self):
@@ -690,6 +684,34 @@ class CollabWarz(commands.Cog):
                 except Exception:
                     # If we failed to add `submissions`, don't crash; fall back to submitted_teams
                     pass
+
+    async def _ensure_backend_session(self):
+        """Ensure the persistent backend session exists and is bound to the current loop.
+
+        If it's missing or bound to a different event loop, recreate it on the current loop.
+        """
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running event loop
+            current_loop = None
+        session = self.backend_session
+        if session is None or getattr(session, 'closed', True) or self.backend_session_loop != current_loop:
+            # Close existing session if present
+            if session and not getattr(session, 'closed', True):
+                try:
+                    await session.close()
+                except Exception:
+                    pass
+            # Recreate session on the current loop
+            try:
+                self.backend_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=10, keepalive_timeout=60))
+                self.backend_session_loop = current_loop
+                print(f"🔁 CollabWarz: Persistent backend session (re)created on loop {current_loop} (closed={getattr(self.backend_session, 'closed', 'n/a')})")
+            except Exception as e:
+                print(f"❌ CollabWarz: Failed to create persistent backend session: {e}")
+                self.backend_session = None
+                self.backend_session_loop = None
 
     # ========== RUNTIME REDIS MANAGEMENT COMMANDS ==========
 
