@@ -24,6 +24,8 @@ const COMMAND_PREFIX = process.env.COMMAND_PREFIX || "!cw";
 
 console.log(`Discord Guild ID: ${DISCORD_GUILD_ID}`);
 console.log(`Admin Channel ID: ${DISCORD_ADMIN_CHANNEL_ID}`);
+console.log(`Bot Token configured: ${DISCORD_BOT_TOKEN ? 'Yes' : 'No'}`);
+console.log(`Command Prefix: ${COMMAND_PREFIX}`);
 
 app.use(
   cors({
@@ -124,13 +126,19 @@ app.get("/api/user", (req, res) => {
 
 // Helper function to send Discord messages (bot commands)
 async function sendDiscordCommand(command, waitForResponse = true) {
-  if (!DISCORD_BOT_TOKEN || !DISCORD_ADMIN_CHANNEL_ID) {
-    throw new Error('Discord bot token or admin channel ID not configured');
+  // Check configuration
+  if (!DISCORD_BOT_TOKEN) {
+    throw new Error('DISCORD_BOT_TOKEN environment variable not set');
+  }
+  if (!DISCORD_ADMIN_CHANNEL_ID) {
+    throw new Error('DISCORD_ADMIN_CHANNEL_ID environment variable not set');
   }
 
   const url = `https://discord.com/api/v10/channels/${DISCORD_ADMIN_CHANNEL_ID}/messages`;
   
   console.log(`🎮 Sending Discord command: ${command}`);
+  console.log(`📡 URL: ${url}`);
+  console.log(`🔑 Using bot token: ${DISCORD_BOT_TOKEN.substring(0, 20)}...`);
 
   try {
     const response = await axios.post(url, {
@@ -139,10 +147,12 @@ async function sendDiscordCommand(command, waitForResponse = true) {
       headers: {
         'Authorization': `Bot ${DISCORD_BOT_TOKEN}`,
         'Content-Type': 'application/json'
-      }
+      },
+      timeout: 10000
     });
 
-    console.log(`✅ Command sent successfully`);
+    console.log(`✅ Command sent successfully - Status: ${response.status}`);
+    console.log(`📨 Response data:`, response.data);
 
     if (waitForResponse) {
       // Wait a bit for bot to process and respond
@@ -150,9 +160,27 @@ async function sendDiscordCommand(command, waitForResponse = true) {
       return await getLastBotResponse();
     }
 
-    return { success: true, message: 'Command sent' };
+    return { success: true, message: 'Command sent', messageId: response.data.id };
   } catch (error) {
     console.error(`❌ Failed to send Discord command:`, error.message);
+    
+    if (error.response) {
+      console.error(`Discord API Error:`, {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data
+      });
+      
+      // Provide more specific error messages
+      if (error.response.status === 401) {
+        throw new Error('Invalid Discord bot token - check DISCORD_BOT_TOKEN');
+      } else if (error.response.status === 403) {
+        throw new Error('Bot lacks permissions to send messages in this channel');
+      } else if (error.response.status === 404) {
+        throw new Error('Admin channel not found - check DISCORD_ADMIN_CHANNEL_ID');
+      }
+    }
+    
     throw error;
   }
 }
@@ -165,11 +193,14 @@ async function getLastBotResponse() {
 
   const url = `https://discord.com/api/v10/channels/${DISCORD_ADMIN_CHANNEL_ID}/messages?limit=10`;
 
+  console.log(`📖 Reading bot responses from: ${url}`);
+
   try {
     const response = await axios.get(url, {
       headers: {
         'Authorization': `Bot ${DISCORD_BOT_TOKEN}`
-      }
+      },
+      timeout: 10000
     });
 
     // Find the most recent bot message
@@ -235,6 +266,50 @@ app.get("/api/ping", (req, res) => {
 
 app.get("/api/test", (req, res) => {
   res.json({ status: "success", message: "Discord communication ready" });
+});
+
+// Discord configuration diagnostic endpoint
+app.get("/api/discord/config", (req, res) => {
+  const config = {
+    botTokenSet: !!DISCORD_BOT_TOKEN,
+    guildIdSet: !!DISCORD_GUILD_ID,
+    adminChannelIdSet: !!DISCORD_ADMIN_CHANNEL_ID,
+    commandPrefix: COMMAND_PREFIX,
+    guildId: DISCORD_GUILD_ID || 'NOT_SET',
+    adminChannelId: DISCORD_ADMIN_CHANNEL_ID || 'NOT_SET'
+  };
+  
+  const allConfigured = config.botTokenSet && config.guildIdSet && config.adminChannelIdSet;
+  
+  res.json({
+    configured: allConfigured,
+    config,
+    message: allConfigured ? 'Discord configuration complete' : 'Missing Discord configuration'
+  });
+});
+
+// Test Discord communication endpoint
+app.post("/api/discord/test", async (req, res) => {
+  try {
+    const testCommand = `${COMMAND_PREFIX} status`;
+    console.log(`🧪 Testing Discord communication with: ${testCommand}`);
+    
+    await sendDiscordCommand(testCommand, false);
+    
+    res.json({
+      success: true,
+      message: 'Test command sent successfully',
+      command: testCommand,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Discord communication test failed',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // Admin endpoints (via Discord commands)
