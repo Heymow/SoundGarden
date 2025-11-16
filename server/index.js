@@ -96,10 +96,16 @@ async function initRedis() {
     // If we had a recent status stored in memory, write it to Redis now
     if (inMemoryStatus) {
       try {
-        await redisClient.set('collabwarz:status', JSON.stringify(inMemoryStatus));
-        console.log('ℹ️  Rehydrated collabwarz:status from in-memory status');
+        await redisClient.set(
+          "collabwarz:status",
+          JSON.stringify(inMemoryStatus)
+        );
+        console.log("ℹ️  Rehydrated collabwarz:status from in-memory status");
       } catch (err) {
-        console.warn('⚠️ Failed to rehydrate in-memory status to Redis', err.message || err);
+        console.warn(
+          "⚠️ Failed to rehydrate in-memory status to Redis",
+          err.message || err
+        );
       }
     }
 
@@ -304,8 +310,14 @@ app.post("/api/collabwarz/status", async (req, res) => {
   try {
     const auth = validateCogAuth(req, res);
     if (!auth.ok) {
-      const tokenHeader = req.header('x-cw-token') || req.header('X-CW-Token') || null;
-      pushStatusLog({ result: 'auth_failed', headerPresent: !!tokenHeader, ip: req.ip || req.headers['x-forwarded-for'] || null, reason: auth.message });
+      const tokenHeader =
+        req.header("x-cw-token") || req.header("X-CW-Token") || null;
+      pushStatusLog({
+        result: "auth_failed",
+        headerPresent: !!tokenHeader,
+        ip: req.ip || req.headers["x-forwarded-for"] || null,
+        reason: auth.message,
+      });
       return res.status(401).json({ success: false, message: auth.message });
     }
 
@@ -341,7 +353,11 @@ app.post("/api/collabwarz/status", async (req, res) => {
       guild_id: payload.guild_id || null,
     });
 
-    console.log(`/api/collabwarz/status received: ${payload.phase || "(no phase)"} @ ${new Date().toISOString()} (storedIn=${storedIn})`);
+    console.log(
+      `/api/collabwarz/status received: ${
+        payload.phase || "(no phase)"
+      } @ ${new Date().toISOString()} (storedIn=${storedIn})`
+    );
 
     return res.json({ success: true, storedIn });
   } catch (error) {
@@ -351,7 +367,7 @@ app.post("/api/collabwarz/status", async (req, res) => {
 });
 
 // Admin-only: Retrieve recent status POST logs (in-memory)
-app.get('/api/admin/status-log', verifyAdminAuth, async (req, res) => {
+app.get("/api/admin/status-log", verifyAdminAuth, async (req, res) => {
   try {
     // Return the last 100 entries
     return res.json({ success: true, logs: statusPostLogs.slice(-100) });
@@ -823,8 +839,18 @@ app.get("/api/public/status", async (req, res) => {
 app.get("/api/admin/submissions", verifyAdminAuth, async (req, res) => {
   try {
     const status = await getCompetitionStatusFromRedis();
-    const submissions = (status && status.submissions) || {};
-    const submissionsArr = Object.keys(submissions).map((k) => submissions[k]);
+    let submissions = (status && status.submissions) || {};
+    let submissionsArr = [];
+    if (submissions && Object.keys(submissions).length > 0) {
+      submissionsArr = Object.keys(submissions).map((k) => submissions[k]);
+    } else {
+      // Fallback to submitted_teams if submissions map isn't available
+      const submittedTeams = (status && status.submitted_teams) || {};
+      const weekKeys = Object.keys(submittedTeams || {}).sort();
+      const latestWeek = weekKeys.length ? weekKeys[weekKeys.length - 1] : null;
+      const teamsList = latestWeek ? submittedTeams[latestWeek] || [] : [];
+      submissionsArr = teamsList.map((t) => ({ team_name: t, members: [] }));
+    }
     res.json({ submissions: submissionsArr });
   } catch (error) {
     console.error("Failed to get submissions from Redis:", error.message);

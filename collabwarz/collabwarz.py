@@ -219,14 +219,20 @@ class CollabWarz(commands.Cog):
             auto_announce = await self.config.guild(guild).auto_announce()
             week_cancelled = await self.config.guild(guild).week_cancelled()
             
-            # Count teams
+            # Count teams (use robust counting logic)
             team_count = await self._count_participating_teams(guild)
             
             # Prepare detailed status including submissions & voting results for admin panel
-            submissions = await self.config.guild(guild).submissions()
-            voting_results = await self.config.guild(guild).voting_results()
-            team_members = await self.config.guild(guild).team_members()
-            weeks_db = await self.config.guild(guild).weeks_db()
+            # Use a safe fetch of all guild config keys and guard against unregistered values
+            try:
+                cfg_all = await self.config.guild(guild).all()
+            except Exception:
+                cfg_all = {}
+
+            submissions = cfg_all.get('submissions') or {}
+            voting_results = cfg_all.get('voting_results') or {}
+            team_members = cfg_all.get('team_members') or {}
+            weeks_db = cfg_all.get('weeks_db') or {}
 
             status_data = {
                 "phase": current_phase,
@@ -242,6 +248,12 @@ class CollabWarz(commands.Cog):
             # Attach detailed snapshots
             try:
                 status_data['submissions'] = submissions or {}
+                # Also include the submitted_teams mapping (week -> [teams]) when configured
+                try:
+                    submitted_teams = cfg_all.get('submitted_teams') or {}
+                    status_data['submitted_teams'] = submitted_teams or {}
+                except Exception:
+                    status_data['submitted_teams'] = {}
                 status_data['voting_results'] = voting_results or {}
                 status_data['team_members'] = team_members or {}
                 # Add a small summary of recent weeks for history UI
@@ -355,22 +367,22 @@ class CollabWarz(commands.Cog):
                     await self.config.guild(guild).current_theme.set(theme)
                     await self.config.guild(guild).current_phase.set('submission')
                     await self.config.guild(guild).week_cancelled.set(False)
-                    await self.config.guild(guild).submissions.clear()
+                    await self._clear_submissions_safe(guild)
                     print(f"✅ New week started with theme: {theme}")
                 else:
                     print("❌ start_new_week requires a theme")
 
             elif action == 'clear_submissions':
-                await self.config.guild(guild).submissions.clear()
+                await self._clear_submissions_safe(guild)
                 print("✅ Submissions cleared")
 
             elif action == 'remove_submission':
                 team_name = params.get('team_name')
                 if team_name:
-                    submissions = await self.config.guild(guild).submissions()
+                    submissions = await self._get_submissions_safe(guild)
                     if team_name in submissions:
                         del submissions[team_name]
-                        await self.config.guild(guild).submissions.set(submissions)
+                        await self._set_submissions_safe(guild, submissions)
                         print(f"✅ Removed submission for team {team_name}")
                     else:
                         print(f"⚠️ No submission found for team {team_name}")
@@ -401,7 +413,7 @@ class CollabWarz(commands.Cog):
             elif action == 'reset_week':
                 await self.config.guild(guild).current_phase.set('submission')
                 await self.config.guild(guild).week_cancelled.set(False)
-                await self.config.guild(guild).submissions.clear()
+                await self._clear_submissions_safe(guild)
                 await self.config.guild(guild).voting_results.clear()
                 await self.config.guild(guild).weekly_winners.clear()
                 print("✅ Week reset")
@@ -802,16 +814,44 @@ class CollabWarz(commands.Cog):
             total_teams = set()  # Use set to avoid double-counting
             
             # 1. Count Discord registered teams for current week
-            submitted_teams = await self.config.guild(guild).submitted_teams()
+            try:
+                cfg_all = await self.config.guild(guild).all()
+            except Exception:
+                cfg_all = {}
+
+            submitted_teams = cfg_all.get('submitted_teams', {})
             week_teams = submitted_teams.get(week_key, [])
             for team_name in week_teams:
                 total_teams.add(team_name)
             
             # 2. Count web submissions (from submissions config)
             # Note: submissions config contains all current active submissions
-            submissions = await self.config.guild(guild).submissions()
-            for team_name in submissions.keys():
-                total_teams.add(team_name)
+            # 2. Count web submissions (from submissions config if present)
+            submissions = cfg_all.get('submissions') or {}
+            if isinstance(submissions, dict):
+                for team_name in submissions.keys():
+                    total_teams.add(team_name)
+            else:
+                # If submissions isn't a dict, look for weeks_db or songs_db
+                weeks_db = cfg_all.get('weeks_db') or {}
+                week_info = weeks_db.get(week_key) or {}
+                # If weeks_db stores a teams list or songs list, attempt to extract
+                if isinstance(week_info.get('teams'), list):
+                    for t in week_info.get('teams', []):
+                        total_teams.add(t)
+                elif isinstance(week_info.get('songs'), list):
+                    for s in week_info.get('songs', []):
+                        if isinstance(s, dict) and s.get('team'):
+                            total_teams.add(s.get('team'))
+                else:
+                    # Fallback: examine songs_db and collect teams registered for this week
+                    songs_db = cfg_all.get('songs_db') or {}
+                    for song in songs_db.values():
+                        try:
+                            if song and song.get('week') == week_key and song.get('team'):
+                                total_teams.add(song.get('team'))
+                        except Exception:
+                            continue
             
             # 3. Also check for unregistered submissions (fallback for raw Discord messages)
             validate_enabled = await self.config.guild(guild).validate_discord_submissions()
@@ -1015,6 +1055,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         for team_id, team_data in teams_db.items():
             if set(team_data["members"]) == member_ids_set and team_data["name"] == team_name:
                 return int(team_id)
+
+            # helper functions have been moved to class-level methods for reuse
         
         # Create new team
         team_id = next_ids["team_id"]
@@ -1036,6 +1078,108 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         await self.config.guild(guild).next_unique_ids.set(next_ids)
         
         return team_id
+
+    async def _get_submissions_safe(self, guild) -> dict:
+        """Return submissions mapping safely, even if 'submissions' is not a registered config key."""
+        try:
+            cfg_all = await self.config.guild(guild).all()
+        except Exception:
+            cfg_all = {}
+        subs = cfg_all.get('submissions') or {}
+        # If the cog tracks submissions in weeks_db structure, try to flatten
+        if not subs:
+            weeks_db = cfg_all.get('weeks_db') or {}
+            # try to find current week
+            try:
+                week_key = await self._get_competition_week_key(guild)
+                wk = weeks_db.get(week_key, {})
+                if isinstance(wk, dict) and wk.get('teams'):
+                    # build a dict from list of team names
+                    subs = { t: {} for t in wk.get('teams', []) }
+                elif isinstance(wk, dict) and wk.get('songs'):
+                    subs = {}
+                    for s in wk.get('songs', []):
+                        if isinstance(s, dict) and s.get('team'):
+                            subs.setdefault(s.get('team'), {})
+            except Exception:
+                pass
+        return subs
+
+    async def _clear_submissions_safe(self, guild):
+        try:
+            cfg_all = await self.config.guild(guild).all()
+        except Exception:
+            cfg_all = {}
+        # Clear primary submissions mapping if present
+        if 'submissions' in cfg_all:
+            try:
+                await self.config.guild(guild).submissions.clear()
+            except Exception:
+                pass
+        # Also clear submitted_teams entries for the current week
+        try:
+            week_key = await self._get_competition_week_key(guild)
+            submitted_teams = cfg_all.get('submitted_teams') or {}
+            if week_key in submitted_teams:
+                submitted_teams[week_key] = []
+                await self.config.guild(guild).submitted_teams.set(submitted_teams)
+        except Exception:
+            pass
+
+    async def _remove_submission_safe(self, guild, team_name):
+        try:
+            cfg_all = await self.config.guild(guild).all()
+        except Exception:
+            cfg_all = {}
+        # Remove from submissions mapping if present
+        if 'submissions' in cfg_all:
+            try:
+                subs = cfg_all.get('submissions') or {}
+                if team_name in subs:
+                    del subs[team_name]
+                    await self._set_submissions_safe(guild, subs)
+                    return True
+            except Exception:
+                pass
+        # Remove from submitted_teams list for current week
+        try:
+            week_key = await self._get_competition_week_key(guild)
+            submitted_teams = cfg_all.get('submitted_teams') or {}
+            wk = submitted_teams.get(week_key, [])
+            if team_name in wk:
+                wk.remove(team_name)
+                submitted_teams[week_key] = wk
+                await self.config.guild(guild).submitted_teams.set(submitted_teams)
+                return True
+        except Exception:
+            pass
+        return False
+
+    async def _set_submissions_safe(self, guild, subs: dict) -> bool:
+        """Set submissions if 'submissions' is registered, otherwise populate submitted_teams for the current week."""
+        try:
+            cfg_all = await self.config.guild(guild).all()
+        except Exception:
+            cfg_all = {}
+
+        if 'submissions' in cfg_all:
+            try:
+                await self.config.guild(guild).submissions.set(subs)
+                return True
+            except Exception:
+                pass
+
+        # Fallback to populate submitted_teams
+        try:
+            week_key = await self._get_competition_week_key(guild)
+            submitted_teams = cfg_all.get('submitted_teams') or {}
+            submitted_teams[week_key] = list(subs.keys())
+            await self.config.guild(guild).submitted_teams.set(submitted_teams)
+            return True
+        except Exception:
+            pass
+
+        return False
     
     async def _record_song_submission(self, guild, team_id: int, week_key: str, suno_url: str, title: str = None) -> int:
         """Record a song submission and return song_id"""
@@ -1884,7 +2028,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             week_cancelled = await self.config.guild(guild).week_cancelled()
             
             # Get submission stats
-            submissions = await self.config.guild(guild).submissions()
+            submissions = await self._get_submissions_safe(guild)
             team_count = len(submissions)
             
             # Get voting results if available
@@ -1951,7 +2095,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             return error_response
         
         try:
-            submissions = await self.config.guild(guild).submissions()
+            submissions = await self._get_submissions_safe(guild)
             
             # Enrich submissions with member data
             enriched_submissions = []
@@ -2062,7 +2206,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     await self.config.guild(guild).current_theme.set(theme)
                     await self.config.guild(guild).current_phase.set('submission')
                     await self.config.guild(guild).week_cancelled.set(False)
-                    await self.config.guild(guild).submissions.clear()
+                    await self._clear_submissions_safe(guild)
                     result = {"success": True, "message": f"New week started with theme: {theme}"}
                 else:
                     result = {"success": False, "message": "Theme required for new week"}
@@ -2074,7 +2218,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 result = {"success": True, "message": f"Week cancelled: {reason}"}
             
             elif action == "clear_submissions":
-                await self.config.guild(guild).submissions.clear()
+                await self._clear_submissions_safe(guild)
                 result = {"success": True, "message": "All submissions cleared"}
             
             elif action == "toggle_automation":
@@ -2104,10 +2248,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             if not team_name:
                 return web.json_response({"error": "Team name required"}, status=400)
             
-            submissions = await self.config.guild(guild).submissions()
+            submissions = await self._get_submissions_safe(guild)
             if team_name in submissions:
                 del submissions[team_name]
-                await self.config.guild(guild).submissions.set(submissions)
+                await self._set_submissions_safe(guild, submissions)
                 return web.json_response({
                     "success": True, 
                     "message": f"Submission from {team_name} removed",
@@ -2333,7 +2477,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             week_cancelled = await self.config.guild(guild).week_cancelled()
             
             # Get submission stats
-            submissions = await self.config.guild(guild).submissions()
+            submissions = await self._get_submissions_safe(guild)
             team_count = len(submissions)
             
             # Calculate competition timeline
@@ -2410,7 +2554,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             if not guild:
                 return web.json_response({"error": "API not enabled"}, status=503)
             
-            submissions = await self.config.guild(guild).submissions()
+            submissions = await self._get_submissions_safe(guild)
             current_theme = await self.config.guild(guild).current_theme()
             current_phase = await self.config.guild(guild).current_phase()
             
@@ -2636,7 +2780,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 })
             
             # Enrich with submission details
-            submissions = await self.config.guild(guild).submissions()
+            submissions = await self._get_submissions_safe(guild)
             enriched_results = []
             
             for team_name, votes in voting_results.get('results', {}).items():
@@ -2744,7 +2888,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 return web.json_response({"error": "Invalid JSON data"}, status=400)
             
             # Validate team exists in current submissions
-            submissions = await self.config.guild(guild).submissions()
+            submissions = await self._get_submissions_safe(guild)
             if team_name not in submissions:
                 return web.json_response({
                     "error": "Team not found",
@@ -4299,7 +4443,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     })
             
             # Get winning team's song information
-            submissions = await self.config.guild(guild).submissions()
+            submissions = await self._get_submissions_safe(guild)
             winning_song_info = submissions.get(team_name, {})
             song_url = winning_song_info.get('track_url', '')
             
@@ -6735,7 +6879,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         discord_teams = set(submitted_teams.get(week_key, []))
         
         # Count web submissions  
-        submissions = await self.config.guild(ctx.guild).submissions()
+        submissions = await self._get_submissions_safe(ctx.guild)
         web_teams = set(submissions.keys())
         
         # Count raw submissions if validation is disabled
