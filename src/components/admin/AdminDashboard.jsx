@@ -20,8 +20,9 @@ export default function AdminDashboard() {
   useEffect(() => {
     loadStats();
     loadQueue();
+    const sTimer = setInterval(() => { loadStats(); }, 20000);
     const qTimer = setInterval(() => { loadQueue(); }, 10000);
-    return () => clearInterval(qTimer);
+    return () => { clearInterval(sTimer); clearInterval(qTimer); };
   }, []);
   useEffect(() => {
     const handler = () => { loadStats(); loadQueue(); };
@@ -32,12 +33,39 @@ export default function AdminDashboard() {
   const loadStats = async () => {
     try {
       const status = await botApi.getAdminStatus();
+      // Compute total votes: support both direct mapping and nested week mapping
+      let totalVotes = 0;
+      try {
+        if (status.voting_results) {
+          if (Object.keys(status.voting_results).length === 0) {
+            totalVotes = 0;
+          } else {
+            // Determine if voting_results is nested (weeks -> {team: votes})
+            const firstValue = Object.values(status.voting_results)[0];
+            if (typeof firstValue === 'object' && firstValue !== null) {
+              // Attempt to find the latest week and sum its votes
+              const weekKeys = Object.keys(status.voting_results);
+              // Pick the last week (assumes keys are sortable by ISO week key or datetime)
+              const latestWeek = weekKeys.sort().slice(-1)[0];
+              const weekResults = status.voting_results[latestWeek] || {};
+              totalVotes = Object.values(weekResults).reduce((a, b) => a + b, 0);
+            } else {
+              // Simple mapping team -> votes
+              totalVotes = Object.values(status.voting_results).reduce((a, b) => a + b, 0);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to compute total votes:', e);
+        totalVotes = 0;
+      }
+
       setStats({
         currentPhase: status.phase || "unknown",
         currentTheme: status.theme || "Unknown Theme",
         activeWeek: "Current",
         totalSubmissions: status.team_count || 0,
-        totalVotes: status.voting_results ? Object.values(status.voting_results).reduce((a, b) => a + b, 0) : 0,
+        totalVotes: totalVotes || 0,
         activeTeams: status.team_count || 0,
         totalArtists: 0,
         systemStatus: "operational",

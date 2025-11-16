@@ -208,9 +208,9 @@ class CollabWarz(commands.Cog):
             return False
     
     async def _update_redis_status(self, guild):
-        """Update competition status in Redis for admin panel"""
-        if not self.redis_client:
-            return
+        """Update competition status in Redis for admin panel and return the status dictionary.
+        If Redis isn't configured, return the status dict so it can be exported via backend polling.
+        """
             
         try:
             # Get current status
@@ -264,11 +264,16 @@ class CollabWarz(commands.Cog):
                 # Avoid failure for large objects
                 pass
             
-            # Store in Redis
-            await self.redis_client.set('collabwarz:status', json.dumps(status_data))
+            # Store in Redis if available
+            if self.redis_client:
+                await self.redis_client.set('collabwarz:status', json.dumps(status_data))
+
+            # Return the status data for potential backend export or other handling
+            return status_data
             
         except Exception as e:
             print(f"❌ CollabWarz: Failed to update Redis status: {e}")
+            return None
     
     async def _process_redis_action(self, guild, action_data: dict):
         """Process an action received from Redis queue"""
@@ -547,6 +552,22 @@ class CollabWarz(commands.Cog):
                                 print("⚠️ CollabWarz: Backend poll timed out")
                             except Exception as e:
                                 print(f"❌ CollabWarz: Error polling backend: {e}")
+
+                        # After processing, update and export current status back to backend
+                        try:
+                            status_data = await self._update_redis_status(guild)
+                            # If we have status data and backend configured, post it
+                            if status_data and backend_url and backend_token:
+                                status_url = backend_url.rstrip('/') + '/api/collabwarz/status'
+                                try:
+                                    headers = { 'X-CW-Token': backend_token }
+                                    async with session.post(status_url, json=status_data, headers=headers, timeout=5) as sresp:
+                                        if sresp.status != 200:
+                                            print(f"⚠️ CollabWarz: Failed to export status to backend (HTTP {sresp.status})")
+                                except Exception as ee:
+                                    print(f"❌ CollabWarz: Error exporting status to backend: {ee}")
+                        except Exception as e:
+                            print(f"❌ CollabWarz: Failed to update and export status for guild {guild.name}: {e}")
 
                         # Sleep according to guild poll interval
                         await asyncio.sleep(poll_interval or 10)

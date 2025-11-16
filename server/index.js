@@ -45,6 +45,8 @@ let redisClient;
 // In-memory queue fallback when Redis not configured (useful for local testing)
 const inMemoryQueue = [];
 const inMemoryProcessed = {}; // store processed action results when Redis is not configured
+// Last known status from backend/cog when Redis not available
+let inMemoryStatus = null;
 
 async function initRedis() {
   if (!REDIS_URL || REDIS_URL === "redis://localhost:6379") {
@@ -231,7 +233,10 @@ async function queueCollabWarzAction(action, params = {}) {
 // Helper function to get competition status from Redis
 async function getCompetitionStatusFromRedis() {
   if (!redisClient) {
-    console.log("⚠️  Redis not available - returning fallback data");
+    console.log(
+      "⚠️  Redis not available - returning in-memory status (if available)"
+    );
+    if (inMemoryStatus) return inMemoryStatus;
     return {
       phase: "unknown",
       theme: "Redis not available",
@@ -274,6 +279,36 @@ async function getCompetitionStatusFromRedis() {
     };
   }
 }
+
+// Endpoint to accept status updates from collabwarz cog (backend mode)
+app.post("/api/collabwarz/status", async (req, res) => {
+  try {
+    const auth = validateCogAuth(req, res);
+    if (!auth.ok)
+      return res.status(401).json({ success: false, message: auth.message });
+
+    const payload = req.body || {};
+    if (!payload || !payload.phase) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid status payload" });
+    }
+
+    if (redisClient) {
+      await redisClient.set("collabwarz:status", JSON.stringify(payload));
+    } else {
+      inMemoryStatus = payload;
+    }
+
+    return res.json({
+      success: true,
+      storedIn: redisClient ? "redis" : "in-memory",
+    });
+  } catch (error) {
+    console.error("/api/collabwarz/status failed:", error.message || error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 // Send command via webhook (appears as human user)
 async function sendViaWebhook(command, waitForResponse) {

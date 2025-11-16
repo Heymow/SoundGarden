@@ -11,9 +11,14 @@ export default function TeamManagement() {
 
   useEffect(() => {
     loadSubmissions();
+    const poll = setInterval(loadSubmissions, 15000);
     const handler = () => loadSubmissions();
     window.addEventListener('admin:refresh', handler);
-    return () => window.removeEventListener('admin:refresh', handler);
+    return () => {
+      clearInterval(poll);
+      window.removeEventListener('admin:refresh', handler);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadSubmissions = async () => {

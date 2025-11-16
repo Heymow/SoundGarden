@@ -19,17 +19,29 @@ export default function VotingManagement() {
     loadStatus();
     const handler = () => loadStatus();
     window.addEventListener('admin:refresh', handler);
-    return () => window.removeEventListener('admin:refresh', handler);
+    const poll = setInterval(loadStatus, 15000);
+    return () => {
+      window.removeEventListener('admin:refresh', handler);
+      clearInterval(poll);
+    };
   }, []);
 
   const loadStatus = async () => {
     try {
       const status = await botApi.getAdminStatus();
       if (status.voting_results) {
-        const results = Object.entries(status.voting_results).map(([team, votes]) => ({
-          team,
-          votes,
-        }));
+        let map = status.voting_results;
+        let latestWeekKey = '';
+
+        // Detect nested week mapping
+        const firstVal = Object.values(map)[0];
+        if (firstVal && typeof firstVal === 'object' && !Array.isArray(firstVal)) {
+          const weekKeys = Object.keys(map).sort();
+          latestWeekKey = weekKeys.slice(-1)[0];
+          map = map[latestWeekKey] || {};
+        }
+
+        const results = Object.entries(map).map(([team, votes]) => ({ team, votes }));
         results.sort((a, b) => b.votes - a.votes);
         setVotingResults(results);
 
@@ -42,6 +54,8 @@ export default function VotingManagement() {
           uniqueVoters,
           averageVotesPerSubmission: Math.round(avgVotes * 10) / 10,
         });
+        // set selectedWeek to latest if present
+        if (latestWeekKey) setSelectedWeek(latestWeekKey);
       }
     } catch (err) {
       console.error("Failed to load status:", err);
