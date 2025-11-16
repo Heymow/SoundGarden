@@ -464,7 +464,7 @@ class CollabWarz(commands.Cog):
             action_data['status'] = 'completed'
             action_data['processed_at'] = datetime.utcnow().isoformat()
             
-            if self.redis_client:
+            if self.redis_client and hasattr(self.redis_client, 'setex'):
                 try:
                     await self.redis_client.setex(
                         f'collabwarz:action:{action_id}',
@@ -502,7 +502,7 @@ class CollabWarz(commands.Cog):
             action_data['error'] = str(e)
             action_data['processed_at'] = datetime.utcnow().isoformat()
             
-            if self.redis_client:
+            if self.redis_client and hasattr(self.redis_client, 'setex'):
                 try:
                     await self.redis_client.setex(
                         f'collabwarz:action:{action_id}',
