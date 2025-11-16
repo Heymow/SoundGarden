@@ -110,6 +110,46 @@ app.get("/api/user", (req, res) => {
   res.json({ message: "User endpoint - implement session management" });
 });
 
+// ========== COLLABWARZ API ENDPOINTS ==========
+// These endpoints proxy/simulate the bot's CollabWarz API
+
+// Test endpoints
+app.get("/api/ping", (req, res) => {
+  res.json({ status: "ok", message: "CollabWarz API is running" });
+});
+
+app.get("/api/test", (req, res) => {
+  res.json({ status: "success", message: "Test endpoint works" });
+});
+
+// Admin endpoints (mock for now)
+app.get("/api/admin/status", (req, res) => {
+  // Mock admin status response
+  res.json({
+    phase: "submission",
+    theme: "Cosmic Dreams",
+    automation_enabled: true,
+    week_cancelled: false,
+    team_count: 0,
+    voting_results: {},
+    next_phase_change: null,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Public endpoints (mock for now)
+app.get("/api/public/status", (req, res) => {
+  res.json({
+    competition: {
+      phase: "submission",
+      theme: "Cosmic Dreams",
+      week_cancelled: false,
+      team_count: 0
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`Discord OAuth redirect URI: ${DISCORD_REDIRECT_URI}`);
