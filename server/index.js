@@ -634,7 +634,9 @@ app.get("/api/public/status", async (req, res) => {
 app.post("/api/admin/actions", async (req, res) => {
   try {
     const { action, params = {}, ...directParams } = req.body;
-    const actionParams = params.phase ? params : directParams;
+    // Prefer explicit `params` object when provided; fall back to top-level fields
+    const actionParams =
+      params && Object.keys(params).length ? params : directParams;
 
     console.log(`🎮 Admin action via Redis: ${action}`, actionParams);
 
