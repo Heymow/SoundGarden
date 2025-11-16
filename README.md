@@ -166,12 +166,23 @@ Admin Panel Action → Express Backend → Redis Queue → CollabWarz Cog → Di
 - `cancel_week` - Cancel current competition week
 - `set_theme` - Update competition theme
 - `enable_automation` / `disable_automation` - Control automated announcements
+ - `set_phase` - Directly set the competition phase (submission, voting, paused, cancelled, ended)
+ - `start_new_week` - Start a new competition week with a theme and reset submissions
+ - `clear_submissions` - Remove all submissions for the current week
+ - `next_phase` - Advance the competition to the next phase (submission -> voting -> ended)
+ - `reset_week` - Reset the week state (clear submissions, reset winners)
+ - `force_voting` - Force the competition into the voting phase
+ - `announce_winners` - Compute and announce winners immediately
 
 ### Redis Keys
 ```
 collabwarz:actions          # Action queue (LIST)
 collabwarz:status          # Current status (JSON STRING)  
 collabwarz:action:{id}     # Action tracking (JSON, 24h TTL)
+```
+
+### Admin Queue API
+- `GET /api/admin/queue` - Returns the current queued actions and recent processed action results (used by the admin UI). Returns `queueLength`, `queue` array and `processed` array.
 ```
 
 ## 🚀 Deployment

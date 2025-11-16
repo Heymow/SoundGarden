@@ -42,6 +42,9 @@ console.log(`Redis URL: ${REDIS_URL}`);
 
 // Redis client and initialization
 let redisClient;
+// In-memory queue fallback when Redis not configured (useful for local testing)
+const inMemoryQueue = [];
+const inMemoryProcessed = {}; // store processed action results when Redis is not configured
 
 async function initRedis() {
   if (!REDIS_URL || REDIS_URL === "redis://localhost:6379") {
@@ -193,7 +196,16 @@ async function queueCollabWarzAction(action, params = {}) {
       action,
       params
     );
-    return { queued: false, message: "Redis not available" };
+    const actionData = {
+      id: `action_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      action: action,
+      params: params,
+      timestamp: new Date().toISOString(),
+      status: "pending",
+    };
+    inMemoryQueue.push(actionData);
+    console.log(`ℹ️  Action queued in-memory: ${actionData.id}`);
+    return actionData;
   }
 
   try {
@@ -552,7 +564,10 @@ app.get("/api/collabwarz/next-action", async (req, res) => {
     }
 
     if (!redisClient) {
-      return res.status(204).send();
+      // If Redis not configured, fall back to the in-memory queue
+      if (inMemoryQueue.length === 0) return res.status(204).send();
+      const actionData = inMemoryQueue.shift();
+      return res.json({ success: true, action: actionData });
     }
 
     const actionString = await redisClient.rPop("collabwarz:actions");
@@ -597,6 +612,10 @@ app.post("/api/collabwarz/action-result", async (req, res) => {
         86400,
         JSON.stringify(resultData)
       );
+    }
+    else {
+      // store in memory for inspection during tests/local runs
+      inMemoryProcessed[id] = resultData;
     }
 
     return res.json({ success: true, stored: !!redisClient });
@@ -670,6 +689,16 @@ app.post("/api/admin/actions", async (req, res) => {
         break;
 
       case "toggle_automation":
+              case "start_new_week":
+                if (!actionParams.theme) {
+                  return res.status(400).json({ success: false, message: "Theme parameter required" });
+                }
+                successMessage = `Start new week: ${actionParams.theme}`;
+                break;
+
+              case "clear_submissions":
+                successMessage = "Clear submissions queued";
+                break;
         successMessage = "Automation toggle queued";
         break;
 
@@ -714,6 +743,53 @@ app.post("/api/admin/actions", async (req, res) => {
       message: error.message,
       timestamp: new Date().toISOString(),
     });
+  }
+});
+
+// Debug endpoint to inspect in-memory queue (only in non-production)
+app.get('/api/debug/queue', (req, res) => {
+  if (process.env.NODE_ENV === 'production') return res.status(403).json({ error: 'Forbidden' });
+  res.json({ queueLength: inMemoryQueue.length, queue: inMemoryQueue });
+});
+
+// Admin queue + processing state endpoint (used by frontend UI)
+app.get('/api/admin/queue', async (req, res) => {
+  try {
+    if (!redisClient) {
+      // In-memory fallback
+      return res.json({
+        queueLength: inMemoryQueue.length,
+        queue: inMemoryQueue.slice(0, 100),
+        processed: Object.values(inMemoryProcessed).slice(-100),
+        backend: 'in-memory'
+      });
+    }
+
+    const queueRaw = await redisClient.lRange('collabwarz:actions', 0, 99);
+    const queue = queueRaw.map((s) => {
+      try { return JSON.parse(s); } catch (e) { return { raw: s }; }
+    });
+
+    const keys = await redisClient.keys('collabwarz:action:*');
+    let processed = [];
+    if (keys && keys.length) {
+      // Limit to latest 100
+      const limited = keys.slice(-100);
+      for (const key of limited) {
+        const value = await redisClient.get(key);
+        try { processed.push(JSON.parse(value)); } catch (e) { processed.push({ raw: value }); }
+      }
+    }
+
+    return res.json({
+      queueLength: await redisClient.lLen('collabwarz:actions'),
+      queue,
+      processed,
+      backend: 'redis'
+    });
+  } catch (error) {
+    console.error('❌ /api/admin/queue error:', error.message);
+    return res.status(500).json({ error: error.message });
   }
 });
 

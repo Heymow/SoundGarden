@@ -15,9 +15,13 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [queueInfo, setQueueInfo] = useState({ queueLength: 0, queue: [], processed: [] });
 
   useEffect(() => {
     loadStats();
+    loadQueue();
+    const qTimer = setInterval(()=>{ loadQueue(); }, 10000);
+    return ()=> clearInterval(qTimer);
   }, []);
 
   const loadStats = async () => {
@@ -35,6 +39,19 @@ export default function AdminDashboard() {
       });
     } catch (err) {
       console.error("Failed to load stats:", err);
+    }
+  };
+
+  const loadQueue = async () => {
+    try {
+      const q = await botApi.getAdminQueue();
+      setQueueInfo({
+        queueLength: q.queueLength || 0,
+        queue: q.queue || [],
+        processed: q.processed || []
+      });
+    } catch (err) {
+      console.error('Failed to load queue:', err);
     }
   };
 
@@ -251,6 +268,24 @@ export default function AdminDashboard() {
               <div className="activity-meta">Submission → Voting • 2 hours ago</div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="admin-queue">
+        <h3>🔁 Action Queue</h3>
+        <div className="admin-queue-summary">Queued: {queueInfo.queueLength} | Processed: {queueInfo.processed.length}</div>
+        <div className="admin-queue-list">
+          {queueInfo.queue && queueInfo.queue.length > 0 ? (
+            queueInfo.queue.slice(0, 20).map((a) => (
+              <div className="admin-queue-item" key={a.id}>
+                <div className="queue-item-title">{a.action}</div>
+                <div className="queue-item-meta">id: {a.id} • {new Date(a.timestamp).toLocaleString()}</div>
+                <div className="queue-item-params">{JSON.stringify(a.params || {})}</div>
+              </div>
+            ))
+          ) : (
+            <div className="admin-queue-empty">No actions queued</div>
+          )}
         </div>
       </div>
     </div>

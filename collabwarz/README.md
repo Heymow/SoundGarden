@@ -656,6 +656,18 @@ Update bot configuration
 ```
 
 #### POST `/api/admin/actions`
+Supported actions (via backend queueing):
+- `set_phase` - Immediately set phase (submission, voting, ended)
+- `set_theme` - Set current theme
+- `start_new_week` - Start a new week with a theme and reset submissions
+- `clear_submissions` - Clear all submissions
+- `cancel_week` - Cancel current week
+- `next_phase` - Move to next phase
+- `reset_week` - Reset week state
+- `force_voting` - Force voting phase
+- `announce_winners` - Force compute and announce winners
+- `toggle_automation` - Toggle automated announcements
+
 Execute administrative actions
 
 **Available Actions:**

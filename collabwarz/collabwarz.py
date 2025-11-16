@@ -283,11 +283,72 @@ class CollabWarz(commands.Cog):
                 await self.config.guild(guild).auto_announce.set(False)
                 print("✅ Automation disabled")
                 
+            elif action == 'toggle_automation':
+                current = await self.config.guild(guild).auto_announce()
+                await self.config.guild(guild).auto_announce.set(not current)
+                print(f"✅ Automation toggled: {not current}")
+                
             elif action == 'set_theme':
                 theme = params.get('theme')
                 if theme:
                     await self.config.guild(guild).current_theme.set(theme)
                     print(f"✅ Theme updated: {theme}")
+
+            elif action == 'set_phase':
+                phase = params.get('phase')
+                if phase in ['submission', 'voting', 'paused', 'cancelled', 'ended', 'inactive']:
+                    await self.config.guild(guild).current_phase.set(phase)
+                    print(f"✅ Phase set to: {phase}")
+                else:
+                    print(f"❌ Invalid phase: {phase}")
+
+            elif action == 'next_phase':
+                current_phase = await self.config.guild(guild).current_phase()
+                if current_phase == 'submission':
+                    await self.config.guild(guild).current_phase.set('voting')
+                    print("✅ Advanced to voting")
+                elif current_phase == 'voting':
+                    await self.config.guild(guild).current_phase.set('ended')
+                    print("✅ Advanced to ended")
+                else:
+                    await self.config.guild(guild).current_phase.set('submission')
+                    print("✅ Reset to submission")
+
+            elif action == 'start_new_week':
+                theme = params.get('theme')
+                if theme:
+                    await self.config.guild(guild).current_theme.set(theme)
+                    await self.config.guild(guild).current_phase.set('submission')
+                    await self.config.guild(guild).week_cancelled.set(False)
+                    await self.config.guild(guild).submissions.clear()
+                    print(f"✅ New week started with theme: {theme}")
+                else:
+                    print("❌ start_new_week requires a theme")
+
+            elif action == 'clear_submissions':
+                await self.config.guild(guild).submissions.clear()
+                print("✅ Submissions cleared")
+
+            elif action == 'reset_week':
+                await self.config.guild(guild).current_phase.set('submission')
+                await self.config.guild(guild).week_cancelled.set(False)
+                await self.config.guild(guild).submissions.clear()
+                await self.config.guild(guild).voting_results.clear()
+                await self.config.guild(guild).weekly_winners.clear()
+                print("✅ Week reset")
+
+            elif action == 'force_voting':
+                await self.config.guild(guild).current_phase.set('voting')
+                await self.config.guild(guild).week_cancelled.set(False)
+                print("✅ Force set to voting phase")
+
+            elif action == 'announce_winners':
+                try:
+                    # Trigger the process that finalizes the vote and announces winners
+                    await self._process_voting_end(guild)
+                    print("✅ Announce winners triggered")
+                except Exception as e:
+                    print(f"❌ Failed to announce winners: {e}")
                     
             else:
                 print(f"❓ Unknown action: {action}")

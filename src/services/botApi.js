@@ -240,6 +240,13 @@ export const testSpecificUrl = async (testUrl) => {
   }
 };
 
+/**
+ * Get current admin queue and processed items
+ */
+export const getAdminQueue = async () => {
+  return await fetchWithAuth("/api/admin/queue");
+};
+
 // ============= Configuration Endpoints =============
 
 /**
