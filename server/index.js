@@ -134,7 +134,7 @@ async function sendDiscordCommand(command, waitForResponse = true) {
   if (DISCORD_WEBHOOK_URL) {
     return await sendViaWebhook(command, waitForResponse);
   }
-  
+
   // Fallback to bot API (may be ignored by RedBot)
   return await sendViaBot(command, waitForResponse);
 }
@@ -149,7 +149,7 @@ async function sendViaWebhook(command, waitForResponse) {
       {
         content: command,
         username: "CollabWarz Admin", // Custom name
-        avatar_url: "https://cdn.discordapp.com/emojis/🎵.png" // Optional custom avatar
+        avatar_url: "https://cdn.discordapp.com/emojis/🎵.png", // Optional custom avatar
       },
       {
         headers: {
@@ -159,14 +159,20 @@ async function sendViaWebhook(command, waitForResponse) {
       }
     );
 
-    console.log(`✅ Webhook command sent successfully - Status: ${response.status}`);
+    console.log(
+      `✅ Webhook command sent successfully - Status: ${response.status}`
+    );
 
     if (waitForResponse) {
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise((resolve) => setTimeout(resolve, 3000));
       return await getLastBotResponse();
     }
 
-    return { success: true, message: 'Command sent via webhook', messageId: response.data?.id };
+    return {
+      success: true,
+      message: "Command sent via webhook",
+      messageId: response.data?.id,
+    };
   } catch (error) {
     console.error(`❌ Webhook failed:`, error.message);
     throw new Error(`Webhook communication failed: ${error.message}`);
@@ -339,20 +345,21 @@ app.get("/api/discord/config", (req, res) => {
     commandPrefix: COMMAND_PREFIX,
     guildId: DISCORD_GUILD_ID || "NOT_SET",
     adminChannelId: DISCORD_ADMIN_CHANNEL_ID || "NOT_SET",
-    communicationMethod: DISCORD_WEBHOOK_URL ? "webhook" : "bot"
+    communicationMethod: DISCORD_WEBHOOK_URL ? "webhook" : "bot",
   };
 
-  const basicConfigured = config.botTokenSet && config.guildIdSet && config.adminChannelIdSet;
+  const basicConfigured =
+    config.botTokenSet && config.guildIdSet && config.adminChannelIdSet;
   const webhookConfigured = !!DISCORD_WEBHOOK_URL;
 
   res.json({
     configured: basicConfigured,
     webhookReady: webhookConfigured,
     config,
-    message: webhookConfigured 
-      ? "Webhook communication ready (recommended)" 
-      : basicConfigured 
-        ? "Bot communication ready (may be ignored by RedBot)"
+    message: webhookConfigured
+      ? "Webhook communication ready (recommended)"
+      : basicConfigured
+      ? "Bot communication ready (may be ignored by RedBot)"
       : "Missing Discord configuration",
   });
 });
