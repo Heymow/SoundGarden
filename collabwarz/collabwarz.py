@@ -16,6 +16,7 @@ import json
 from typing import Optional
 from aiohttp import web
 import re
+import traceback
 import os
 try:
     import redis.asyncio as redis
@@ -306,9 +307,17 @@ class CollabWarz(commands.Cog):
     
     async def _process_redis_action(self, guild, action_data: dict):
         """Process an action received from Redis queue"""
-        action = action_data.get('action')
-        params = action_data.get('params', {})
-        action_id = action_data.get('id')
+        action = None
+        params = {}
+        action_id = None
+        try:
+            action = action_data.get('action')
+            params = action_data.get('params', {})
+            action_id = action_data.get('id')
+        except Exception:
+            action = None
+            params = {}
+            action_id = None
         
         print(f"🎯 CollabWarz: Processing Redis action '{action}' (ID: {action_id})")
         
@@ -455,14 +464,35 @@ class CollabWarz(commands.Cog):
             action_data['status'] = 'completed'
             action_data['processed_at'] = datetime.utcnow().isoformat()
             
-            await self.redis_client.setex(
-                f'collabwarz:action:{action_id}',
-                86400,  # 24 hours
-                json.dumps(action_data)
-            )
+            if self.redis_client:
+                try:
+                    await self.redis_client.setex(
+                        f'collabwarz:action:{action_id}',
+                        86400,  # 24 hours
+                        json.dumps(action_data)
+                    )
+                except Exception as e:
+                    print(f"⚠️ CollabWarz: Unable to save action result in Redis: {e}")
+            else:
+                print(f"⚠️ CollabWarz: Redis client not available; not saving action result for action {action_id}")
             
             # Update status after processing action
             await self._update_redis_status(guild)
+
+            # If Redis isn't available, optionally inform backend of action result (fallback)
+            if not self.redis_client:
+                try:
+                    backend_url = await self.config.guild(guild).backend_url()
+                    backend_token = await self.config.guild(guild).backend_token()
+                    if backend_url and backend_token:
+                        result_url = backend_url.rstrip('/') + '/api/collabwarz/action-result'
+                        headers = {"X-CW-Token": backend_token}
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(result_url, json=action_data, headers=headers, timeout=10) as presp:
+                                if presp.status != 200:
+                                    print(f"⚠️ CollabWarz: Backend result post (fallback) returned {presp.status}")
+                except Exception as e:
+                    print(f"⚠️ CollabWarz: Failed to post action result to backend fallback: {e}")
             
         except Exception as e:
             print(f"❌ CollabWarz: Failed to process action '{action}': {e}")
@@ -473,11 +503,16 @@ class CollabWarz(commands.Cog):
             action_data['processed_at'] = datetime.utcnow().isoformat()
             
             if self.redis_client:
-                await self.redis_client.setex(
-                    f'collabwarz:action:{action_id}',
-                    86400,  # 24 hours
-                    json.dumps(action_data)
-                )
+                try:
+                    await self.redis_client.setex(
+                        f'collabwarz:action:{action_id}',
+                        86400,  # 24 hours
+                        json.dumps(action_data)
+                    )
+                except Exception as e:
+                    print(f"⚠️ CollabWarz: Unable to save failed action result in Redis: {e}")
+            else:
+                print(f"⚠️ CollabWarz: Redis client not available; not saving failed action result for action {action_id}")
     
     async def redis_communication_loop(self):
         """Main Redis communication loop - polls for actions and updates status"""
@@ -548,6 +583,7 @@ class CollabWarz(commands.Cog):
                         # Build request
                         next_url = backend_url.rstrip("/") + "/api/collabwarz/next-action"
 
+                        print(f"🔁 CollabWarz: Creating backend HTTP session for guild {guild.name}")
                         async with aiohttp.ClientSession() as session:
                             try:
                                 headers = {"X-CW-Token": backend_token}
@@ -580,21 +616,29 @@ class CollabWarz(commands.Cog):
                             except asyncio.TimeoutError:
                                 print("⚠️ CollabWarz: Backend poll timed out")
                             except Exception as e:
-                                print(f"❌ CollabWarz: Error polling backend: {e}")
+                                print(f"❌ CollabWarz: Error polling backend: {e} (session closed: {getattr(session, 'closed', 'n/a')})")
 
                             # After processing, update and export current status back to backend
                             try:
                                 status_data = await self._update_redis_status(guild)
-                                # If we have status data and backend configured, post it
+                                # If we have status data and backend configured, post it.
+                                # Use a dedicated temporary session for status POST to avoid 'Session is closed' issues
                                 if status_data and backend_url and backend_token:
                                     status_url = backend_url.rstrip('/') + '/api/collabwarz/status'
                                     try:
                                         headers = { 'X-CW-Token': backend_token }
-                                        async with session.post(status_url, json=status_data, headers=headers, timeout=5) as sresp:
-                                            if sresp.status != 200:
-                                                print(f"⚠️ CollabWarz: Failed to export status to backend (HTTP {sresp.status})")
+                                        print(f"🔁 CollabWarz: Posting status to backend for {guild.name}")
+                                        async with aiohttp.ClientSession() as status_session:
+                                            print(f"🔁 CollabWarz: Status session open: {getattr(status_session,'closed', False)}")
+                                            async with status_session.post(status_url, json=status_data, headers=headers, timeout=5) as sresp:
+                                                if sresp.status != 200:
+                                                    print(f"⚠️ CollabWarz: Failed to export status to backend (HTTP {sresp.status})")
                                     except Exception as ee:
                                         print(f"❌ CollabWarz: Error exporting status to backend: {ee}")
+                                        print(traceback.format_exc())
+                                else:
+                                    # No status to export
+                                    print(f"ℹ️ CollabWarz: No status available to export for guild {guild.name}")
                             except Exception as e:
                                 print(f"❌ CollabWarz: Failed to update and export status for guild {guild.name}: {e}")
 
