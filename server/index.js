@@ -24,7 +24,7 @@ const COMMAND_PREFIX = process.env.COMMAND_PREFIX || "!cw";
 
 console.log(`Discord Guild ID: ${DISCORD_GUILD_ID}`);
 console.log(`Admin Channel ID: ${DISCORD_ADMIN_CHANNEL_ID}`);
-console.log(`Bot Token configured: ${DISCORD_BOT_TOKEN ? 'Yes' : 'No'}`);
+console.log(`Bot Token configured: ${DISCORD_BOT_TOKEN ? "Yes" : "No"}`);
 console.log(`Command Prefix: ${COMMAND_PREFIX}`);
 
 app.use(
@@ -128,59 +128,71 @@ app.get("/api/user", (req, res) => {
 async function sendDiscordCommand(command, waitForResponse = true) {
   // Check configuration
   if (!DISCORD_BOT_TOKEN) {
-    throw new Error('DISCORD_BOT_TOKEN environment variable not set');
+    throw new Error("DISCORD_BOT_TOKEN environment variable not set");
   }
   if (!DISCORD_ADMIN_CHANNEL_ID) {
-    throw new Error('DISCORD_ADMIN_CHANNEL_ID environment variable not set');
+    throw new Error("DISCORD_ADMIN_CHANNEL_ID environment variable not set");
   }
 
   const url = `https://discord.com/api/v10/channels/${DISCORD_ADMIN_CHANNEL_ID}/messages`;
-  
+
   console.log(`🎮 Sending Discord command: ${command}`);
   console.log(`📡 URL: ${url}`);
   console.log(`🔑 Using bot token: ${DISCORD_BOT_TOKEN.substring(0, 20)}...`);
 
   try {
-    const response = await axios.post(url, {
-      content: command
-    }, {
-      headers: {
-        'Authorization': `Bot ${DISCORD_BOT_TOKEN}`,
-        'Content-Type': 'application/json'
+    const response = await axios.post(
+      url,
+      {
+        content: command,
       },
-      timeout: 10000
-    });
+      {
+        headers: {
+          Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 10000,
+      }
+    );
 
     console.log(`✅ Command sent successfully - Status: ${response.status}`);
     console.log(`📨 Response data:`, response.data);
 
     if (waitForResponse) {
       // Wait a bit for bot to process and respond
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       return await getLastBotResponse();
     }
 
-    return { success: true, message: 'Command sent', messageId: response.data.id };
+    return {
+      success: true,
+      message: "Command sent",
+      messageId: response.data.id,
+    };
   } catch (error) {
     console.error(`❌ Failed to send Discord command:`, error.message);
-    
+
     if (error.response) {
       console.error(`Discord API Error:`, {
         status: error.response.status,
         statusText: error.response.statusText,
-        data: error.response.data
+        data: error.response.data,
       });
-      
+
       // Provide more specific error messages
       if (error.response.status === 401) {
-        throw new Error('Invalid Discord bot token - check DISCORD_BOT_TOKEN');
+        throw new Error("Invalid Discord bot token - check DISCORD_BOT_TOKEN");
       } else if (error.response.status === 403) {
-        throw new Error('Bot lacks permissions to send messages in this channel');
+        throw new Error(
+          "Bot lacks permissions to send messages in this channel"
+        );
       } else if (error.response.status === 404) {
-        throw new Error('Admin channel not found - check DISCORD_ADMIN_CHANNEL_ID');
+        throw new Error(
+          "Admin channel not found - check DISCORD_ADMIN_CHANNEL_ID"
+        );
       }
     }
-    
+
     throw error;
   }
 }
@@ -188,7 +200,7 @@ async function sendDiscordCommand(command, waitForResponse = true) {
 // Helper function to get last bot response from admin channel
 async function getLastBotResponse() {
   if (!DISCORD_BOT_TOKEN || !DISCORD_ADMIN_CHANNEL_ID) {
-    throw new Error('Discord bot token or admin channel ID not configured');
+    throw new Error("Discord bot token or admin channel ID not configured");
   }
 
   const url = `https://discord.com/api/v10/channels/${DISCORD_ADMIN_CHANNEL_ID}/messages?limit=10`;
@@ -198,19 +210,21 @@ async function getLastBotResponse() {
   try {
     const response = await axios.get(url, {
       headers: {
-        'Authorization': `Bot ${DISCORD_BOT_TOKEN}`
+        Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
       },
-      timeout: 10000
+      timeout: 10000,
     });
 
     // Find the most recent bot message
-    const botMessage = response.data.find(msg => msg.author.bot && !msg.content.startsWith(COMMAND_PREFIX));
-    
+    const botMessage = response.data.find(
+      (msg) => msg.author.bot && !msg.content.startsWith(COMMAND_PREFIX)
+    );
+
     if (botMessage) {
       return parseDiscordBotResponse(botMessage.content);
     }
 
-    return { error: 'No bot response found' };
+    return { error: "No bot response found" };
   } catch (error) {
     console.error(`❌ Failed to get bot response:`, error.message);
     throw error;
@@ -222,12 +236,12 @@ function parseDiscordBotResponse(content) {
   // This will parse bot responses to extract competition status
   // For now, return a basic structure
   return {
-    phase: "submission", 
+    phase: "submission",
     theme: "Cosmic Dreams",
     automation_enabled: true,
     week_cancelled: false,
     team_count: 0,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   };
 }
 
@@ -235,17 +249,17 @@ function parseDiscordBotResponse(content) {
 async function getCompetitionStatus() {
   try {
     console.log(`📊 Getting competition status via Discord`);
-    
+
     // Send status command and parse response
     await sendDiscordCommand(`${COMMAND_PREFIX} status`, false);
-    
+
     // Wait for bot response and parse
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
     const status = await getLastBotResponse();
-    
+
     return status;
   } catch (error) {
-    console.error('Failed to get competition status:', error.message);
+    console.error("Failed to get competition status:", error.message);
     // Return fallback data
     return {
       phase: "unknown",
@@ -254,7 +268,7 @@ async function getCompetitionStatus() {
       week_cancelled: false,
       team_count: 0,
       error: true,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   }
 }
@@ -275,16 +289,19 @@ app.get("/api/discord/config", (req, res) => {
     guildIdSet: !!DISCORD_GUILD_ID,
     adminChannelIdSet: !!DISCORD_ADMIN_CHANNEL_ID,
     commandPrefix: COMMAND_PREFIX,
-    guildId: DISCORD_GUILD_ID || 'NOT_SET',
-    adminChannelId: DISCORD_ADMIN_CHANNEL_ID || 'NOT_SET'
+    guildId: DISCORD_GUILD_ID || "NOT_SET",
+    adminChannelId: DISCORD_ADMIN_CHANNEL_ID || "NOT_SET",
   };
-  
-  const allConfigured = config.botTokenSet && config.guildIdSet && config.adminChannelIdSet;
-  
+
+  const allConfigured =
+    config.botTokenSet && config.guildIdSet && config.adminChannelIdSet;
+
   res.json({
     configured: allConfigured,
     config,
-    message: allConfigured ? 'Discord configuration complete' : 'Missing Discord configuration'
+    message: allConfigured
+      ? "Discord configuration complete"
+      : "Missing Discord configuration",
   });
 });
 
@@ -293,21 +310,21 @@ app.post("/api/discord/test", async (req, res) => {
   try {
     const testCommand = `${COMMAND_PREFIX} status`;
     console.log(`🧪 Testing Discord communication with: ${testCommand}`);
-    
+
     await sendDiscordCommand(testCommand, false);
-    
+
     res.json({
       success: true,
-      message: 'Test command sent successfully',
+      message: "Test command sent successfully",
       command: testCommand,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: 'Discord communication test failed',
+      error: "Discord communication test failed",
       message: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -318,11 +335,11 @@ app.get("/api/admin/status", async (req, res) => {
     const status = await getCompetitionStatus();
     res.json(status);
   } catch (error) {
-    console.error('Failed to get admin status:', error.message);
+    console.error("Failed to get admin status:", error.message);
     res.status(500).json({
-      error: 'Failed to get status from Discord bot',
+      error: "Failed to get status from Discord bot",
       message: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -336,16 +353,16 @@ app.get("/api/public/status", async (req, res) => {
         phase: status.phase,
         theme: status.theme,
         week_cancelled: status.week_cancelled,
-        team_count: status.team_count
+        team_count: status.team_count,
       },
-      timestamp: status.timestamp
+      timestamp: status.timestamp,
     });
   } catch (error) {
-    console.error('Failed to get public status:', error.message);
+    console.error("Failed to get public status:", error.message);
     res.status(500).json({
-      error: 'Failed to get status from Discord bot',
+      error: "Failed to get status from Discord bot",
       message: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -355,7 +372,7 @@ app.post("/api/admin/actions", async (req, res) => {
   try {
     const { action, params = {}, ...directParams } = req.body;
     const actionParams = params.phase ? params : directParams;
-    
+
     console.log(`🎮 Admin action via Discord: ${action}`, actionParams);
 
     let command;
@@ -368,46 +385,46 @@ app.post("/api/admin/actions", async (req, res) => {
         command = `${COMMAND_PREFIX} settheme "${actionParams.theme}"`;
         successMessage = `Theme updated to: ${actionParams.theme}`;
         break;
-        
+
       case "set_phase":
         command = `${COMMAND_PREFIX} setphase ${actionParams.phase}`;
         successMessage = `Phase changed to: ${actionParams.phase}`;
         break;
-        
+
       case "next_phase":
         command = `${COMMAND_PREFIX} nextphase`;
         successMessage = "Phase advanced successfully";
         break;
-        
+
       case "toggle_automation":
         command = `${COMMAND_PREFIX} toggle`;
         successMessage = `Automation toggled`;
         break;
-        
+
       case "cancel_week":
         command = `${COMMAND_PREFIX} pause Week cancelled by admin`;
         successMessage = "Week cancelled successfully";
         break;
-        
+
       case "reset_week":
         command = `${COMMAND_PREFIX} resume`;
         successMessage = "Week reset successfully";
         break;
-        
+
       case "force_voting":
         command = `${COMMAND_PREFIX} setphase voting`;
         successMessage = "Voting phase started";
         break;
-        
+
       case "announce_winners":
         command = `${COMMAND_PREFIX} checkvotes`;
         successMessage = "Winners announced successfully";
         break;
-        
+
       default:
         return res.status(400).json({
           success: false,
-          message: `Unknown action: ${action}`
+          message: `Unknown action: ${action}`,
         });
     }
 
@@ -419,16 +436,15 @@ app.post("/api/admin/actions", async (req, res) => {
       success: true,
       message: successMessage,
       command: command,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
-
   } catch (error) {
-    console.error('❌ Failed to execute Discord command:', error.message);
+    console.error("❌ Failed to execute Discord command:", error.message);
     res.status(500).json({
       success: false,
-      error: 'Failed to send command to Discord bot',
+      error: "Failed to send command to Discord bot",
       message: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 });
