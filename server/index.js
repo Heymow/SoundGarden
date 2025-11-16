@@ -113,6 +113,17 @@ app.get("/api/user", (req, res) => {
 // ========== COLLABWARZ API ENDPOINTS ==========
 // These endpoints proxy/simulate the bot's CollabWarz API
 
+// In-memory storage for competition state (persists until server restart)
+let competitionState = {
+  phase: "submission",
+  theme: "Cosmic Dreams",
+  automation_enabled: true,
+  week_cancelled: false,
+  team_count: 0,
+  voting_results: {},
+  next_phase_change: null
+};
+
 // Test endpoints
 app.get("/api/ping", (req, res) => {
   res.json({ status: "ok", message: "CollabWarz API is running" });
@@ -122,29 +133,22 @@ app.get("/api/test", (req, res) => {
   res.json({ status: "success", message: "Test endpoint works" });
 });
 
-// Admin endpoints (mock for now)
+// Admin endpoints (using persisted state)
 app.get("/api/admin/status", (req, res) => {
-  // Mock admin status response
   res.json({
-    phase: "submission",
-    theme: "Cosmic Dreams",
-    automation_enabled: true,
-    week_cancelled: false,
-    team_count: 0,
-    voting_results: {},
-    next_phase_change: null,
+    ...competitionState,
     timestamp: new Date().toISOString(),
   });
 });
 
-// Public endpoints (mock for now)
+// Public endpoints (using persisted state)
 app.get("/api/public/status", (req, res) => {
   res.json({
     competition: {
-      phase: "submission",
-      theme: "Cosmic Dreams",
-      week_cancelled: false,
-      team_count: 0,
+      phase: competitionState.phase,
+      theme: competitionState.theme,
+      week_cancelled: competitionState.week_cancelled,
+      team_count: competitionState.team_count,
     },
     timestamp: new Date().toISOString(),
   });
@@ -163,6 +167,8 @@ app.post("/api/admin/actions", (req, res) => {
   switch (action) {
     case "update_theme":
     case "set_theme":
+      // Update the persisted state
+      competitionState.theme = actionParams.theme;
       res.json({
         success: true,
         message: `Theme updated to: ${actionParams.theme}`,
@@ -171,14 +177,23 @@ app.post("/api/admin/actions", (req, res) => {
       break;
 
     case "next_phase":
+      // Cycle through phases: submission -> voting -> paused -> ended -> submission
+      const phases = ["submission", "voting", "paused", "ended"];
+      const currentIndex = phases.indexOf(competitionState.phase);
+      const nextPhase = phases[(currentIndex + 1) % phases.length];
+      
+      // Update the persisted state
+      competitionState.phase = nextPhase;
       res.json({
         success: true,
-        message: "Phase advanced successfully",
-        data: { phase: "voting" },
+        message: `Phase advanced to: ${nextPhase}`,
+        data: { phase: nextPhase },
       });
       break;
 
     case "set_phase":
+      // Update the persisted state
+      competitionState.phase = actionParams.phase;
       res.json({
         success: true,
         message: `Phase changed to: ${actionParams.phase}`,
@@ -187,6 +202,8 @@ app.post("/api/admin/actions", (req, res) => {
       break;
 
     case "toggle_automation":
+      // Update the persisted state
+      competitionState.automation_enabled = actionParams.enabled;
       res.json({
         success: true,
         message: `Automation ${actionParams.enabled ? "enabled" : "disabled"}`,
@@ -195,6 +212,8 @@ app.post("/api/admin/actions", (req, res) => {
       break;
 
     case "cancel_week":
+      // Update the persisted state
+      competitionState.week_cancelled = true;
       res.json({
         success: true,
         message: "Week cancelled successfully",
@@ -203,6 +222,9 @@ app.post("/api/admin/actions", (req, res) => {
       break;
 
     case "reset_week":
+      // Update the persisted state
+      competitionState.week_cancelled = false;
+      competitionState.phase = "submission";
       res.json({
         success: true,
         message: "Week reset successfully",
@@ -211,6 +233,8 @@ app.post("/api/admin/actions", (req, res) => {
       break;
 
     case "force_voting":
+      // Update the persisted state
+      competitionState.phase = "voting";
       res.json({
         success: true,
         message: "Voting phase started",
@@ -219,6 +243,8 @@ app.post("/api/admin/actions", (req, res) => {
       break;
 
     case "announce_winners":
+      // Update the persisted state
+      competitionState.phase = "results";
       res.json({
         success: true,
         message: "Winners announced successfully",
