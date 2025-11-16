@@ -20,11 +20,13 @@ const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_GUILD_ID = process.env.DISCORD_GUILD_ID;
 const DISCORD_ADMIN_CHANNEL_ID = process.env.DISCORD_ADMIN_CHANNEL_ID;
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL; // Webhook for sending commands as "human"
 const COMMAND_PREFIX = process.env.COMMAND_PREFIX || "!cw";
 
 console.log(`Discord Guild ID: ${DISCORD_GUILD_ID}`);
 console.log(`Admin Channel ID: ${DISCORD_ADMIN_CHANNEL_ID}`);
 console.log(`Bot Token configured: ${DISCORD_BOT_TOKEN ? "Yes" : "No"}`);
+console.log(`Webhook URL configured: ${DISCORD_WEBHOOK_URL ? "Yes" : "No"}`);
 console.log(`Command Prefix: ${COMMAND_PREFIX}`);
 
 app.use(
@@ -126,6 +128,53 @@ app.get("/api/user", (req, res) => {
 
 // Helper function to send Discord messages (bot commands)
 async function sendDiscordCommand(command, waitForResponse = true) {
+  console.log(`🎮 Sending Discord command: ${command}`);
+
+  // Try webhook first (appears as human message - RedBot will process it)
+  if (DISCORD_WEBHOOK_URL) {
+    return await sendViaWebhook(command, waitForResponse);
+  }
+  
+  // Fallback to bot API (may be ignored by RedBot)
+  return await sendViaBot(command, waitForResponse);
+}
+
+// Send command via webhook (appears as human user)
+async function sendViaWebhook(command, waitForResponse) {
+  console.log(`📡 Using webhook: ${DISCORD_WEBHOOK_URL.substring(0, 50)}...`);
+
+  try {
+    const response = await axios.post(
+      DISCORD_WEBHOOK_URL,
+      {
+        content: command,
+        username: "CollabWarz Admin", // Custom name
+        avatar_url: "https://cdn.discordapp.com/emojis/🎵.png" // Optional custom avatar
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        timeout: 10000,
+      }
+    );
+
+    console.log(`✅ Webhook command sent successfully - Status: ${response.status}`);
+
+    if (waitForResponse) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      return await getLastBotResponse();
+    }
+
+    return { success: true, message: 'Command sent via webhook', messageId: response.data?.id };
+  } catch (error) {
+    console.error(`❌ Webhook failed:`, error.message);
+    throw new Error(`Webhook communication failed: ${error.message}`);
+  }
+}
+
+// Send command via bot API (fallback method)
+async function sendViaBot(command, waitForResponse) {
   // Check configuration
   if (!DISCORD_BOT_TOKEN) {
     throw new Error("DISCORD_BOT_TOKEN environment variable not set");
@@ -135,9 +184,7 @@ async function sendDiscordCommand(command, waitForResponse = true) {
   }
 
   const url = `https://discord.com/api/v10/channels/${DISCORD_ADMIN_CHANNEL_ID}/messages`;
-
-  console.log(`🎮 Sending Discord command: ${command}`);
-  console.log(`📡 URL: ${url}`);
+  console.log(`📡 Using bot API: ${url}`);
   console.log(`🔑 Using bot token: ${DISCORD_BOT_TOKEN.substring(0, 20)}...`);
 
   try {
@@ -288,19 +335,24 @@ app.get("/api/discord/config", (req, res) => {
     botTokenSet: !!DISCORD_BOT_TOKEN,
     guildIdSet: !!DISCORD_GUILD_ID,
     adminChannelIdSet: !!DISCORD_ADMIN_CHANNEL_ID,
+    webhookUrlSet: !!DISCORD_WEBHOOK_URL,
     commandPrefix: COMMAND_PREFIX,
     guildId: DISCORD_GUILD_ID || "NOT_SET",
     adminChannelId: DISCORD_ADMIN_CHANNEL_ID || "NOT_SET",
+    communicationMethod: DISCORD_WEBHOOK_URL ? "webhook" : "bot"
   };
 
-  const allConfigured =
-    config.botTokenSet && config.guildIdSet && config.adminChannelIdSet;
+  const basicConfigured = config.botTokenSet && config.guildIdSet && config.adminChannelIdSet;
+  const webhookConfigured = !!DISCORD_WEBHOOK_URL;
 
   res.json({
-    configured: allConfigured,
+    configured: basicConfigured,
+    webhookReady: webhookConfigured,
     config,
-    message: allConfigured
-      ? "Discord configuration complete"
+    message: webhookConfigured 
+      ? "Webhook communication ready (recommended)" 
+      : basicConfigured 
+        ? "Bot communication ready (may be ignored by RedBot)"
       : "Missing Discord configuration",
   });
 });
