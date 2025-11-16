@@ -758,72 +758,39 @@ class CollabWarz(commands.Cog):
                         # Diagnostics: what mode are we in and whether redis is available
                         print(f"🔁 CollabWarz: Handling guild {guild.name} (short_lived={getattr(self, 'backend_use_short_lived_sessions', False)}, redis={bool(self.redis_client)})")
                         headers = {"X-CW-Token": backend_token}
-                        if getattr(self, 'backend_use_short_lived_sessions', False):
-                            try:
-                                status_code, body = await self._get_with_temp_session(next_url, headers=headers, timeout=10, guild=guild)
-                                if status_code == 204:
-                                    # No action available
-                                    pass
-                                elif status_code == 200:
-                                    action = None
-                                    if isinstance(body, dict):
-                                        action = body.get("action")
-                                    if action:
-                                        await self._process_redis_action(guild, action)
-                                        # Report result back to backend using short-lived session
-                                        result_url = backend_url.rstrip("/") + "/api/collabwarz/action-result"
-                                        result_payload = {
-                                            "id": action.get("id"),
-                                            "status": "completed",
-                                            "details": {"processed_by": "collabwarz_cog"},
-                                        }
-                                        try:
-                                            rstatus, rtext = await self._post_with_temp_session(result_url, json_payload=result_payload, headers=headers, timeout=10, guild=guild)
-                                            if rstatus is not None and rstatus != 200:
-                                                self._log_backend_error(guild, f"⚠️ CollabWarz: Backend result post (short-lived) returned {rstatus}")
-                                        except Exception as e:
-                                            self._log_backend_error(guild, f"❌ CollabWarz: Result post (short-lived) failed: {e}")
-                                elif status_code is None:
-                                    print("❌ CollabWarz: Failed to get a response from backend (short-lived session)")
-                                else:
-                                    print(f"❌ CollabWarz: Unexpected backend response: {status_code}")
-                            except asyncio.TimeoutError:
-                                print("⚠️ CollabWarz: Backend poll timed out")
-                            except Exception as e:
-                                print(f"❌ CollabWarz: Error polling backend (short-lived session): {e}")
-                        else:
-                            # Persistent session path (legacy), keep existing logic
-                            await self._ensure_backend_session()
-                            session = self.backend_session
-                            print(f"🔁 CollabWarz: Using backend session for GET. closed={getattr(session, 'closed', 'n/a')}")
-                            try:
-                                headers = {"X-CW-Token": backend_token}
-                                resp = await session.get(next_url, headers=headers, timeout=10)
-                                try:
-                                    if resp.status == 204:
-                                        pass
-                                    elif resp.status == 200:
-                                        body = await resp.json()
-                                        action = body.get("action")
-                                        if action:
-                                            await self._process_redis_action(guild, action)
-                                            result_url = backend_url.rstrip("/") + "/api/collabwarz/action-result"
-                                            result_payload = {
-                                                "id": action.get("id"),
-                                                "status": "completed",
-                                                "details": {"processed_by": "collabwarz_cog"},
-                                            }
-                                            async with session.post(result_url, json=result_payload, headers=headers, timeout=10) as presp:
-                                                    if presp.status != 200:
-                                                        self._log_backend_error(guild, f"⚠️ CollabWarz: Backend result post returned {presp.status}")
-                                    else:
-                                        print(f"❌ CollabWarz: Unexpected backend response: {resp.status}")
-                                finally:
-                                    resp.close()
-                            except asyncio.TimeoutError:
-                                print("⚠️ CollabWarz: Backend poll timed out")
-                            except Exception as e:
-                                print(f"❌ CollabWarz: Error polling backend: {e} (session closed: {getattr(session, 'closed', 'n/a')})")
+                        # Use short-lived per-request aiohttp sessions for all backend communication
+                        try:
+                            status_code, body = await self._get_with_temp_session(next_url, headers=headers, timeout=10, guild=guild)
+                            if status_code == 204:
+                                # No action available
+                                pass
+                            elif status_code == 200:
+                                action = None
+                                if isinstance(body, dict):
+                                    action = body.get("action")
+                                if action:
+                                    await self._process_redis_action(guild, action)
+                                    # Report result back to backend using short-lived session
+                                    result_url = backend_url.rstrip('/') + "/api/collabwarz/action-result"
+                                    result_payload = {
+                                        "id": action.get("id"),
+                                        "status": "completed",
+                                        "details": {"processed_by": "collabwarz_cog"},
+                                    }
+                                    try:
+                                        rstatus, rtext = await self._post_with_temp_session(result_url, json_payload=result_payload, headers=headers, timeout=10, guild=guild)
+                                        if rstatus is not None and rstatus != 200:
+                                            self._log_backend_error(guild, f"⚠️ CollabWarz: Backend result post (short-lived) returned {rstatus}")
+                                    except Exception as e:
+                                        self._log_backend_error(guild, f"❌ CollabWarz: Result post (short-lived) failed: {e}")
+                            elif status_code is None:
+                                print("❌ CollabWarz: Failed to get a response from backend (short-lived session)")
+                            else:
+                                print(f"❌ CollabWarz: Unexpected backend response: {status_code}")
+                        except asyncio.TimeoutError:
+                            print("⚠️ CollabWarz: Backend poll timed out")
+                        except Exception as e:
+                            print(f"❌ CollabWarz: Error polling backend (short-lived session): {e}")
 
                         # After processing, update and export current status back to backend
                         try:
@@ -845,11 +812,7 @@ class CollabWarz(commands.Cog):
                                             if now - last > 120:
                                                 print(f"❌ CollabWarz: Failed to export status to backend (no response) for guild {guild.name}")
                                                 self.backend_error_throttle[guild.id] = now
-                                    else:
-                                        print(f"🔁 CollabWarz: Posting status to backend for {guild.name} (session.closed={getattr(session, 'closed', 'n/a')})")
-                                        async with session.post(status_url, json=status_data, headers=headers, timeout=10) as sresp:
-                                            if sresp.status != 200:
-                                                print(f"⚠️ CollabWarz: Failed to export status to backend (HTTP {sresp.status})")
+                                    # Persistent session fallback removed: always use short-lived sessions
                                 except Exception as ee:
                                     self._log_backend_error(guild, f"❌ CollabWarz: Error exporting status to backend: {ee}")
                                     self._log_backend_error(guild, traceback.format_exc())
@@ -5602,6 +5565,43 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         )
         
         await ctx.send(embed=embed)
+
+    @collabwarz.command(name="noisylogs")
+    async def noisy_logs(self, ctx, mode: str = None):
+        """Toggle noisy logs suppression. Usage: `!collabwarz noisylogs on|off|status`"""
+        if mode is None or mode.lower() == 'status':
+            await ctx.send(f"Noisy logs suppressed: {self.suppress_noisy_logs}")
+            return
+        m = mode.lower()
+        if m in ('on', 'true', 'enable'):
+            self.suppress_noisy_logs = False
+            await ctx.send("✅ Noisy logs enabled")
+        elif m in ('off', 'false', 'disable'):
+            self.suppress_noisy_logs = True
+            await ctx.send("✅ Noisy logs suppressed")
+        else:
+            await ctx.send("Usage: `!collabwarz noisylogs on|off|status`")
+
+    @collabwarz.command(name="backend_sessions")
+    async def backend_sessions(self, ctx, mode: str = None):
+        """Toggle backend session mode (short-lived vs persistent). Usage: `!collabwarz backend_sessions short|persistent|status`"""
+        if mode is None or mode.lower() == 'status':
+            await ctx.send(f"backend_use_short_lived_sessions={self.backend_use_short_lived_sessions}")
+            return
+        m = mode.lower()
+        if m in ('short', 'short-lived', 'short_lived', 'true', 'on'):
+            self.backend_use_short_lived_sessions = True
+            await ctx.send("✅ Using short-lived per-request sessions for backend HTTP calls")
+        elif m in ('persistent', 'persistent_session', 'false', 'off'):
+            # enable the persistent path (legacy) - create session on current loop
+            self.backend_use_short_lived_sessions = False
+            try:
+                await self._ensure_backend_session()
+                await ctx.send("✅ Using persistent backend session (legacy). Please note this may reintroduce session lifecycle issues unless the environment is consistent.")
+            except Exception as e:
+                await ctx.send(f"⚠️ Failed to create persistent session: {e}")
+        else:
+            await ctx.send("Usage: `!collabwarz backend_sessions short|persistent|status`")
     
     @collabwarz.command(name="help")
     async def show_help(self, ctx):
@@ -5632,6 +5632,15 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "`[p]cw changetheme Theme` - 🎨 **Change theme only**\n"
                 "`[p]cw nextweek [theme]` - Start new week\n"
                 "`[p]cw reset` - Reset announcement cycle"
+            ),
+            inline=False
+        )
+
+        embed.add_field(
+            name="⚙️ Advanced / Debug",
+            value=(
+                "`[p]cw noisylogs on|off|status` - Toggle noisy logs suppression (owner/admin).\n"
+                "`[p]cw backend_sessions short|persistent|status` - Switch backend HTTP session handling mode.\n"
             ),
             inline=False
         )
