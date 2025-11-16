@@ -150,6 +150,78 @@ app.get("/api/public/status", (req, res) => {
   });
 });
 
+// Admin actions endpoint
+app.post("/api/admin/actions", (req, res) => {
+  const { action, ...params } = req.body;
+  
+  console.log(`Admin action received: ${action}`, params);
+  
+  // Mock responses for different actions
+  switch (action) {
+    case "update_theme":
+      res.json({
+        success: true,
+        message: `Theme updated to: ${params.theme}`,
+        data: { theme: params.theme }
+      });
+      break;
+      
+    case "next_phase":
+      res.json({
+        success: true,
+        message: "Phase advanced successfully",
+        data: { phase: "voting" }
+      });
+      break;
+      
+    case "toggle_automation":
+      res.json({
+        success: true,
+        message: `Automation ${params.enabled ? 'enabled' : 'disabled'}`,
+        data: { automation_enabled: params.enabled }
+      });
+      break;
+      
+    case "cancel_week":
+      res.json({
+        success: true,
+        message: "Week cancelled successfully",
+        data: { week_cancelled: true }
+      });
+      break;
+      
+    case "reset_week":
+      res.json({
+        success: true,
+        message: "Week reset successfully",
+        data: { week_cancelled: false, phase: "submission" }
+      });
+      break;
+      
+    case "force_voting":
+      res.json({
+        success: true,
+        message: "Voting phase started",
+        data: { phase: "voting" }
+      });
+      break;
+      
+    case "announce_winners":
+      res.json({
+        success: true,
+        message: "Winners announced successfully",
+        data: { phase: "results" }
+      });
+      break;
+      
+    default:
+      res.status(400).json({
+        success: false,
+        message: `Unknown action: ${action}`
+      });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`Discord OAuth redirect URI: ${DISCORD_REDIRECT_URI}`);
