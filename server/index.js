@@ -191,7 +191,6 @@ app.get("/api/user", (req, res) => {
 // Helper function to queue an action for the cog to process
 async function queueCollabWarzAction(action, params = {}) {
   console.log(`📝 Queuing CollabWarz action: ${action}`, params);
-
   if (!redisClient) {
     console.log(
       "⚠️  Redis not available - action would be queued:",
@@ -297,8 +296,14 @@ app.post("/api/collabwarz/status", async (req, res) => {
     if (redisClient) {
       await redisClient.set("collabwarz:status", JSON.stringify(payload));
     } else {
+      payload.last_received = new Date().toISOString();
       inMemoryStatus = payload;
     }
+    console.log(
+      `/api/collabwarz/status received: ${
+        payload.phase || "(no phase)"
+      } @ ${new Date().toISOString()}`
+    );
 
     return res.json({
       success: true,
@@ -571,6 +576,54 @@ app.get("/api/admin/status", verifyAdminAuth, async (req, res) => {
       message: error.message,
       timestamp: new Date().toISOString(),
     });
+  }
+});
+
+// Admin system diagnostics endpoint
+app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
+  try {
+    const redisConnected = !!redisClient && redisClient.isOpen === true;
+    let queueLength = 0;
+    let lastStatusTimestamp = null;
+    let backendMode = false;
+
+    if (redisConnected) {
+      queueLength = await redisClient.lLen("collabwarz:actions");
+      try {
+        const statusRaw = await redisClient.get("collabwarz:status");
+        if (statusRaw) {
+          const st = JSON.parse(statusRaw);
+          lastStatusTimestamp = st.last_updated || st.timestamp || null;
+        }
+      } catch (e) {
+        // ignore parse errors
+      }
+    } else {
+      queueLength = inMemoryQueue.length;
+      if (inMemoryStatus)
+        lastStatusTimestamp =
+          inMemoryStatus.last_updated || inMemoryStatus.timestamp || null;
+      backendMode = !!inMemoryStatus; // if we have in-memory status, likely backend mode
+    }
+
+    const diagnostics = {
+      redisConnected,
+      redisUrl: REDIS_URL || null,
+      queueLength,
+      inMemoryQueue: inMemoryQueue.length,
+      lastStatusTimestamp,
+      backendMode,
+      collabwarzTokenConfigured: !!COLLABWARZ_TOKEN,
+      discordBotTokenConfigured: !!DISCORD_BOT_TOKEN,
+      discordAdminChannelSet: !!DISCORD_ADMIN_CHANNEL_ID,
+      discordWebhookSet: !!DISCORD_WEBHOOK_URL,
+      cliTimestamp: new Date().toISOString(),
+    };
+
+    res.json({ success: true, diagnostics });
+  } catch (error) {
+    console.error("❌ /api/admin/system error:", error.message || error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 

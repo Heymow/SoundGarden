@@ -294,6 +294,13 @@ export const getAdminHistory = async (page = 1, perPage = 20) => {
   );
 };
 
+/**
+ * Get admin system diagnostics
+ */
+export const getAdminSystem = async () => {
+  return await fetchWithAuth("/api/admin/system");
+};
+
 // ============= Action Endpoints =============
 
 /**

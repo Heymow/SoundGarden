@@ -16,11 +16,14 @@ export default function AdminDashboard() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [queueInfo, setQueueInfo] = useState({ queueLength: 0, queue: [], processed: [] });
+  const [systemDiag, setSystemDiag] = useState(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(botApi.hasAdminToken());
 
   useEffect(() => {
     loadStats();
     loadQueue();
-    const sTimer = setInterval(() => { loadStats(); }, 20000);
+    loadSystem();
+    const sTimer = setInterval(() => { loadStats(); loadSystem(); }, 20000);
     const qTimer = setInterval(() => { loadQueue(); }, 10000);
     return () => { clearInterval(sTimer); clearInterval(qTimer); };
   }, []);
@@ -29,6 +32,24 @@ export default function AdminDashboard() {
     window.addEventListener('admin:refresh', handler);
     return () => window.removeEventListener('admin:refresh', handler);
   }, [])
+
+  useEffect(() => {
+    // Periodically check login state
+    const check = () => setIsLoggedIn(botApi.hasAdminToken());
+    const iv = setInterval(check, 3000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const loadSystem = async () => {
+    try {
+      const data = await botApi.getAdminSystem();
+      setSystemDiag(data.diagnostics || null);
+      setIsLoggedIn(true);
+    } catch (e) {
+      console.warn('Failed to fetch system diagnostics:', e);
+      if (e.message && e.message.includes('Admin token not found')) setIsLoggedIn(false);
+    }
+  }
 
   const loadStats = async () => {
     try {
@@ -70,8 +91,15 @@ export default function AdminDashboard() {
         totalArtists: 0,
         systemStatus: "operational",
       });
+      if (status.error) {
+        showError(`⚠️ Backend status warning: ${status.error}`);
+      }
     } catch (err) {
       console.error("Failed to load stats:", err);
+      if (err.message && err.message.includes('Admin token not found')) {
+        showError('Please sign in with Discord to view admin stats.');
+        setIsLoggedIn(false);
+      }
     }
   };
 
@@ -85,6 +113,10 @@ export default function AdminDashboard() {
       });
     } catch (err) {
       console.error('Failed to load queue:', err);
+      if (err.message && err.message.includes('Admin token not found')) {
+        showError('Please sign in with Discord to view the action queue.');
+        setIsLoggedIn(false);
+      }
     }
   };
 
@@ -149,6 +181,7 @@ export default function AdminDashboard() {
       const result = await botApi.testBotApiConnection();
       if (result.success) {
         showSuccess("✅ Bot API connection successful! Server is reachable.");
+        await loadSystem();
       } else {
         showError(`❌ Bot API connection failed: ${result.error}`);
       }
@@ -184,12 +217,22 @@ export default function AdminDashboard() {
         </p>
       </div>
 
+      {!isLoggedIn && (
+        <div className="admin-login-cta" style={{ marginBottom: '16px' }}>
+          <p>🔒 Admin access requires signing in with Discord.</p>
+          <a className="admin-btn btn-primary" href={`${botApi.getCurrentApiConfig().currentUrl}/auth/discord`} target="_blank" rel="noopener noreferrer">Sign in with Discord</a>
+        </div>
+      )}
+
       <div className="admin-stats-grid">
         <div className="admin-stat-card status-operational">
-          <div className="admin-stat-icon">🟢</div>
+          <div className="admin-stat-icon">{systemDiag && systemDiag.redisConnected ? '🟢' : '⚠️'}</div>
           <div className="admin-stat-content">
             <div className="admin-stat-label">System Status</div>
-            <div className="admin-stat-value">Operational</div>
+            <div className="admin-stat-value">{systemDiag ? (systemDiag.redisConnected ? 'Operational (Redis)' : (systemDiag.backendMode ? 'Operational (Backend mode)' : 'Degraded')) : 'Unknown'}</div>
+            {systemDiag && (
+              <small className="admin-stat-sub">Redis: {systemDiag.redisConnected ? 'Connected' : 'Not connected'} | Last status: {systemDiag.lastStatusTimestamp || 'unknown'}. Queue: {systemDiag.queueLength} | InMemoryQueue: {systemDiag.inMemoryQueue}</small>
+            )}
           </div>
         </div>
 
@@ -302,6 +345,25 @@ export default function AdminDashboard() {
             <span>Force Voting</span>
           </button>
         </div>
+      </div>
+
+      <div className="admin-system-diagnostics admin-card">
+        <h3>🖥️ System Diagnostics</h3>
+        {systemDiag ? (
+          <div className="admin-card-content">
+            <div className="diag-row">Redis: <strong>{systemDiag.redisConnected ? 'Connected' : 'Disconnected'}</strong></div>
+            <div className="diag-row">Redis URL: <small>{systemDiag.redisUrl || 'Not configured'}</small></div>
+            <div className="diag-row">Queue length: <strong>{systemDiag.queueLength}</strong> | InMemoryQueue: <strong>{systemDiag.inMemoryQueue}</strong></div>
+            <div className="diag-row">Last Status: <small>{systemDiag.lastStatusTimestamp || 'never'}</small></div>
+            <div className="diag-row">Backend mode: <strong>{systemDiag.backendMode ? 'Yes' : 'No'}</strong></div>
+            <div className="diag-row">COLLABWARZ token configured: <strong>{systemDiag.collabwarzTokenConfigured ? 'Yes' : 'No'}</strong></div>
+            <div className="diag-actions">
+              <button className="admin-btn btn-primary" onClick={() => loadSystem()}>🔄 Refresh Diagnostics</button>
+            </div>
+          </div>
+        ) : (
+          <div className="admin-card-content">No system diagnostics available.</div>
+        )}
       </div>
 
       <div className="admin-recent-activity">
