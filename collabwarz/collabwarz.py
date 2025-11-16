@@ -464,7 +464,7 @@ class CollabWarz(commands.Cog):
             action_data['status'] = 'completed'
             action_data['processed_at'] = datetime.utcnow().isoformat()
             
-            if self.redis_client and hasattr(self.redis_client, 'setex'):
+            if self.redis_client is not None:
                 try:
                     await self.redis_client.setex(
                         f'collabwarz:action:{action_id}',
@@ -502,7 +502,7 @@ class CollabWarz(commands.Cog):
             action_data['error'] = str(e)
             action_data['processed_at'] = datetime.utcnow().isoformat()
             
-            if self.redis_client and hasattr(self.redis_client, 'setex'):
+            if self.redis_client is not None:
                 try:
                     await self.redis_client.setex(
                         f'collabwarz:action:{action_id}',
@@ -629,8 +629,7 @@ class CollabWarz(commands.Cog):
                                         headers = { 'X-CW-Token': backend_token }
                                         print(f"🔁 CollabWarz: Posting status to backend for {guild.name}")
                                         async with aiohttp.ClientSession() as status_session:
-                                            print(f"🔁 CollabWarz: Status session open: {getattr(status_session,'closed', False)}")
-                                            async with status_session.post(status_url, json=status_data, headers=headers, timeout=5) as sresp:
+                                            async with status_session.post(status_url, json=status_data, headers=headers, timeout=10) as sresp:
                                                 if sresp.status != 200:
                                                     print(f"⚠️ CollabWarz: Failed to export status to backend (HTTP {sresp.status})")
                                     except Exception as ee:
