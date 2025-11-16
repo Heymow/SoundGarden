@@ -47,6 +47,17 @@ const inMemoryQueue = [];
 const inMemoryProcessed = {}; // store processed action results when Redis is not configured
 // Last known status from backend/cog when Redis not available
 let inMemoryStatus = null;
+// Status post logs for debugging: record recent POST attempts
+const statusPostLogs = [];
+function pushStatusLog(entry) {
+  try {
+    entry.ts = new Date().toISOString();
+    statusPostLogs.push(entry);
+    if (statusPostLogs.length > 200) statusPostLogs.shift();
+  } catch (e) {
+    // ignore errors in logging
+  }
+}
 
 async function initRedis() {
   if (!REDIS_URL || REDIS_URL === "redis://localhost:6379") {
@@ -82,6 +93,15 @@ async function initRedis() {
     // Test the connection
     await redisClient.ping();
     console.log("🏓 Redis connection verified");
+    // If we had a recent status stored in memory, write it to Redis now
+    if (inMemoryStatus) {
+      try {
+        await redisClient.set('collabwarz:status', JSON.stringify(inMemoryStatus));
+        console.log('ℹ️  Rehydrated collabwarz:status from in-memory status');
+      } catch (err) {
+        console.warn('⚠️ Failed to rehydrate in-memory status to Redis', err.message || err);
+      }
+    }
 
     return true;
   } catch (error) {
@@ -283,8 +303,11 @@ async function getCompetitionStatusFromRedis() {
 app.post("/api/collabwarz/status", async (req, res) => {
   try {
     const auth = validateCogAuth(req, res);
-    if (!auth.ok)
+    if (!auth.ok) {
+      const tokenHeader = req.header('x-cw-token') || req.header('X-CW-Token') || null;
+      pushStatusLog({ result: 'auth_failed', headerPresent: !!tokenHeader, ip: req.ip || req.headers['x-forwarded-for'] || null, reason: auth.message });
       return res.status(401).json({ success: false, message: auth.message });
+    }
 
     const payload = req.body || {};
     if (!payload || !payload.phase) {
@@ -293,25 +316,47 @@ app.post("/api/collabwarz/status", async (req, res) => {
         .json({ success: false, message: "Invalid status payload" });
     }
 
-    if (redisClient) {
-      await redisClient.set("collabwarz:status", JSON.stringify(payload));
-    } else {
+    // Try to store in redis; fall back to in-memory
+    let storedIn = null;
+    try {
+      if (redisClient) {
+        await redisClient.set("collabwarz:status", JSON.stringify(payload));
+        storedIn = "redis";
+      } else {
+        payload.last_received = new Date().toISOString();
+        inMemoryStatus = payload;
+        storedIn = "in-memory";
+      }
+    } catch (err) {
       payload.last_received = new Date().toISOString();
       inMemoryStatus = payload;
+      storedIn = `redis-fallback: ${err.message}`;
     }
-    console.log(
-      `/api/collabwarz/status received: ${
-        payload.phase || "(no phase)"
-      } @ ${new Date().toISOString()}`
-    );
 
-    return res.json({
-      success: true,
-      storedIn: redisClient ? "redis" : "in-memory",
+    pushStatusLog({
+      result: "stored",
+      storedIn,
+      phase: payload.phase || null,
+      theme: payload.theme || null,
+      guild_id: payload.guild_id || null,
     });
+
+    console.log(`/api/collabwarz/status received: ${payload.phase || "(no phase)"} @ ${new Date().toISOString()} (storedIn=${storedIn})`);
+
+    return res.json({ success: true, storedIn });
   } catch (error) {
     console.error("/api/collabwarz/status failed:", error.message || error);
     return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Admin-only: Retrieve recent status POST logs (in-memory)
+app.get('/api/admin/status-log', verifyAdminAuth, async (req, res) => {
+  try {
+    // Return the last 100 entries
+    return res.json({ success: true, logs: statusPostLogs.slice(-100) });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
   }
 });
 

@@ -301,6 +301,13 @@ export const getAdminSystem = async () => {
   return await fetchWithAuth("/api/admin/system");
 };
 
+/**
+ * Get last status post logs for the backend
+ */
+export const getAdminStatusLog = async () => {
+  return await fetchWithAuth("/api/admin/status-log");
+};
+
 // ============= Action Endpoints =============
 
 /**

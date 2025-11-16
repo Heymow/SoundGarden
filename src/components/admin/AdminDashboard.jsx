@@ -18,6 +18,8 @@ export default function AdminDashboard() {
   const [queueInfo, setQueueInfo] = useState({ queueLength: 0, queue: [], processed: [] });
   const [systemDiag, setSystemDiag] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(botApi.hasAdminToken());
+  const [statusLogs, setStatusLogs] = useState([]);
+  const [showLogs, setShowLogs] = useState(false);
 
   useEffect(() => {
     loadStats();
@@ -109,7 +111,7 @@ export default function AdminDashboard() {
       setQueueInfo({
         queueLength: q.queueLength || 0,
         queue: q.queue || [],
-        processed: q.processed || []
+        processed: q.processed || [],
       });
     } catch (err) {
       console.error('Failed to load queue:', err);
@@ -359,12 +361,32 @@ export default function AdminDashboard() {
             <div className="diag-row">COLLABWARZ token configured: <strong>{systemDiag.collabwarzTokenConfigured ? 'Yes' : 'No'}</strong></div>
             <div className="diag-actions">
               <button className="admin-btn btn-primary" onClick={() => loadSystem()}>🔄 Refresh Diagnostics</button>
+              <button className="admin-btn btn-secondary" onClick={() => setShowLogs((s) => !s)} style={{ marginLeft: '8px' }}>📋 Toggle Logs</button>
             </div>
           </div>
         ) : (
           <div className="admin-card-content">No system diagnostics available.</div>
         )}
       </div>
+      {showLogs && (
+        <div className="admin-card">
+          <h4>Recent Status Posts</h4>
+          <div className="admin-card-content">
+            {statusLogs.length > 0 ? (
+              <div className="status-log-list">
+                {statusLogs.slice().reverse().slice(0, 20).map((l, idx) => (
+                  <div key={idx} className="status-log-item">
+                    <div><strong>{l.ts}</strong> — {l.result} ({l.storedIn || '-'})</div>
+                    <div>Phase: {l.phase || 'n/a'} | Theme: {l.theme || 'n/a'} | Guild: {l.guild_id || 'n/a'}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div>No recent status posts recorded</div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="admin-recent-activity">
         <h3>📋 Recent Activity</h3>
