@@ -132,7 +132,9 @@ class CollabWarz(commands.Cog):
         # Run a migration check to ensure older guild configs have `submissions` registered
         self.bot.loop.create_task(self._ensure_config_defaults())
         # Create persistent backend session
+        print("🔁 CollabWarz: Creating persistent backend HTTP session (cog_load)")
         self.backend_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=10, keepalive_timeout=60))
+        print(f"🔁 CollabWarz: Backend session created. closed={getattr(self.backend_session, 'closed', 'n/a')}")
         
     def cog_unload(self):
         """Stop the announcement task and Redis communication when cog unloads"""
@@ -151,9 +153,10 @@ class CollabWarz(commands.Cog):
             self.backend_task = None
         if hasattr(self, 'backend_session') and self.backend_session:
             try:
+                print(f"🛑 CollabWarz: Closing backend session (cog_unload). closed={getattr(self.backend_session, 'closed', 'n/a')}")
                 asyncio.create_task(self.backend_session.close())
             except Exception:
-                pass
+                print("🛑 CollabWarz: Exception during backend session close in cog_unload")
     
     def _create_discord_timestamp(self, dt: datetime, style: str = "R") -> str:
         """Create a Discord timestamp from datetime object
@@ -587,6 +590,7 @@ class CollabWarz(commands.Cog):
                         next_url = backend_url.rstrip("/") + "/api/collabwarz/next-action"
 
                         session = self.backend_session
+                        print(f"🔁 CollabWarz: Using backend session for GET. closed={getattr(session, 'closed', 'n/a')}")
                         try:
                             headers = {"X-CW-Token": backend_token}
                             resp = await session.get(next_url, headers=headers, timeout=10)
@@ -631,7 +635,7 @@ class CollabWarz(commands.Cog):
                                 status_url = backend_url.rstrip('/') + '/api/collabwarz/status'
                                 try:
                                     headers = { 'X-CW-Token': backend_token }
-                                    print(f"🔁 CollabWarz: Posting status to backend for {guild.name}")
+                                    print(f"🔁 CollabWarz: Posting status to backend for {guild.name} (session.closed={getattr(session, 'closed', 'n/a')})")
                                     sresp = await session.post(status_url, json=status_data, headers=headers, timeout=10)
                                     try:
                                         if sresp.status != 200:
