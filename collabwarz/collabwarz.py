@@ -113,6 +113,8 @@ class CollabWarz(commands.Cog):
             "backend_token": None,      # Shared secret token for cog<->backend auth
             "backend_poll_interval": 10 # Poll interval in seconds when using backend
         }
+        # Persistent per-guild toggle to suppress noisy logs (defaults True - logs suppressed)
+        default_guild["suppress_noisy_logs"] = True
         
         self.config.register_guild(**default_guild)
         self.announcement_task = None
@@ -124,6 +126,7 @@ class CollabWarz(commands.Cog):
         # Switch to short-lived per-request aiohttp.ClientSession for safety by default
         self.backend_use_short_lived_sessions = True
         # Suppress noisy warnings (like repeated 'Session is closed' or missing Redis) by default
+        # This is now persisted per-guild in `self.config` if set, fallback to attribute
         self.suppress_noisy_logs = True
         # Per-guild map to throttle repeated backend export errors (timestamp)
         self.backend_error_throttle = {}
@@ -163,26 +166,42 @@ class CollabWarz(commands.Cog):
             except Exception:
                 print("🛑 CollabWarz: Exception during backend session close in cog_unload")
 
-    def _maybe_noisy_log(self, *args, **kwargs):
-        """Print a noisy log entry only when suppress_noisy_logs is False (defaults to True).
+    async def _is_noisy_logs_suppressed(self, guild=None) -> bool:
+        """Return True when noisy logs are suppressed for a given guild, otherwise False.
 
-        This allows us to hide frequent but non-actionable warnings like 'Session is closed'
-        and 'Redis client not available' while preserving the option to enable them for debugging.
+        If guild is provided, read persistent guild configuration. Fallback to in-memory attribute.
         """
-        if getattr(self, 'suppress_noisy_logs', False):
+        # If a guild is provided, prefer persisted config
+        try:
+            if guild:
+                cfg_val = await self.config.guild(guild).suppress_noisy_logs()
+                if isinstance(cfg_val, bool):
+                    return cfg_val
+        except Exception:
+            # Fall back to attribute
+            pass
+        return getattr(self, 'suppress_noisy_logs', True)
+
+    async def _maybe_noisy_log(self, *args, guild=None, **kwargs):
+        """Print a noisy log only if the suppression flag for the given guild (or global fallback) is False.
+
+        This function is awaitable because it may consult the persistent guild config.
+        """
+        suppressed = await self._is_noisy_logs_suppressed(guild)
+        if suppressed:
             return
         print(*args, **kwargs)
 
-    def _log_backend_error(self, guild, message, interval=120):
+    async def _log_backend_error(self, guild, message, interval=120):
         """Throttle backend error messages per guild for a given interval (seconds)."""
         gid = getattr(guild, 'id', None)
         if gid is None:
-            print(message)
+            await self._maybe_noisy_log(message)
             return
         last = self.backend_error_throttle.get(gid, 0)
         now = asyncio.get_running_loop().time()
         if now - last > interval:
-            self._maybe_noisy_log(message)
+            await self._maybe_noisy_log(message, guild=guild)
             self.backend_error_throttle[gid] = now
     
     def _create_discord_timestamp(self, dt: datetime, style: str = "R") -> str:
@@ -280,14 +299,14 @@ class CollabWarz(commands.Cog):
                 rc = None
 
         if rc is None:
-            self._maybe_noisy_log(f"⚠️ CollabWarz: Redis client not available; not saving key {key}")
+            await self._maybe_noisy_log(f"⚠️ CollabWarz: Redis client not available; not saving key {key}", guild=guild)
             return False
 
         try:
             await rc.setex(key, ttl, value)
             return True
         except Exception as e:
-            self._maybe_noisy_log(f"⚠️ CollabWarz: Unable to save key {key} with TTL {ttl} in Redis: {e}")
+            await self._maybe_noisy_log(f"⚠️ CollabWarz: Unable to save key {key} with TTL {ttl} in Redis: {e}", guild=guild)
             return False
 
     async def _post_with_temp_session(self, url, json_payload=None, headers=None, timeout=10, guild=None):
@@ -302,8 +321,10 @@ class CollabWarz(commands.Cog):
                     return resp.status, text
         except Exception as e:
             msg = f"❌ CollabWarz: _post_with_temp_session error for {url}: {e} (type={type(e)})"
-            if 'session is closed' in str(e).lower() and getattr(self, 'suppress_noisy_logs', False):
-                self._maybe_noisy_log(msg)
+            # Use the persisted, per-guild suppression config when available
+            suppressed = await self._is_noisy_logs_suppressed(guild)
+            if 'session is closed' in str(e).lower() and suppressed:
+                await self._maybe_noisy_log(msg, guild=guild)
             else:
                 print(msg)
                 traceback.print_exc()
@@ -326,8 +347,9 @@ class CollabWarz(commands.Cog):
                     return resp.status, body
         except Exception as e:
             msg = f"❌ CollabWarz: _get_with_temp_session error for {url}: {e} (type={type(e)})"
-            if 'session is closed' in str(e).lower() and getattr(self, 'suppress_noisy_logs', False):
-                self._maybe_noisy_log(msg)
+            suppressed = await self._is_noisy_logs_suppressed(guild)
+            if 'session is closed' in str(e).lower() and suppressed:
+                await self._maybe_noisy_log(msg, guild=guild)
             else:
                 print(msg)
                 traceback.print_exc()
@@ -351,14 +373,14 @@ class CollabWarz(commands.Cog):
                 rc = None
 
         if rc is None:
-            self._maybe_noisy_log(f"⚠️ CollabWarz: Redis client not available; not setting key {key}")
+            await self._maybe_noisy_log(f"⚠️ CollabWarz: Redis client not available; not setting key {key}", guild=guild)
             return False
 
         try:
             await rc.set(key, value)
             return True
         except Exception as e:
-            self._maybe_noisy_log(f"⚠️ CollabWarz: Unable to set key {key} in Redis: {e}")
+            await self._maybe_noisy_log(f"⚠️ CollabWarz: Unable to set key {key} in Redis: {e}", guild=guild)
             return False
     
     async def _update_redis_status(self, guild):
@@ -598,7 +620,7 @@ class CollabWarz(commands.Cog):
                     print(f"❌ Failed to announce winners: {e}")
                     
             else:
-                self._maybe_noisy_log(f"❓ Unknown action: {action}")
+                await self._maybe_noisy_log(f"❓ Unknown action: {action}", guild=guild)
                 action_data['status'] = 'failed'
                 action_data['error'] = f'unknown action: {action}'
             
@@ -644,12 +666,12 @@ class CollabWarz(commands.Cog):
                         async with aiohttp.ClientSession() as session:
                             async with session.post(result_url, json=action_data, headers=headers, timeout=10) as presp:
                                         if presp.status != 200:
-                                            self._log_backend_error(guild, f"⚠️ CollabWarz: Backend result post (fallback) returned {presp.status}")
+                                            await self._log_backend_error(guild, f"⚠️ CollabWarz: Backend result post (fallback) returned {presp.status}")
                 except Exception as e:
                     print(f"⚠️ CollabWarz: Failed to post action result to backend fallback: {e}")
             
         except Exception as e:
-            self._maybe_noisy_log(f"❌ CollabWarz: Failed to process action '{action}': {e}")
+            await self._maybe_noisy_log(f"❌ CollabWarz: Failed to process action '{action}': {e}", guild=guild)
             
             # Mark action as failed
             action_data['status'] = 'failed'
@@ -756,7 +778,10 @@ class CollabWarz(commands.Cog):
                         next_url = backend_url.rstrip("/") + "/api/collabwarz/next-action"
 
                         # Diagnostics: what mode are we in and whether redis is available
-                        print(f"🔁 CollabWarz: Handling guild {guild.name} (short_lived={getattr(self, 'backend_use_short_lived_sessions', False)}, redis={bool(self.redis_client)})")
+                        await self._maybe_noisy_log(
+                            f"🔁 CollabWarz: Handling guild {guild.name} (short_lived={getattr(self, 'backend_use_short_lived_sessions', False)}, redis={bool(self.redis_client)})",
+                            guild=guild,
+                        )
                         headers = {"X-CW-Token": backend_token}
                         # Use short-lived per-request aiohttp sessions for all backend communication
                         try:
@@ -780,9 +805,9 @@ class CollabWarz(commands.Cog):
                                     try:
                                         rstatus, rtext = await self._post_with_temp_session(result_url, json_payload=result_payload, headers=headers, timeout=10, guild=guild)
                                         if rstatus is not None and rstatus != 200:
-                                            self._log_backend_error(guild, f"⚠️ CollabWarz: Backend result post (short-lived) returned {rstatus}")
+                                            await self._log_backend_error(guild, f"⚠️ CollabWarz: Backend result post (short-lived) returned {rstatus}")
                                     except Exception as e:
-                                        self._log_backend_error(guild, f"❌ CollabWarz: Result post (short-lived) failed: {e}")
+                                        await self._log_backend_error(guild, f"❌ CollabWarz: Result post (short-lived) failed: {e}")
                             elif status_code is None:
                                 print("❌ CollabWarz: Failed to get a response from backend (short-lived session)")
                             else:
@@ -804,18 +829,18 @@ class CollabWarz(commands.Cog):
                                         # Use short-lived session for status post
                                         rstatus, rtext = await self._post_with_temp_session(status_url, json_payload=status_data, headers=headers, timeout=10, guild=guild)
                                         if rstatus is not None and rstatus != 200:
-                                            print(f"⚠️ CollabWarz: Failed to export status to backend (HTTP {rstatus})")
+                                            await self._log_backend_error(guild, f"⚠️ CollabWarz: Failed to export status to backend (HTTP {rstatus})")
                                         elif rstatus is None:
                                             # Throttle repeated messages for the same guild to avoid log spam
                                             last = self.backend_error_throttle.get(guild.id, 0)
                                             now = asyncio.get_running_loop().time()
                                             if now - last > 120:
-                                                print(f"❌ CollabWarz: Failed to export status to backend (no response) for guild {guild.name}")
+                                                await self._log_backend_error(guild, f"❌ CollabWarz: Failed to export status to backend (no response) for guild {guild.name}")
                                                 self.backend_error_throttle[guild.id] = now
                                     # Persistent session fallback removed: always use short-lived sessions
                                 except Exception as ee:
-                                    self._log_backend_error(guild, f"❌ CollabWarz: Error exporting status to backend: {ee}")
-                                    self._log_backend_error(guild, traceback.format_exc())
+                                    await self._log_backend_error(guild, f"❌ CollabWarz: Error exporting status to backend: {ee}")
+                                    await self._log_backend_error(guild, traceback.format_exc())
                             else:
                                 # No status to export
                                 print(f"ℹ️ CollabWarz: No status available to export for guild {guild.name}")
@@ -5570,15 +5595,24 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     async def noisy_logs(self, ctx, mode: str = None):
         """Toggle noisy logs suppression. Usage: `!collabwarz noisylogs on|off|status`"""
         if mode is None or mode.lower() == 'status':
-            await ctx.send(f"Noisy logs suppressed: {self.suppress_noisy_logs}")
+            try:
+                val = await self.config.guild(ctx.guild).suppress_noisy_logs()
+            except Exception:
+                val = getattr(self, 'suppress_noisy_logs', True)
+            await ctx.send(f"Noisy logs suppressed: {val}")
             return
         m = mode.lower()
         if m in ('on', 'true', 'enable'):
+            # Noisy logs ON => persistence value suppress_noisy_logs = False
+            if ctx.guild:
+                await self.config.guild(ctx.guild).suppress_noisy_logs.set(False)
             self.suppress_noisy_logs = False
-            await ctx.send("✅ Noisy logs enabled")
+            await ctx.send("✅ Noisy logs enabled for this guild")
         elif m in ('off', 'false', 'disable'):
+            if ctx.guild:
+                await self.config.guild(ctx.guild).suppress_noisy_logs.set(True)
             self.suppress_noisy_logs = True
-            await ctx.send("✅ Noisy logs suppressed")
+            await ctx.send("✅ Noisy logs suppressed for this guild")
         else:
             await ctx.send("Usage: `!collabwarz noisylogs on|off|status`")
 
@@ -5639,7 +5673,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         embed.add_field(
             name="⚙️ Advanced / Debug",
             value=(
-                "`[p]cw noisylogs on|off|status` - Toggle noisy logs suppression (owner/admin).\n"
+                "`[p]cw noisylogs on|off|status` - Toggle noisy logs suppression (owner/admin). Default: suppressed (off by default).\n"
                 "`[p]cw backend_sessions short|persistent|status` - Switch backend HTTP session handling mode.\n"
             ),
             inline=False
