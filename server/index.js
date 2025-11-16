@@ -152,17 +152,21 @@ app.get("/api/public/status", (req, res) => {
 
 // Admin actions endpoint
 app.post("/api/admin/actions", (req, res) => {
-  const { action, ...params } = req.body;
+  const { action, params, ...directParams } = req.body;
   
-  console.log(`Admin action received: ${action}`, params);
+  // Support both formats: { action, params: { ... } } and { action, ... }
+  const actionParams = params || directParams;
+  
+  console.log(`Admin action received: ${action}`, actionParams);
   
   // Mock responses for different actions
   switch (action) {
     case "update_theme":
+    case "set_theme":
       res.json({
         success: true,
-        message: `Theme updated to: ${params.theme}`,
-        data: { theme: params.theme }
+        message: `Theme updated to: ${actionParams.theme}`,
+        data: { theme: actionParams.theme }
       });
       break;
       
@@ -174,11 +178,19 @@ app.post("/api/admin/actions", (req, res) => {
       });
       break;
       
+    case "set_phase":
+      res.json({
+        success: true,
+        message: `Phase changed to: ${actionParams.phase}`,
+        data: { phase: actionParams.phase }
+      });
+      break;
+      
     case "toggle_automation":
       res.json({
         success: true,
-        message: `Automation ${params.enabled ? 'enabled' : 'disabled'}`,
-        data: { automation_enabled: params.enabled }
+        message: `Automation ${actionParams.enabled ? 'enabled' : 'disabled'}`,
+        data: { automation_enabled: actionParams.enabled }
       });
       break;
       
