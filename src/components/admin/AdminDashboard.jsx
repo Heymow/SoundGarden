@@ -16,6 +16,8 @@ export default function AdminDashboard() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [queueInfo, setQueueInfo] = useState({ queueLength: 0, queue: [], processed: [] });
+  const [pendingPhases, setPendingPhases] = useState([]);
+  const [pendingNextWeek, setPendingNextWeek] = useState(null);
   const [systemDiag, setSystemDiag] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(botApi.hasAdminToken());
   const [statusLogs, setStatusLogs] = useState([]);
@@ -113,6 +115,14 @@ export default function AdminDashboard() {
         queue: q.queue || [],
         processed: q.processed || [],
       });
+      const nextWeekQueued = (q.queue || []).find((a) => a && a.action === 'start_new_week');
+      setPendingNextWeek(nextWeekQueued?.params?.theme || null);
+      // Compute pending phases
+      const pPhases = (q.queue || [])
+        .filter((a) => a && a.action === "set_phase")
+        .map((a) => (a.params ? a.params.phase : null))
+        .filter(Boolean);
+      setPendingPhases(Array.from(new Set(pPhases)));
     } catch (err) {
       console.error('Failed to load queue:', err);
       if (err.message && err.message.includes('Admin token not found')) {
@@ -138,10 +148,12 @@ export default function AdminDashboard() {
     if (confirm("Are you sure you want to start a new week? This will create a new competition cycle.")) {
       setLoading(true);
       try {
-        // Use the current theme if available; otherwise prompt the admin
         const themeToUse = stats.currentTheme && stats.currentTheme !== 'Unknown Theme' ? stats.currentTheme : prompt('Enter a theme for the new week:');
         if (!themeToUse) throw new Error('Theme required to start new week');
-        await botApi.startNextWeek(themeToUse);
+        const res = await botApi.startNextWeek(themeToUse);
+        if (res && res.actionId) {
+          setPendingNextWeek(themeToUse);
+        }
         showSuccess("✅ New week started successfully!");
         await loadStats();
         window.dispatchEvent(new Event('admin:refresh'));
@@ -165,7 +177,10 @@ export default function AdminDashboard() {
     if (confirm(`Change phase from "${stats.currentPhase}" to "${nextPhase}"?`)) {
       setLoading(true);
       try {
-        await botApi.setPhase(nextPhase);
+        const res = await botApi.setPhase(nextPhase);
+        if (res && res.actionId) {
+          setPendingPhases((p) => Array.from(new Set([...p, nextPhase])));
+        }
         showSuccess(`✅ Phase changed to: ${nextPhase}`);
         await loadStats();
         window.dispatchEvent(new Event('admin:refresh'));
@@ -298,18 +313,33 @@ export default function AdminDashboard() {
       <div className="admin-quick-actions">
         <h3>⚡ Quick Actions</h3>
         <div className="admin-action-grid">
-          <button className="admin-action-btn action-primary" onClick={handleStartNewWeek}>
-            <span className="action-icon">🎵</span>
-            <span>Start New Week</span>
-          </button>
+          {(() => {
+            const themeToUse = stats.currentTheme || null;
+            const isPending = pendingNextWeek && pendingNextWeek === themeToUse;
+            return (
+              <button className={`admin-action-btn action-primary ${isPending ? 'btn-pending' : ''}`} onClick={handleStartNewWeek}>
+                <span className="action-icon">🎵</span>
+                <span>{isPending ? '⏳ Starting...' : 'Start New Week'}</span>
+              </button>
+            );
+          })()}
           <button className="admin-action-btn action-success" onClick={handleSendAnnouncement}>
             <span className="action-icon">📢</span>
             <span>Send Announcement</span>
           </button>
-          <button className="admin-action-btn action-warning" onClick={handleChangePhase}>
-            <span className="action-icon">🔄</span>
-            <span>Change Phase</span>
-          </button>
+          {(() => {
+            const phases = ["submission", "voting", "paused", "ended"];
+            const currentIndex = phases.indexOf(stats.currentPhase);
+            const nextPhase = phases[(currentIndex + 1) % phases.length];
+            const isPending = pendingPhases.includes(nextPhase);
+            return (
+              <button className={`admin-action-btn action-warning ${isPending ? 'btn-pending' : ''}`} onClick={handleChangePhase}>
+                <span className="action-icon">🔄</span>
+                <span>{isPending ? '⏳ Changing...' : 'Change Phase'}</span>
+              </button>
+            );
+          })()}
+
           <button className="admin-action-btn action-info" onClick={handleAnnounceWinner}>
             <span className="action-icon">🏆</span>
             <span>Announce Winner</span>

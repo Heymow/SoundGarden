@@ -31,85 +31,62 @@ class CollabWarz(commands.Cog):
     Manages voting and submission phases with AI-generated announcements.
     """
     
-
-                for guild in self.bot.guilds:
-                    try:
-                        backend_url = await self.config.guild(guild).backend_url()
-                        backend_token = await self.config.guild(guild).backend_token()
-                        poll_interval = await self.config.guild(guild).backend_poll_interval()
-
-                        if not backend_url or not backend_token:
-                            # Not configured for this guild
-                            continue
-
-                        # Diagnostics: what mode are we in and whether redis is available
-                        print(f"🔁 CollabWarz: Handling guild {guild.name} (short_lived={getattr(self, 'backend_use_short_lived_sessions', False)}, redis={bool(self.redis_client)})")
-                        headers = {"X-CW-Token": backend_token}
-
-                        # 1) Poll the backend for next action using short-lived session
-                        try:
-                            next_url = backend_url.rstrip("/") + "/api/collabwarz/next-action"
-                            status_code, body = await self._get_with_temp_session(next_url, headers=headers, timeout=10)
-                        except Exception as e:
-                            # GET failed, likely network issue; log and proceed to next guild
-                            self._log_backend_error(guild, f"❌ CollabWarz: Failed to poll backend for next action: {e}")
-                            continue
-
-                        if status_code == 204:
-                            # No action available
-                            pass
-                        elif status_code == 200:
-                            action = None
-                            if isinstance(body, dict):
-                                action = body.get("action")
-                            if action:
-                                await self._process_redis_action(guild, action)
-                                # Report result back to backend using short-lived session
-                                result_url = backend_url.rstrip("/") + "/api/collabwarz/action-result"
-                                result_payload = {
-                                    "id": action.get("id"),
-                                    "status": "completed",
-                                    "details": {"processed_by": "collabwarz_cog"},
-                                }
-                                try:
-                                    rstatus, rtext, rerr = await self._post_with_temp_session(result_url, json_payload=result_payload, headers=headers, timeout=10)
-                                    if rstatus is not None and rstatus != 200:
-                                        self._log_backend_error(guild, f"⚠️ CollabWarz: Backend result post (short-lived) returned {rstatus}")
-                                    if rerr:
-                                        self._log_backend_error(guild, f"❌ CollabWarz: _post_with_temp_session error (action result): {rerr}")
-                                except Exception as e:
-                                    self._log_backend_error(guild, f"❌ CollabWarz: Exception while posting action result: {e}")
-
-                        # 2) Update and export current status back to backend (short-lived session)
-                        try:
-                            status_data = await self._update_redis_status(guild)
-                            if status_data:
-                                status_url = backend_url.rstrip('/') + '/api/collabwarz/status'
-                                rstatus, rtext, rerr = await self._post_with_temp_session(status_url, json_payload=status_data, headers=headers, timeout=10)
-                                if rstatus is not None and rstatus != 200:
-                                    self._log_backend_error(guild, f"⚠️ CollabWarz: Failed to export status to backend (HTTP {rstatus})")
-                                elif rerr:
-                                    # Log error and hint when session closed is the underlying issue
-                                    self._log_backend_error(guild, f"❌ CollabWarz: _post_with_temp_session error (status): {rerr}")
-                                    if 'Session is closed' in (rerr or ''):
-                                        self._log_backend_error(guild, "💡 Hint: 'Session is closed' from aiohttp usually indicates a reused or closed client session. This code uses short-lived sessions; ensure there are no shared connectors or legacy persistent sessions. Consider enabling persistent sessions only if you manage their lifecycle and event loop carefully.")
-                                elif rstatus is None:
-                                    # No response error — throttle repeated messages
-                                    last = self.backend_error_throttle.get(guild.id, 0)
-                                    now = asyncio.get_running_loop().time()
-                                    if now - last > 120:
-                                        self._log_backend_error(guild, f"❌ CollabWarz: Failed to export status to backend (no response) for guild {guild.name}")
-                                        self.backend_error_throttle[guild.id] = now
-                        except Exception as e:
-                            self._log_backend_error(guild, f"❌ CollabWarz: Failed to update and export status for guild {guild.name}: {e}")
-
-                        # Sleep according to guild poll interval
-                        await asyncio.sleep(poll_interval or 10)
-
-                    except Exception as e:
-                        print(f"❌ CollabWarz: Error in backend loop for guild {guild.name}: {e}")
-                        traceback.print_exc()
-                        continue
+    def __init__(self, bot: Red):
+        self.bot = bot
+        self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
+        
+        default_guild = {
+            "announcement_channel": None,
+            "current_theme": "Cosmic Dreams",
+            "current_phase": "voting",  # "submission" or "voting"
+            "submission_deadline": None,
+            "voting_deadline": None,
+            "auto_announce": True,
+            "ai_api_url": "",
+            "ai_api_key": "",
+            "ai_model": "gpt-3.5-turbo",  # Configurable AI model
+            "ai_temperature": 0.8,        # AI creativity setting
+            "ai_max_tokens": 150,         # Maximum response length
+            "last_announcement": None,  # Track last announcement to avoid duplicates
+            "last_phase_check": None,   # Track when we last checked for phase changes
+            "winner_announced": False,  # Track if winner has been announced for current week
+            "require_confirmation": True,  # Require admin confirmation before posting
+            "admin_user_id": None,      # Admin to contact for confirmation
+            "pending_announcement": None, # Store pending announcement data
+            "test_channel": None,       # Channel for test announcements
+            "confirmation_timeout": 1800, # 30 minutes timeout for confirmations (non-submission)
+            "next_week_theme": None,    # AI-generated theme for next week
+            "theme_generation_done": False, # Track if theme was generated this week
+            "pending_theme_confirmation": None, # Store pending theme confirmation
+            "use_everyone_ping": False, # Whether to include @everyone in announcements
+            "min_teams_required": 2,    # Minimum teams required to start voting
+            "submission_channel": None, # Channel where submissions are posted
+            "week_cancelled": False,    # Track if current week was cancelled
+            "validate_discord_submissions": True, # Validate Discord submissions format
+            "submitted_teams": {},      # Track teams that have submitted this week {week: [teams]}
+            # Legacy / older installations used a `submissions` map. Register it by default
+            # to avoid runtime attribute errors when other code expects `submissions`.
+            "submissions": {},          # Legacy mapping for admin-submitted web entries {team: {song, url, ...}}
+            "team_members": {},         # Track team compositions {week: {team_name: [user_ids]}}
+            "admin_channel": None,      # DEPRECATED: No longer used with AutoReputation API
+            "rep_reward_amount": 2,     # Amount of rep points to give winners
+            "weekly_winners": {},       # Track winners by week {week: {team_name, members, rep_given}}
+            "voting_results": {},       # Track voting results {week: {team_name: vote_count}}
+            "face_off_active": False,   # Track if a face-off is currently active
+            "face_off_teams": [],       # Teams in current face-off
+            "face_off_deadline": None,  # When face-off voting ends
+            "face_off_results": {},     # Face-off voting results {team_name: vote_count}
+            "api_server_enabled": False, # Enable built-in API server for member list
+            "api_server_port": 8080,    # Port for the API server
+            "api_server_host": "0.0.0.0", # Host for the API server
+            "api_access_token": None,   # Token for API authentication (deprecated)
+            "api_access_token_data": None,  # Enhanced token data: {token: str, user_id: int, generated_at: str}
+            "jwt_signing_key": None,    # JWT signing key for secure token generation
+            "cors_origins": ["*"],      # CORS allowed origins
+            "auto_delete_messages": True, # Automatically delete invalid messages
+            "admin_user_ids": [],       # List of additional admin user IDs
+            "suno_api_enabled": True,   # Enable Suno API integration for song metadata
+            "suno_api_base_url": "https://api.suno-proxy.click", # Suno API base URL
             "individual_votes": {},     # Track individual votes {week: {user_id: team_name}}
             "session_token_required": True,   # Require Discord session tokens for voting
             "biweekly_mode": False,     # Enable bi-weekly competitions (every 2 weeks)
@@ -146,6 +123,8 @@ class CollabWarz(commands.Cog):
         self.backend_session_loop = None
         # Switch to short-lived per-request aiohttp.ClientSession for safety by default
         self.backend_use_short_lived_sessions = True
+        # Suppress noisy warnings (like repeated 'Session is closed' or missing Redis) by default
+        self.suppress_noisy_logs = True
         # Per-guild map to throttle repeated backend export errors (timestamp)
         self.backend_error_throttle = {}
         self.confirmation_messages = {}  # Track confirmation messages for reaction handling
@@ -184,6 +163,16 @@ class CollabWarz(commands.Cog):
             except Exception:
                 print("🛑 CollabWarz: Exception during backend session close in cog_unload")
 
+    def _maybe_noisy_log(self, *args, **kwargs):
+        """Print a noisy log entry only when suppress_noisy_logs is False (defaults to True).
+
+        This allows us to hide frequent but non-actionable warnings like 'Session is closed'
+        and 'Redis client not available' while preserving the option to enable them for debugging.
+        """
+        if getattr(self, 'suppress_noisy_logs', False):
+            return
+        print(*args, **kwargs)
+
     def _log_backend_error(self, guild, message, interval=120):
         """Throttle backend error messages per guild for a given interval (seconds)."""
         gid = getattr(guild, 'id', None)
@@ -193,7 +182,7 @@ class CollabWarz(commands.Cog):
         last = self.backend_error_throttle.get(gid, 0)
         now = asyncio.get_running_loop().time()
         if now - last > interval:
-            print(message)
+            self._maybe_noisy_log(message)
             self.backend_error_throttle[gid] = now
     
     def _create_discord_timestamp(self, dt: datetime, style: str = "R") -> str:
@@ -291,33 +280,17 @@ class CollabWarz(commands.Cog):
                 rc = None
 
         if rc is None:
-            print(f"⚠️ CollabWarz: Redis client not available; not saving key {key}")
+            self._maybe_noisy_log(f"⚠️ CollabWarz: Redis client not available; not saving key {key}")
             return False
 
-        # Debug: show rc type and key
-        try:
-            rctype = type(rc)
-        except Exception:
-            rctype = None
-        print(f"🔍 CollabWarz: Attempting setex for key={key} rc_type={rctype} guild={getattr(guild,'name', getattr(guild,'id',None))}")
-        # Ensure we don't call setex on a None or non-redis object
-        if rc is None:
-            print(f"⚠️ CollabWarz: Redis client became None while trying to setex key {key}")
-            return False
-        # Call setex and trap AttributeError, etc.
         try:
             await rc.setex(key, ttl, value)
             return True
-        except AttributeError as ae:
-            print(f"⚠️ CollabWarz: Redis client attribute error while setex({key}): {ae}")
-            traceback.print_exc()
-            return False
         except Exception as e:
-            print(f"⚠️ CollabWarz: Unable to save key {key} with TTL {ttl} in Redis: {e}")
-            traceback.print_exc()
+            self._maybe_noisy_log(f"⚠️ CollabWarz: Unable to save key {key} with TTL {ttl} in Redis: {e}")
             return False
 
-    async def _post_with_temp_session(self, url, json_payload=None, headers=None, timeout=10):
+    async def _post_with_temp_session(self, url, json_payload=None, headers=None, timeout=10, guild=None):
         """Post to backend URL using a short-lived session and return (status, text)."""
         try:
             async with aiohttp.ClientSession() as tmp_session:
@@ -326,14 +299,17 @@ class CollabWarz(commands.Cog):
                         text = await resp.text()
                     except Exception:
                         text = None
-                    return resp.status, text, None
+                    return resp.status, text
         except Exception as e:
-            err = f"{e}"
-            print(f"❌ CollabWarz: _post_with_temp_session error for {url}: {err} (type={type(e)})")
-            traceback.print_exc()
-            return None, None, err
+            msg = f"❌ CollabWarz: _post_with_temp_session error for {url}: {e} (type={type(e)})"
+            if 'session is closed' in str(e).lower() and getattr(self, 'suppress_noisy_logs', False):
+                self._maybe_noisy_log(msg)
+            else:
+                print(msg)
+                traceback.print_exc()
+            return None, None
 
-    async def _get_with_temp_session(self, url, headers=None, timeout=10):
+    async def _get_with_temp_session(self, url, headers=None, timeout=10, guild=None):
         """GET to backend URL using a short-lived session and return (status, body/json)."""
         try:
             async with aiohttp.ClientSession() as tmp_session:
@@ -349,8 +325,12 @@ class CollabWarz(commands.Cog):
                                 body = None
                     return resp.status, body
         except Exception as e:
-            print(f"❌ CollabWarz: _get_with_temp_session error for {url}: {e} (type={type(e)})")
-            traceback.print_exc()
+            msg = f"❌ CollabWarz: _get_with_temp_session error for {url}: {e} (type={type(e)})"
+            if 'session is closed' in str(e).lower() and getattr(self, 'suppress_noisy_logs', False):
+                self._maybe_noisy_log(msg)
+            else:
+                print(msg)
+                traceback.print_exc()
             return None, None
 
     async def _safe_redis_set(self, key, value, guild=None):
@@ -371,20 +351,14 @@ class CollabWarz(commands.Cog):
                 rc = None
 
         if rc is None:
-            print(f"⚠️ CollabWarz: Redis client not available; not setting key {key}")
+            self._maybe_noisy_log(f"⚠️ CollabWarz: Redis client not available; not setting key {key}")
             return False
 
-        # Debug: show rc type and which guild
-        try:
-            rctype = type(rc)
-        except Exception:
-            rctype = None
-        print(f"🔍 CollabWarz: Attempting set for key={key} rc_type={rctype} guild={getattr(guild,'name', getattr(guild,'id',None))}")
         try:
             await rc.set(key, value)
             return True
         except Exception as e:
-            print(f"⚠️ CollabWarz: Unable to set key {key} in Redis: {e}")
+            self._maybe_noisy_log(f"⚠️ CollabWarz: Unable to set key {key} in Redis: {e}")
             return False
     
     async def _update_redis_status(self, guild):
@@ -624,7 +598,7 @@ class CollabWarz(commands.Cog):
                     print(f"❌ Failed to announce winners: {e}")
                     
             else:
-                print(f"❓ Unknown action: {action}")
+                self._maybe_noisy_log(f"❓ Unknown action: {action}")
                 action_data['status'] = 'failed'
                 action_data['error'] = f'unknown action: {action}'
             
@@ -652,9 +626,7 @@ class CollabWarz(commands.Cog):
                     if backend_url and backend_token:
                         result_url = backend_url.rstrip('/') + '/api/collabwarz/action-result'
                         headers = {"X-CW-Token": backend_token}
-                        rstatus, rtext, rerr = await self._post_with_temp_session(result_url, json_payload=action_data, headers=headers, timeout=10)
-                        if rerr:
-                            self._log_backend_error(guild, f"❌ CollabWarz: _post_with_temp_session error (fallback) for action result: {rerr}")
+                        await self._post_with_temp_session(result_url, json_payload=action_data, headers=headers, timeout=10, guild=guild)
                 except Exception as e:
                     print(f"⚠️ CollabWarz: Failed to post action result to backend fallback: {e}")
             
@@ -677,8 +649,7 @@ class CollabWarz(commands.Cog):
                     print(f"⚠️ CollabWarz: Failed to post action result to backend fallback: {e}")
             
         except Exception as e:
-            print(f"❌ CollabWarz: Failed to process action '{action}': {e}")
-            traceback.print_exc()
+            self._maybe_noisy_log(f"❌ CollabWarz: Failed to process action '{action}': {e}")
             
             # Mark action as failed
             action_data['status'] = 'failed'
@@ -705,9 +676,7 @@ class CollabWarz(commands.Cog):
                     if backend_url and backend_token:
                         result_url = backend_url.rstrip('/') + '/api/collabwarz/action-result'
                         headers = {"X-CW-Token": backend_token}
-                        rstatus, rtext, rerr = await self._post_with_temp_session(result_url, json_payload=action_data, headers=headers, timeout=10)
-                        if rerr:
-                            self._log_backend_error(guild, f"❌ CollabWarz: _post_with_temp_session error (fallback) for failed action result: {rerr}")
+                        await self._post_with_temp_session(result_url, json_payload=action_data, headers=headers, timeout=10, guild=guild)
                 except Exception as e:
                     print(f"⚠️ CollabWarz: Failed to post failed action result to backend fallback: {e}")
     
@@ -789,9 +758,9 @@ class CollabWarz(commands.Cog):
                         # Diagnostics: what mode are we in and whether redis is available
                         print(f"🔁 CollabWarz: Handling guild {guild.name} (short_lived={getattr(self, 'backend_use_short_lived_sessions', False)}, redis={bool(self.redis_client)})")
                         headers = {"X-CW-Token": backend_token}
-                        # Always use short-lived sessions for backend GETs/POSTs now
-                        try:
-                            status_code, body = await self._get_with_temp_session(next_url, headers=headers, timeout=10)
+                        if getattr(self, 'backend_use_short_lived_sessions', False):
+                            try:
+                                status_code, body = await self._get_with_temp_session(next_url, headers=headers, timeout=10, guild=guild)
                                 if status_code == 204:
                                     # No action available
                                     pass
@@ -809,10 +778,73 @@ class CollabWarz(commands.Cog):
                                             "details": {"processed_by": "collabwarz_cog"},
                                         }
                                         try:
-                                            rstatus, rtext, rerr = await self._post_with_temp_session(result_url, json_payload=result_payload, headers=headers, timeout=10)
+                                            rstatus, rtext = await self._post_with_temp_session(result_url, json_payload=result_payload, headers=headers, timeout=10, guild=guild)
                                             if rstatus is not None and rstatus != 200:
                                                 self._log_backend_error(guild, f"⚠️ CollabWarz: Backend result post (short-lived) returned {rstatus}")
-                                        # (Legacy persistent session code removed in favor of short-lived sessions.)
+                                        except Exception as e:
+                                            self._log_backend_error(guild, f"❌ CollabWarz: Result post (short-lived) failed: {e}")
+                                elif status_code is None:
+                                    print("❌ CollabWarz: Failed to get a response from backend (short-lived session)")
+                                else:
+                                    print(f"❌ CollabWarz: Unexpected backend response: {status_code}")
+                            except asyncio.TimeoutError:
+                                print("⚠️ CollabWarz: Backend poll timed out")
+                            except Exception as e:
+                                print(f"❌ CollabWarz: Error polling backend (short-lived session): {e}")
+                        else:
+                            # Persistent session path (legacy), keep existing logic
+                            await self._ensure_backend_session()
+                            session = self.backend_session
+                            print(f"🔁 CollabWarz: Using backend session for GET. closed={getattr(session, 'closed', 'n/a')}")
+                            try:
+                                headers = {"X-CW-Token": backend_token}
+                                resp = await session.get(next_url, headers=headers, timeout=10)
+                                try:
+                                    if resp.status == 204:
+                                        pass
+                                    elif resp.status == 200:
+                                        body = await resp.json()
+                                        action = body.get("action")
+                                        if action:
+                                            await self._process_redis_action(guild, action)
+                                            result_url = backend_url.rstrip("/") + "/api/collabwarz/action-result"
+                                            result_payload = {
+                                                "id": action.get("id"),
+                                                "status": "completed",
+                                                "details": {"processed_by": "collabwarz_cog"},
+                                            }
+                                            async with session.post(result_url, json=result_payload, headers=headers, timeout=10) as presp:
+                                                    if presp.status != 200:
+                                                        self._log_backend_error(guild, f"⚠️ CollabWarz: Backend result post returned {presp.status}")
+                                    else:
+                                        print(f"❌ CollabWarz: Unexpected backend response: {resp.status}")
+                                finally:
+                                    resp.close()
+                            except asyncio.TimeoutError:
+                                print("⚠️ CollabWarz: Backend poll timed out")
+                            except Exception as e:
+                                print(f"❌ CollabWarz: Error polling backend: {e} (session closed: {getattr(session, 'closed', 'n/a')})")
+
+                        # After processing, update and export current status back to backend
+                        try:
+                            status_data = await self._update_redis_status(guild)
+                            # If we have status data and backend configured, post it.
+                            if status_data and backend_url and backend_token:
+                                status_url = backend_url.rstrip('/') + '/api/collabwarz/status'
+                                try:
+                                    headers = { 'X-CW-Token': backend_token }
+                                    if getattr(self, 'backend_use_short_lived_sessions', False):
+                                        # Use short-lived session for status post
+                                        rstatus, rtext = await self._post_with_temp_session(status_url, json_payload=status_data, headers=headers, timeout=10, guild=guild)
+                                        if rstatus is not None and rstatus != 200:
+                                            print(f"⚠️ CollabWarz: Failed to export status to backend (HTTP {rstatus})")
+                                        elif rstatus is None:
+                                            # Throttle repeated messages for the same guild to avoid log spam
+                                            last = self.backend_error_throttle.get(guild.id, 0)
+                                            now = asyncio.get_running_loop().time()
+                                            if now - last > 120:
+                                                print(f"❌ CollabWarz: Failed to export status to backend (no response) for guild {guild.name}")
+                                                self.backend_error_throttle[guild.id] = now
                                     else:
                                         print(f"🔁 CollabWarz: Posting status to backend for {guild.name} (session.closed={getattr(session, 'closed', 'n/a')})")
                                         async with session.post(status_url, json=status_data, headers=headers, timeout=10) as sresp:
