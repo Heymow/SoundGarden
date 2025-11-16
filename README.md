@@ -183,6 +183,10 @@ collabwarz:action:{id}     # Action tracking (JSON, 24h TTL)
 
 ### Admin Queue API
 - `GET /api/admin/queue` - Returns the current queued actions and recent processed action results (used by the admin UI). Returns `queueLength`, `queue` array and `processed` array.
+
+Security:
+- In production, we recommend restricting admin endpoints by configuring `DISCORD_ADMIN_IDS` (comma-separated list of Discord user IDs). The server will validate the OAuth bearer tokens the front-end sends and only allow requests from those admin users. Example:
+   - DISCORD_ADMIN_IDS=123456789012345678,234567890123456789
 ```
 
 ## 🚀 Deployment

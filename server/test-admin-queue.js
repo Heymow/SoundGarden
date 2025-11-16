@@ -5,7 +5,8 @@
 import axios from "axios";
 
 const BASE = process.env.BASE || "http://localhost:3001";
-const TOKEN = process.env.CW_TOKEN || "";
+const TOKEN = process.env.CW_TOKEN || ""; // X-CW-Token for backend-cog
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || ""; // Bearer token for admin actions
 
 async function main() {
   try {
@@ -16,7 +17,7 @@ async function main() {
 
     console.log("Queueing action...");
     const res = await axios.post(`${BASE}/api/admin/actions`, action, {
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN_TOKEN}` },
     });
     console.log("Queued:", res.data);
 
@@ -43,7 +44,7 @@ async function main() {
 
     for (const a of actions) {
       console.log('Queueing action...', a.action);
-      const res = await axios.post(`${BASE}/api/admin/actions`, a, { headers: { 'Content-Type': 'application/json' } });
+      const res = await axios.post(`${BASE}/api/admin/actions`, a, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ADMIN_TOKEN}` } });
       console.log('Queued:', res.data);
 
       // Simulate cog polling and processing

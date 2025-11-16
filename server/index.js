@@ -525,7 +525,7 @@ app.post("/api/discord/test", async (req, res) => {
 });
 
 // Admin endpoints (via Redis communication)
-app.get("/api/admin/status", async (req, res) => {
+app.get("/api/admin/status", verifyAdminAuth, async (req, res) => {
   try {
     const status = await getCompetitionStatusFromRedis();
     res.json(status);
@@ -553,6 +553,45 @@ function validateCogAuth(req, res) {
     return { ok: false, message: "Invalid or missing X-CW-Token header" };
   }
   return { ok: true };
+}
+
+// Admin auth validation: uses Discord OAuth access token in Authorization header
+// If DISCORD_ADMIN_IDS env var is set, only those user IDs are allowed.
+const DISCORD_ADMIN_IDS = process.env.DISCORD_ADMIN_IDS
+  ? process.env.DISCORD_ADMIN_IDS.split(",").map((s) => s.trim())
+  : null;
+
+async function verifyAdminAuth(req, res, next) {
+  const authHeader = req.header("Authorization");
+  if (!authHeader)
+    return res.status(401).json({ error: "Missing Authorization header" });
+  const [scheme, token] = authHeader.split(" ");
+  if (!token || scheme.toLowerCase() !== "bearer")
+    return res.status(401).json({ error: "Invalid Authorization scheme" });
+
+  // If no admin IDs are configured, allow all (dev mode)
+  if (!DISCORD_ADMIN_IDS || DISCORD_ADMIN_IDS.length === 0) {
+    req.admin_user = { token };
+    return next();
+  }
+
+  try {
+    // Validate the bearer token via Discord API to get the user ID
+    const discordRes = await axios.get("https://discord.com/api/users/@me", {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 5000,
+    });
+    const user = discordRes.data;
+    if (!user || !user.id)
+      return res.status(403).json({ error: "Invalid token" });
+    if (!DISCORD_ADMIN_IDS.includes(user.id))
+      return res.status(403).json({ error: "Forbidden: not an admin" });
+    req.admin_user = user;
+    return next();
+  } catch (error) {
+    console.error("❌ verifyAdminAuth error", error.message || error);
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
 }
 
 // Endpoint used by the cog to poll for the next action
@@ -649,7 +688,7 @@ app.get("/api/public/status", async (req, res) => {
 
 // Admin actions endpoint - sends Discord commands
 // Admin actions endpoint - queues actions via Redis
-app.post("/api/admin/actions", async (req, res) => {
+app.post("/api/admin/actions", verifyAdminAuth, async (req, res) => {
   try {
     const { action, params = {}, ...directParams } = req.body;
     // Prefer explicit `params` object when provided; fall back to top-level fields
@@ -686,8 +725,10 @@ app.post("/api/admin/actions", async (req, res) => {
       case "next_phase":
         successMessage = "Phase advance queued";
         break;
-
       case "toggle_automation":
+        successMessage = "Automation toggle queued";
+        break;
+
       case "start_new_week":
         if (!actionParams.theme) {
           return res
@@ -699,8 +740,6 @@ app.post("/api/admin/actions", async (req, res) => {
 
       case "clear_submissions":
         successMessage = "Clear submissions queued";
-        break;
-        successMessage = "Automation toggle queued";
         break;
 
       case "cancel_week":
@@ -753,9 +792,14 @@ app.get("/api/debug/queue", (req, res) => {
     return res.status(403).json({ error: "Forbidden" });
   res.json({ queueLength: inMemoryQueue.length, queue: inMemoryQueue });
 });
+app.get("/api/debug/processed", (req, res) => {
+  if (process.env.NODE_ENV === "production")
+    return res.status(403).json({ error: "Forbidden" });
+  res.json({ processed: Object.values(inMemoryProcessed).slice(-200) });
+});
 
 // Admin queue + processing state endpoint (used by frontend UI)
-app.get("/api/admin/queue", async (req, res) => {
+app.get("/api/admin/queue", verifyAdminAuth, async (req, res) => {
   try {
     if (!redisClient) {
       // In-memory fallback

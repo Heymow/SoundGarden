@@ -428,6 +428,27 @@ export const cancelWeek = async () => {
 };
 
 /**
+ * Clear all submissions for the current week
+ */
+export const clearSubmissions = async () => {
+  return await executeAdminAction("clear_submissions");
+};
+
+/**
+ * Reset the current week state
+ */
+export const resetWeek = async () => {
+  return await executeAdminAction("reset_week");
+};
+
+/**
+ * Force the competition into voting phase
+ */
+export const forceVoting = async () => {
+  return await executeAdminAction("force_voting");
+};
+
+/**
  * End the current week and announce results
  * Note: This might not be directly implemented. Use phase change instead.
  */

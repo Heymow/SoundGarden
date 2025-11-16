@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "test-queue": "node test-admin-queue.js"
+    "test-queue": "node test-admin-queue.js",
+    "integration-test": "node integration-test.js"
   },
   "dependencies": {
     "axios": "^1.6.0",
