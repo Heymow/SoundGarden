@@ -633,10 +633,20 @@ export const setSafeMode = async (enable = true) => {
   try {
     // Try standard action name first, then try a couple compatibility aliases if backend responds with unknown action
     let res = await executeAdminAction("set_safe_mode", { enable: !!enable });
-    if (res && res.success === false && res.message && res.message.toLowerCase().includes('unknown action')) {
+    if (
+      res &&
+      res.success === false &&
+      res.message &&
+      res.message.toLowerCase().includes("unknown action")
+    ) {
       // Try camelCase alias
       res = await executeAdminAction("setSafeMode", { enable: !!enable });
-      if (res && res.success === false && res.message && res.message.toLowerCase().includes('unknown action')) {
+      if (
+        res &&
+        res.success === false &&
+        res.message &&
+        res.message.toLowerCase().includes("unknown action")
+      ) {
         // Try other variants
         res = await executeAdminAction("setsafemode", { enable: !!enable });
       }

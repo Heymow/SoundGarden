@@ -176,7 +176,7 @@ export default function SystemStatus() {
       await overlay.blockingRun('Restoring backup...', async () => {
         overlay.startAction('restore_backup');
         const res = await botApi.restoreBackup(backup);
-            if (res && res.success) {
+        if (res && res.success) {
           showSuccess('✅ Last backup restored successfully');
           try {
             const list = await botApi.getBackups();
