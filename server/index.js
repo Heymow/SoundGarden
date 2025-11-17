@@ -57,12 +57,20 @@ async function initPostgres() {
   }
 
   try {
-    pgPool = new Pool({
-      connectionString: DATABASE_URL,
-      ssl: process.env.NODE_ENV === "production",
-    });
+    const dbNeedsSsl =
+      process.env.NODE_ENV === "production" ||
+      process.env.POSTGRES_SSL === "true" ||
+      (DATABASE_URL && DATABASE_URL.indexOf("sslmode=require") !== -1);
+    const sslOpt = dbNeedsSsl ? { rejectUnauthorized: false } : false;
+    pgPool = new Pool({ connectionString: DATABASE_URL, ssl: sslOpt });
     await pgPool.query("SELECT 1");
     console.log("✅ Postgres connected");
+    try {
+      console.log(
+        "ℹ️ Postgres URL (masked):",
+        DATABASE_URL.replace(/(postgres:\/\/.*@)(.*)$/, "$1*****")
+      );
+    } catch (e) {}
 
     // Ensure backups table exists
     const createBackups = `
@@ -81,7 +89,10 @@ async function initPostgres() {
     console.log("✅ Backups table ensured");
     return true;
   } catch (err) {
-    console.error("❌ Failed to initialize Postgres:", err.message || err);
+    console.error(
+      "❌ Failed to initialize Postgres:",
+      err.stack || err.message || err
+    );
     pgPool = null;
     return false;
   }
@@ -791,6 +802,13 @@ app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
       discordBotTokenConfigured: !!DISCORD_BOT_TOKEN,
       discordAdminChannelSet: !!DISCORD_ADMIN_CHANNEL_ID,
       discordWebhookSet: !!DISCORD_WEBHOOK_URL,
+      postgresConnected: !!pgPool,
+      postgresUrl: process.env.DATABASE_URL
+        ? process.env.DATABASE_URL.replace(
+            /(postgres:\/\/.*:@)(.*)$/,
+            "$1*****"
+          )
+        : null,
       cliTimestamp: new Date().toISOString(),
     };
 
@@ -998,19 +1016,27 @@ app.get("/api/admin/submissions", verifyAdminAuth, async (req, res) => {
 app.get("/api/admin/backups", verifyAdminAuth, async (req, res) => {
   try {
     if (!pgPool) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          message: "Backups not available on this server",
-        });
+      console.warn(
+        "⚠️ GET /api/admin/backups called but Postgres pool not initialized"
+      );
+      return res.status(404).json({
+        success: false,
+        message: "Backups not available on this server",
+      });
     }
-    const guildId = process.env.DISCORD_GUILD_ID || null;
-    if (!guildId)
+    const guildId = req.query.guildId || process.env.DISCORD_GUILD_ID || null;
+    if (!guildId) {
+      console.warn(
+        "⚠️ GET /api/admin/backups: DISCORD_GUILD_ID not configured"
+      );
       return res
         .status(400)
         .json({ success: false, message: "Guild ID not configured" });
+    }
     const list = await listBackupsFromDb(guildId);
+    console.log(
+      `ℹ️ GET /api/admin/backups: returning ${list.length} backups for guild ${guildId}`
+    );
     return res.json({ success: true, backups: list });
   } catch (err) {
     console.error("❌ Failed to list backups:", err.message || err);
@@ -1165,12 +1191,10 @@ app.post("/api/admin/actions", verifyAdminAuth, async (req, res) => {
       case "restore_backup":
         // Accept either a backup object or filename param for the restore
         if (!actionParams.backup && !actionParams.filename) {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              message: "backup object or filename required",
-            });
+          return res.status(400).json({
+            success: false,
+            message: "backup object or filename required",
+          });
         }
         successMessage = "Backup restore queued";
         break;
@@ -1192,6 +1216,89 @@ app.post("/api/admin/actions", verifyAdminAuth, async (req, res) => {
       actionId: queuedAction.id,
       timestamp: queuedAction.timestamp,
     });
+
+    // If this is a backup action, attempt to wait for result in Redis and persist to Postgres immediately
+    try {
+      const backupActions = [
+        "backup_data",
+        "backupData",
+        "export_backup",
+        "exportBackup",
+      ];
+      if (backupActions.includes(action)) {
+        const waitTimeoutMs = 12000; // wait up to 12s
+        const pollIntervalMs = 500;
+        const start = Date.now();
+        let found = false;
+        while (Date.now() - start < waitTimeoutMs && !found) {
+          if (redisClient) {
+            try {
+              const k = `collabwarz:action:${queuedAction.id}`;
+              const raw = await redisClient.get(k);
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                const details = parsed || parsed.details || null;
+                // details may contain a backup
+                const maybeBackup =
+                  (details && details.backup) ||
+                  (details && details.result && details.result.backup);
+                const maybeFile =
+                  (details && details.backup_file) ||
+                  (details && details.result && details.result.backup_file);
+                if (maybeBackup && maybeFile && pgPool) {
+                  await saveBackupToDb(
+                    Number(
+                      maybeBackup.guild_id || process.env.DISCORD_GUILD_ID
+                    ),
+                    maybeFile,
+                    maybeBackup
+                  );
+                  console.log(
+                    "✅ Persisted backup to Postgres from Redis result (queued action):",
+                    maybeFile
+                  );
+                }
+                found = true;
+                break;
+              }
+            } catch (err) {
+              // ignore errors while polling
+            }
+          } else {
+            const inMem = inMemoryProcessed[queuedAction.id];
+            if (inMem) {
+              const details =
+                (inMem && inMem.details) || (inMem && inMem.result) || null;
+              const maybeBackup =
+                (details && details.backup) ||
+                (details && details.result && details.result.backup);
+              const maybeFile =
+                (details && details.backup_file) ||
+                (details && details.result && details.result.backup_file);
+              if (maybeBackup && maybeFile && pgPool) {
+                await saveBackupToDb(
+                  Number(maybeBackup.guild_id || process.env.DISCORD_GUILD_ID),
+                  maybeFile,
+                  maybeBackup
+                );
+                console.log(
+                  "✅ Persisted backup to Postgres from inMemory result (queued action):",
+                  maybeFile
+                );
+              }
+              found = true;
+              break;
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+        }
+      }
+    } catch (err) {
+      console.warn(
+        "⚠️ Could not auto-persist backup result after queued action:",
+        err.message || err
+      );
+    }
   } catch (error) {
     console.error("❌ Failed to queue action:", error.message);
     res.status(500).json({

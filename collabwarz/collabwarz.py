@@ -1256,14 +1256,17 @@ class CollabWarz(commands.Cog):
         """Initialize Postgres pool for persistent backups if DATABASE_URL is configured."""
         if not PG_AVAILABLE:
             await self._maybe_noisy_log("⚠️ asyncpg not installed; Postgres support disabled")
+            print("⚠️ asyncpg not installed; Postgres support disabled")
             return False
         db_url = os.environ.get('DATABASE_URL') or os.environ.get('POSTGRES_URL')
         if not db_url:
             await self._maybe_noisy_log("⚠️ No DATABASE_URL or POSTGRES_URL found; Postgres disabled")
+            print("⚠️ No DATABASE_URL or POSTGRES_URL found; Postgres disabled")
             return False
         try:
             self.pg_pool = await asyncpg.create_pool(dsn=db_url, min_size=1, max_size=5)
             await self._maybe_noisy_log("✅ Postgres pool initialized for backups")
+            print("✅ Postgres pool initialized for backups")
             async with self.pg_pool.acquire() as conn:
                 await conn.execute('''
                     CREATE TABLE IF NOT EXISTS backups (
@@ -1280,6 +1283,7 @@ class CollabWarz(commands.Cog):
             return True
         except Exception as e:
             await self._maybe_noisy_log(f"❌ Failed to initialize Postgres pool: {e}")
+            print(f"❌ Failed to initialize Postgres pool: {e}")
             self.pg_pool = None
             return False
 
