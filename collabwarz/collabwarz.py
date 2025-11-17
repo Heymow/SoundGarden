@@ -412,6 +412,19 @@ class CollabWarz(commands.Cog):
             return False
 
         try:
+            # Defensive: rc might have been set but not be a proper client
+            if not hasattr(rc, 'setex'):
+                # Try re-initialize Redis to get a valid client
+                try:
+                    if guild:
+                        await self._init_redis_connection(guild_for_config=guild)
+                    else:
+                        await self._init_redis_connection()
+                    rc = self.redis_client
+                except Exception:
+                    rc = None
+            if not rc:
+                return False
             await rc.setex(key, ttl, value)
             return True
         except Exception as e:
@@ -597,7 +610,16 @@ class CollabWarz(commands.Cog):
             params = {}
             action_id = None
         
-        print(f"🎯 CollabWarz: Processing Redis action '{action}' (ID: {action_id})")
+        try:
+            print(f"🎯 CollabWarz: Processing Redis action '{action}' (ID: {action_id})")
+        except Exception:
+            print("🎯 CollabWarz: Processing Redis action (unable to format action debug)")
+
+        # Normalize action name for robust matching
+        try:
+            norm_action = (action or '').strip().lower().replace('-', '_').replace(' ', '_')
+        except Exception:
+            norm_action = action
         try:
             safe_mode = await self.config.guild(guild).safe_mode_enabled()
         except Exception:
@@ -746,7 +768,7 @@ class CollabWarz(commands.Cog):
                 except Exception as e:
                     await self._maybe_noisy_log(f"❌ Failed to announce winners: {e}", guild=guild)
             # Backup actions (support via Redis queue)
-            elif action in ("backup_data", "backupData", "export_backup", "exportBackup"):
+            elif norm_action in ("backup_data", "backupdata", "export_backup", "exportbackup"):
                 try:
                     try:
                         cfg_all = await self.config.guild(guild).all()
@@ -802,7 +824,7 @@ class CollabWarz(commands.Cog):
                 except Exception as e:
                     action_data['result'] = {"success": False, "message": str(e)}
 
-            elif action in ("list_backups", "get_backups", "backup_list", "backups_list"):
+            elif norm_action in ("list_backups", "get_backups", "backup_list", "backups_list"):
                 try:
                     files = []
                     # Query Postgres first
@@ -842,7 +864,7 @@ class CollabWarz(commands.Cog):
                 except Exception as e:
                     action_data['result'] = { 'success': False, 'message': f'Failed to list backups: {e}' }
 
-            elif action in ("download_backup", "backup_download", "get_backup", "get_backup_file"):
+            elif norm_action in ("download_backup", "backup_download", "get_backup", "get_backup_file"):
                 try:
                     filename = params.get('filename')
                     if not filename:
@@ -874,7 +896,7 @@ class CollabWarz(commands.Cog):
                 except Exception as e:
                     action_data['result'] = {'success': False, 'message': f'Failed to process download request: {e}'}
 
-            elif action == 'restore_backup':
+            elif norm_action == 'restore_backup':
                 if safe_mode:
                     action_data['result'] = {'success': False, 'message': 'Restore blocked: Safe mode is enabled'}
                 else:
@@ -922,7 +944,8 @@ class CollabWarz(commands.Cog):
                             action_data['result'] = {'success': False, 'message': f'Restore failed: {e}'}
                     
             else:
-                await self._maybe_noisy_log(f"❓ Unknown action: {action}", guild=guild)
+                await self._maybe_noisy_log(f"❓ Unknown action: {repr(action)} (norm: {repr(norm_action)})", guild=guild)
+                print(f"❓ Unknown action: {repr(action)} (norm: {repr(norm_action)}) - full action_data: {action_data}")
                 action_data['status'] = 'failed'
                 action_data['error'] = f'unknown action: {action}'
             
@@ -937,12 +960,16 @@ class CollabWarz(commands.Cog):
                 redis_enabled = False
             saved_to_redis = False
             if redis_enabled:
-                saved_to_redis = await self._safe_redis_setex(
-                    f'collabwarz:action:{action_id}',
-                    86400,
-                    json.dumps(action_data),
-                    guild=guild,
-                )
+                try:
+                    saved_to_redis = await self._safe_redis_setex(
+                        f'collabwarz:action:{action_id}',
+                        86400,
+                        json.dumps(action_data),
+                        guild=guild,
+                    )
+                except Exception as e:
+                    saved_to_redis = False
+                    await self._maybe_noisy_log(f"⚠️ Exception when saving action result to Redis: {e}", guild=guild)
             if not saved_to_redis:
                 try:
                     backend_url = await self.config.guild(guild).backend_url()
@@ -993,12 +1020,16 @@ class CollabWarz(commands.Cog):
                 redis_enabled = False
             saved_to_redis = False
             if redis_enabled:
-                saved_to_redis = await self._safe_redis_setex(
-                    f'collabwarz:action:{action_id}',
-                    86400,
-                    json.dumps(action_data),
-                    guild=guild,
-                )
+                try:
+                    saved_to_redis = await self._safe_redis_setex(
+                        f'collabwarz:action:{action_id}',
+                        86400,
+                        json.dumps(action_data),
+                        guild=guild,
+                    )
+                except Exception as e:
+                    saved_to_redis = False
+                    await self._maybe_noisy_log(f"⚠️ Exception when saving failed action result to Redis: {e}", guild=guild)
             if not saved_to_redis:
                 try:
                     backend_url = await self.config.guild(guild).backend_url()
