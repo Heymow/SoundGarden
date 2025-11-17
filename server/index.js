@@ -3,6 +3,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import axios from "axios";
 import { createClient } from "redis";
+import pkg from "pg";
+const { Pool } = pkg;
 
 dotenv.config();
 
@@ -42,6 +44,117 @@ console.log(`Redis URL: ${REDIS_URL}`);
 
 // Redis client and initialization
 let redisClient;
+let pgPool = null;
+
+async function initPostgres() {
+  const DATABASE_URL =
+    process.env.DATABASE_URL || process.env.POSTGRES_URL || null;
+  if (!DATABASE_URL) {
+    console.log(
+      "⚠️  No DATABASE_URL configured - Postgres persistence disabled"
+    );
+    return false;
+  }
+
+  try {
+    pgPool = new Pool({
+      connectionString: DATABASE_URL,
+      ssl: process.env.NODE_ENV === "production",
+    });
+    await pgPool.query("SELECT 1");
+    console.log("✅ Postgres connected");
+
+    // Ensure backups table exists
+    const createBackups = `
+      CREATE TABLE IF NOT EXISTS backups (
+        id SERIAL PRIMARY KEY,
+        guild_id BIGINT NOT NULL,
+        file_name TEXT NOT NULL,
+        backup_content JSONB NOT NULL,
+        size BIGINT DEFAULT 0,
+        created_by_user_id BIGINT,
+        created_by_display TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `;
+    await pgPool.query(createBackups);
+    console.log("✅ Backups table ensured");
+    return true;
+  } catch (err) {
+    console.error("❌ Failed to initialize Postgres:", err.message || err);
+    pgPool = null;
+    return false;
+  }
+}
+
+async function saveBackupToDb(guildId, fileName, backupJson) {
+  if (!pgPool) return false;
+  try {
+    const text = `INSERT INTO backups (guild_id, file_name, backup_content, size, created_by_user_id, created_by_display, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`;
+    const size = Buffer.byteLength(JSON.stringify(backupJson));
+    const createdBy =
+      backupJson.created_by && backupJson.created_by.user_id
+        ? backupJson.created_by.user_id
+        : null;
+    const createdByName =
+      backupJson.created_by && backupJson.created_by.display_name
+        ? backupJson.created_by.display_name
+        : null;
+    const createdAt = backupJson.timestamp
+      ? new Date(backupJson.timestamp)
+      : new Date();
+    const values = [
+      guildId,
+      fileName,
+      backupJson,
+      size,
+      createdBy,
+      createdByName,
+      createdAt,
+    ];
+    await pgPool.query(text, values);
+    return true;
+  } catch (err) {
+    console.error("❌ Failed to save backup to DB:", err.message || err);
+    return false;
+  }
+}
+
+async function listBackupsFromDb(guildId) {
+  if (!pgPool) return [];
+  try {
+    const res = await pgPool.query(
+      "SELECT file_name, size, created_by_user_id, created_by_display, created_at FROM backups WHERE guild_id=$1 ORDER BY created_at DESC",
+      [guildId]
+    );
+    return res.rows.map((r) => ({
+      file: r.file_name,
+      size: parseInt(r.size, 10) || 0,
+      ts: r.created_at.toISOString(),
+      created_by: r.created_by_user_id
+        ? { user_id: r.created_by_user_id, display_name: r.created_by_display }
+        : null,
+    }));
+  } catch (err) {
+    console.error("❌ Failed to list backups from DB:", err.message || err);
+    return [];
+  }
+}
+
+async function getBackupFromDb(guildId, fileName) {
+  if (!pgPool) return null;
+  try {
+    const res = await pgPool.query(
+      "SELECT backup_content FROM backups WHERE guild_id=$1 AND file_name=$2 LIMIT 1",
+      [guildId, fileName]
+    );
+    if (res.rowCount === 0) return null;
+    return res.rows[0].backup_content;
+  } catch (err) {
+    console.error("❌ Failed to fetch backup from DB:", err.message || err);
+    return null;
+  }
+}
 // In-memory queue fallback when Redis not configured (useful for local testing)
 const inMemoryQueue = [];
 const inMemoryProcessed = {}; // store processed action results when Redis is not configured
@@ -805,6 +918,29 @@ app.post("/api/collabwarz/action-result", async (req, res) => {
       inMemoryProcessed[id] = resultData;
     }
 
+    // If Postgres is enabled and this action produced a backup, persist it
+    try {
+      // details may include backup directly or inside details.result
+      const maybeBackup =
+        (details && details.backup) ||
+        (details && details.result && details.result.backup);
+      const maybeFile =
+        (details && details.backup_file) ||
+        (details && details.result && details.result.backup_file);
+      if (pgPool && maybeBackup && maybeFile) {
+        const guildId = maybeBackup.guild_id || process.env.DISCORD_GUILD_ID;
+        if (guildId) {
+          await saveBackupToDb(Number(guildId), maybeFile, maybeBackup);
+          console.log("✅ Persisted backup to Postgres:", maybeFile);
+        }
+      }
+    } catch (err) {
+      console.warn(
+        "⚠️ Could not persist backup to Postgres:",
+        err.message || err
+      );
+    }
+
     return res.json({ success: true, stored: !!redisClient });
   } catch (error) {
     console.error("❌ /api/collabwarz/action-result error:", error.message);
@@ -855,6 +991,59 @@ app.get("/api/admin/submissions", verifyAdminAuth, async (req, res) => {
   } catch (error) {
     console.error("Failed to get submissions from Redis:", error.message);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// List backups persisted in Postgres (if configured)
+app.get("/api/admin/backups", verifyAdminAuth, async (req, res) => {
+  try {
+    if (!pgPool) {
+      return res
+        .status(404)
+        .json({
+          success: false,
+          message: "Backups not available on this server",
+        });
+    }
+    const guildId = process.env.DISCORD_GUILD_ID || null;
+    if (!guildId)
+      return res
+        .status(400)
+        .json({ success: false, message: "Guild ID not configured" });
+    const list = await listBackupsFromDb(guildId);
+    return res.json({ success: true, backups: list });
+  } catch (err) {
+    console.error("❌ Failed to list backups:", err.message || err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Download a specific backup from Postgres
+app.get("/api/admin/backups/:filename", verifyAdminAuth, async (req, res) => {
+  try {
+    if (!pgPool)
+      return res
+        .status(404)
+        .json({ success: false, message: "Backups not available" });
+    const guildId = process.env.DISCORD_GUILD_ID || null;
+    if (!guildId)
+      return res
+        .status(400)
+        .json({ success: false, message: "Guild ID not configured" });
+    const fileName = req.params.filename;
+    if (!fileName)
+      return res
+        .status(400)
+        .json({ success: false, message: "Filename required" });
+    const backup = await getBackupFromDb(guildId, fileName);
+    if (!backup)
+      return res
+        .status(404)
+        .json({ success: false, message: "Backup not found" });
+    return res.json({ success: true, backup: backup, file: fileName });
+  } catch (err) {
+    console.error("❌ Failed to get backup:", err.message || err);
+    return res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -944,6 +1133,46 @@ app.post("/api/admin/actions", verifyAdminAuth, async (req, res) => {
 
       case "announce_winners":
         successMessage = "Winner announcement queued";
+        break;
+
+      // Backup-related admin actions - queue to the bot (the bot cog handles file writing / listing)
+      case "backup_data":
+      case "backupData":
+      case "export_backup":
+      case "exportBackup":
+        successMessage = "Backup export queued";
+        break;
+
+      case "list_backups":
+      case "get_backups":
+      case "backup_list":
+      case "backups_list":
+        successMessage = "Backups listing queued";
+        break;
+
+      case "download_backup":
+      case "backup_download":
+      case "get_backup":
+      case "get_backup_file":
+        if (!actionParams.filename) {
+          return res
+            .status(400)
+            .json({ success: false, message: "filename parameter required" });
+        }
+        successMessage = `Backup download queued: ${actionParams.filename}`;
+        break;
+
+      case "restore_backup":
+        // Accept either a backup object or filename param for the restore
+        if (!actionParams.backup && !actionParams.filename) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: "backup object or filename required",
+            });
+        }
+        successMessage = "Backup restore queued";
         break;
 
       default:
@@ -1114,6 +1343,8 @@ async function startServer() {
   try {
     // Initialize Redis connection
     await initRedis();
+    // Initialize Postgres connection
+    await initPostgres();
 
     // Start Express server
     app.listen(PORT, () => {

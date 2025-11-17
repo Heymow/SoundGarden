@@ -52,6 +52,13 @@ except ImportError:
     REDIS_AVAILABLE = False
     redis = None
 
+try:
+    import asyncpg
+    PG_AVAILABLE = True
+except Exception:
+    asyncpg = None
+    PG_AVAILABLE = False
+
 class CollabWarz(commands.Cog):
     """
     Automated announcements for SoundGarden's Collab Warz music competition.
@@ -172,6 +179,8 @@ class CollabWarz(commands.Cog):
         # Per-guild map to throttle repeated backend export errors (timestamp)
         self.backend_error_throttle = {}
         self.confirmation_messages = {}  # Track confirmation messages for reaction handling
+        # Postgres pool for durable backups
+        self.pg_pool = None
         
     def cog_load(self):
         """Start the announcement task and Redis communication when cog loads"""
@@ -207,6 +216,11 @@ class CollabWarz(commands.Cog):
                                 self.latest_backup[gid] = fn
                     except Exception:
                         continue
+        except Exception:
+            pass
+        # Try to initialize Postgres pool lazily (non-blocking)
+        try:
+            self.bot.loop.create_task(self._init_postgres_pool())
         except Exception:
             pass
         
@@ -731,6 +745,181 @@ class CollabWarz(commands.Cog):
                     print("✅ Announce winners triggered")
                 except Exception as e:
                     await self._maybe_noisy_log(f"❌ Failed to announce winners: {e}", guild=guild)
+            # Backup actions (support via Redis queue)
+            elif action in ("backup_data", "backupData", "export_backup", "exportBackup"):
+                try:
+                    try:
+                        cfg_all = await self.config.guild(guild).all()
+                    except Exception:
+                        cfg_all = {}
+                    backup = {
+                        "guild_id": guild.id,
+                        "guild_name": guild.name,
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "current_theme": cfg_all.get('current_theme'),
+                        "current_phase": cfg_all.get('current_phase'),
+                        "submitted_teams": cfg_all.get('submitted_teams', {}),
+                        "submissions": cfg_all.get('submissions', {}),
+                        "teams_db": cfg_all.get('teams_db', {}),
+                        "artists_db": cfg_all.get('artists_db', {}),
+                        "songs_db": cfg_all.get('songs_db', {}),
+                        "weeks_db": cfg_all.get('weeks_db', {}),
+                        "voting_results": cfg_all.get('voting_results', {}),
+                        "next_unique_ids": cfg_all.get('next_unique_ids', {}),
+                        "settings": {
+                            "auto_announce": cfg_all.get('auto_announce'),
+                            "suppress_noisy_logs": cfg_all.get('suppress_noisy_logs'),
+                            "safe_mode_enabled": cfg_all.get('safe_mode_enabled', False),
+                        },
+                    }
+                    # Attach created_by if available in action_data
+                    try:
+                        admin_user = action_data.get('admin_user') or action_data.get('user')
+                        if admin_user:
+                            backup['created_by'] = {'user_id': admin_user, 'display_name': None}
+                    except Exception:
+                        pass
+                    # Save to disk
+                    file_name = f"backup_g{guild.id}_{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.json"
+                    path = os.path.join(self.backup_dir, file_name)
+                    try:
+                        with open(path, 'w', encoding='utf-8') as f:
+                            json.dump(backup, f, indent=2, ensure_ascii=False)
+                        try:
+                            self.latest_backup[guild.id] = file_name
+                        except Exception:
+                            pass
+                        # Persist to Postgres if available
+                        try:
+                            if getattr(self, 'pg_pool', None):
+                                await self._save_backup_to_db(guild, file_name, backup)
+                        except Exception:
+                            pass
+                        print(f"✅ Backup written to {path}")
+                        action_data['result'] = {"success": True, "backup_file": file_name, "backup": backup}
+                    except Exception as e:
+                        action_data['result'] = {"success": False, "message": f"Failed to write backup: {e}"}
+                except Exception as e:
+                    action_data['result'] = {"success": False, "message": str(e)}
+
+            elif action in ("list_backups", "get_backups", "backup_list", "backups_list"):
+                try:
+                    files = []
+                    # Query Postgres first
+                    if getattr(self, 'pg_pool', None):
+                        try:
+                            async with self.pg_pool.acquire() as conn:
+                                rows = await conn.fetch('SELECT file_name, size, created_by_user_id, created_by_display, created_at FROM backups WHERE guild_id=$1 ORDER BY created_at DESC', guild.id)
+                                for row in rows:
+                                    files.append({
+                                        'file': row['file_name'],
+                                        'size': int(row['size']) if row['size'] is not None else 0,
+                                        'ts': row['created_at'].isoformat(),
+                                        'created_by': {'user_id': row['created_by_user_id'], 'display_name': row['created_by_display']} if row['created_by_user_id'] else None
+                                    })
+                        except Exception:
+                            pass
+                    # Fallback to disk listing
+                    if os.path.isdir(self.backup_dir):
+                        prefix = f"backup_g{guild.id}_"
+                        for fn in os.listdir(self.backup_dir):
+                            if fn.startswith(prefix) and fn.endswith('.json'):
+                                path = os.path.join(self.backup_dir, fn)
+                                try:
+                                    stat = os.stat(path)
+                                    created_by = None
+                                    try:
+                                        with open(path, 'r', encoding='utf-8') as f:
+                                            data = json.load(f)
+                                            created_by = data.get('created_by')
+                                    except Exception:
+                                        created_by = None
+                                    files.append({'file': fn, 'size': stat.st_size, 'ts': datetime.utcfromtimestamp(stat.st_mtime).isoformat(), 'created_by': created_by})
+                                except Exception:
+                                    continue
+                    files.sort(key=lambda x: x['ts'], reverse=True)
+                    action_data['result'] = { 'success': True, 'backups': files }
+                except Exception as e:
+                    action_data['result'] = { 'success': False, 'message': f'Failed to list backups: {e}' }
+
+            elif action in ("download_backup", "backup_download", "get_backup", "get_backup_file"):
+                try:
+                    filename = params.get('filename')
+                    if not filename:
+                        action_data['result'] = {'success': False, 'message':'Filename required'}
+                    else:
+                        # Try Postgres first
+                        found = False
+                        if getattr(self, 'pg_pool', None):
+                            try:
+                                async with self.pg_pool.acquire() as conn:
+                                    row = await conn.fetchrow('SELECT backup_content FROM backups WHERE guild_id=$1 AND file_name=$2 LIMIT 1', guild.id, filename)
+                                    if row:
+                                        action_data['result'] = {'success': True, 'backup': row['backup_content'], 'file': filename}
+                                        found = True
+                            except Exception:
+                                pass
+                        if not found:
+                            filepath = os.path.join(self.backup_dir, filename)
+                            if os.path.exists(filepath):
+                                try:
+                                    with open(filepath, 'r', encoding='utf-8') as f:
+                                        backup_json = json.load(f)
+                                    action_data['result'] = {'success': True, 'backup': backup_json, 'file': filename}
+                                    found = True
+                                except Exception as e:
+                                    action_data['result'] = {'success': False, 'message': f'Failed to read backup file: {e}'}
+                            else:
+                                action_data['result'] = {'success': False, 'message': 'File not found'}
+                except Exception as e:
+                    action_data['result'] = {'success': False, 'message': f'Failed to process download request: {e}'}
+
+            elif action == 'restore_backup':
+                if safe_mode:
+                    action_data['result'] = {'success': False, 'message': 'Restore blocked: Safe mode is enabled'}
+                else:
+                    backup = params.get('backup') or {}
+                    if not isinstance(backup, dict):
+                        action_data['result'] = {'success': False, 'message':'Missing or invalid backup object'}
+                    else:
+                        try:
+                            # apply as per HTTP restore (only allowed keys)
+                            if 'current_theme' in backup:
+                                await self.config.guild(guild).current_theme.set(backup['current_theme'])
+                            if 'current_phase' in backup:
+                                await self.config.guild(guild).current_phase.set(backup['current_phase'])
+                            if 'submitted_teams' in backup:
+                                await self.config.guild(guild).submitted_teams.set(backup.get('submitted_teams') or {})
+                            if 'submissions' in backup:
+                                try:
+                                    subs_group = getattr(self.config.guild(guild), 'submissions', None)
+                                    if subs_group is not None:
+                                        await subs_group.set(backup.get('submissions') or {})
+                                except Exception:
+                                    pass
+                            if 'teams_db' in backup:
+                                await self.config.guild(guild).teams_db.set(backup.get('teams_db') or {})
+                            if 'artists_db' in backup:
+                                await self.config.guild(guild).artists_db.set(backup.get('artists_db') or {})
+                            if 'songs_db' in backup:
+                                await self.config.guild(guild).songs_db.set(backup.get('songs_db') or {})
+                            if 'weeks_db' in backup:
+                                await self.config.guild(guild).weeks_db.set(backup.get('weeks_db') or {})
+                            if 'voting_results' in backup:
+                                await self.config.guild(guild).voting_results.set(backup.get('voting_results') or {})
+                            if 'next_unique_ids' in backup:
+                                await self.config.guild(guild).next_unique_ids.set(backup.get('next_unique_ids') or {})
+                            settings = backup.get('settings') or {}
+                            if settings:
+                                if 'auto_announce' in settings:
+                                    await self.config.guild(guild).auto_announce.set(settings.get('auto_announce'))
+                                if 'suppress_noisy_logs' in settings:
+                                    await self.config.guild(guild).suppress_noisy_logs.set(settings.get('suppress_noisy_logs'))
+                                if 'safe_mode_enabled' in settings:
+                                    await self.config.guild(guild).safe_mode_enabled.set(settings.get('safe_mode_enabled', False))
+                            action_data['result'] = {'success': True, 'message': 'Backup restored successfully'}
+                        except Exception as e:
+                            action_data['result'] = {'success': False, 'message': f'Restore failed: {e}'}
                     
             else:
                 await self._maybe_noisy_log(f"❓ Unknown action: {action}", guild=guild)
@@ -1062,6 +1251,57 @@ class CollabWarz(commands.Cog):
                 await self._maybe_noisy_log(f"❌ CollabWarz: Failed to create persistent backend session: {e}")
                 self.backend_session = None
                 self.backend_session_loop = None
+
+    async def _init_postgres_pool(self):
+        """Initialize Postgres pool for persistent backups if DATABASE_URL is configured."""
+        if not PG_AVAILABLE:
+            await self._maybe_noisy_log("⚠️ asyncpg not installed; Postgres support disabled")
+            return False
+        db_url = os.environ.get('DATABASE_URL') or os.environ.get('POSTGRES_URL')
+        if not db_url:
+            await self._maybe_noisy_log("⚠️ No DATABASE_URL or POSTGRES_URL found; Postgres disabled")
+            return False
+        try:
+            self.pg_pool = await asyncpg.create_pool(dsn=db_url, min_size=1, max_size=5)
+            await self._maybe_noisy_log("✅ Postgres pool initialized for backups")
+            async with self.pg_pool.acquire() as conn:
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS backups (
+                        id SERIAL PRIMARY KEY,
+                        guild_id BIGINT NOT NULL,
+                        file_name TEXT NOT NULL,
+                        backup_content JSONB NOT NULL,
+                        size BIGINT DEFAULT 0,
+                        created_by_user_id BIGINT,
+                        created_by_display TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                ''')
+            return True
+        except Exception as e:
+            await self._maybe_noisy_log(f"❌ Failed to initialize Postgres pool: {e}")
+            self.pg_pool = None
+            return False
+
+    async def _save_backup_to_db(self, guild, file_name, backup_json):
+        """Save a backup JSON to Postgres if pool available."""
+        if not getattr(self, 'pg_pool', None):
+            return False
+        try:
+            gid = guild.id if hasattr(guild, 'id') else int(guild)
+            cb = backup_json.get('created_by') if isinstance(backup_json, dict) else None
+            created_by = cb.get('user_id') if cb else None
+            created_by_name = cb.get('display_name') if cb else None
+            size = len(json.dumps(backup_json))
+            async with self.pg_pool.acquire() as conn:
+                await conn.execute('''
+                    INSERT INTO backups (guild_id, file_name, backup_content, size, created_by_user_id, created_by_display, created_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7)
+                ''', gid, file_name, json.dumps(backup_json), size, created_by, created_by_name, datetime.utcnow())
+            return True
+        except Exception as e:
+            await self._maybe_noisy_log(f"⚠️ Failed to persist backup to Postgres: {e}", guild=guild)
+            return False
 
     # ========== RUNTIME REDIS MANAGEMENT COMMANDS ==========
 
@@ -2663,6 +2903,21 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             return error_response
         try:
             files = []
+            # Query Postgres if available
+            if getattr(self, 'pg_pool', None):
+                try:
+                    async with self.pg_pool.acquire() as conn:
+                        rows = await conn.fetch('SELECT file_name, size, created_by_user_id, created_by_display, created_at FROM backups WHERE guild_id=$1 ORDER BY created_at DESC', guild.id)
+                        for row in rows:
+                            files.append({
+                                'file': row['file_name'],
+                                'size': int(row['size']) if row['size'] is not None else 0,
+                                'ts': row['created_at'].isoformat(),
+                                'created_by': {'user_id': row['created_by_user_id'], 'display_name': row['created_by_display']} if row['created_by_user_id'] else None
+                            })
+                except Exception:
+                    pass
+            # Fallback to disk listing
             if os.path.isdir(self.backup_dir):
                 prefix = f"backup_g{guild.id}_"
                 for fn in os.listdir(self.backup_dir):
@@ -2706,6 +2961,15 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             prefix = f"backup_g{guild.id}_"
             if not filename.startswith(prefix):
                 return web.json_response({'error': 'File not found for this guild'}, status=404)
+            # Try Postgres first
+            if getattr(self, 'pg_pool', None):
+                try:
+                    async with self.pg_pool.acquire() as conn:
+                        row = await conn.fetchrow('SELECT backup_content FROM backups WHERE guild_id=$1 AND file_name=$2 LIMIT 1', guild.id, filename)
+                        if row:
+                            return web.json_response({'backup': row['backup_content'], 'file': filename})
+                except Exception:
+                    pass
             filepath = os.path.join(self.backup_dir, filename)
             if not os.path.exists(filepath):
                 return web.json_response({'error': 'File not found'}, status=404)
@@ -2891,6 +3155,12 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     except Exception:
                         pass
                     download_url = f"/api/admin/backups/{file_name}"
+                    # Persist to Postgres if available
+                    try:
+                        if getattr(self, 'pg_pool', None):
+                            await self._save_backup_to_db(guild, file_name, backup)
+                    except Exception:
+                        pass
                     result = {"success": True, "message": "Backup exported", "backup": backup, "backup_file": file_name, "download_url": download_url}
                 except Exception as e:
                     result = {"success": True, "message": f"Backup exported (failed file write: {e})", "backup": backup}
