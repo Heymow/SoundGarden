@@ -165,7 +165,9 @@ export default function SystemStatus() {
   const handleRestoreLastBackup = async () => {
     if (!latestBackup) return;
     try {
-      const data = await botApi.downloadBackup(latestBackup.file);
+      const filename = latestBackup.file || latestBackup.backup_file;
+      if (!filename) { showError('❌ No backup filename available'); return; }
+      const data = await botApi.downloadBackup(filename);
       if (!data || !data.backup) { showError('❌ Failed to fetch latest backup'); return; }
       const backup = data.backup;
       const currentStatus = await botApi.getAdminStatus().catch(() => ({}));
@@ -174,7 +176,7 @@ export default function SystemStatus() {
       await overlay.blockingRun('Restoring backup...', async () => {
         overlay.startAction('restore_backup');
         const res = await botApi.restoreBackup(backup);
-        if (res && res.success) {
+            if (res && res.success) {
           showSuccess('✅ Last backup restored successfully');
           try {
             const list = await botApi.getBackups();
@@ -543,20 +545,25 @@ export default function SystemStatus() {
             <button className="admin-btn btn-primary" onClick={handleBackupData}>💾 Backup Data</button>
             <button className="admin-btn btn-info" disabled={!latestBackup} onClick={async () => {
               if (!latestBackup) return;
+              const filename = latestBackup.file || latestBackup.backup_file;
+              if (!filename) { showError('❌ No latest backup filename available'); return; }
               try {
-                const data = await botApi.downloadBackup(latestBackup.file);
+                const data = await botApi.downloadBackup(filename);
                 if (data && data.backup) {
                   const blob = new Blob([JSON.stringify(data.backup, null, 2)], { type: 'application/json' });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
                   a.href = url;
-                  a.download = latestBackup.file;
+                  a.download = filename;
                   document.body.appendChild(a);
                   a.click();
                   a.remove();
                   URL.revokeObjectURL(url);
+                  showSuccess('✅ Backup downloaded');
+                } else {
+                  showError('❌ Failed to download latest backup');
                 }
-              } catch (e) { console.warn('Failed to download latest backup:', e); }
+              } catch (e) { console.warn('Failed to download latest backup:', e); showError('❌ Failed to download latest backup'); }
             }}>⬇️ Download Last Backup</button>
             <button className="admin-btn btn-secondary" onClick={handleRestoreClick} disabled={safeModeEnabled}>♻️ Recover from Backup (Upload)</button>
             <button className="admin-btn btn-warning" onClick={handleRestoreLastBackup} disabled={!latestBackup || safeModeEnabled}>♻️ Restore Last Backup</button>

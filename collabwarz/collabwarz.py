@@ -2731,6 +2731,11 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             data = await request.json()
             action = data.get('action')
             params = data.get('params', {})
+            # Debug log admin action and params for easier tracing
+            try:
+                print(f"🔧 Admin action received: action={action}, params={params}, by={request.get('admin_user_id')}, guild={guild.id}")
+            except Exception:
+                pass
             
             result = {"success": False, "message": "Unknown action"}
             
@@ -2783,7 +2788,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 status = "enabled" if not current else "disabled"
                 result = {"success": True, "message": f"Automation {status}"}
             
-            elif action == "set_safe_mode":
+            elif action in ("set_safe_mode", "setSafeMode", "setsafemode", "set-safemode"):
                 # params: { enable: bool }
                 enable_raw = params.get('enable', False)
                 # Accept string forms and coerce to bool
