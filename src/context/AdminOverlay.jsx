@@ -88,11 +88,8 @@ export function AdminOverlayProvider({ children }) {
                 </div>
             )}
             {value.alert && (
-                <div className={`admin-alert-overlay ${value.alert.type}`} role="alert" aria-live="assertive">
-                    <div className="admin-alert-inner">
-                        <div className="admin-alert-message">{value.alert.message}</div>
-                        <button className="admin-alert-close" onClick={value.hideAlert}>✕</button>
-                    </div>
+                <div className={`admin-alert-overlay ${value.alert.type}`} role="status" aria-live="assertive">
+                    <div className="admin-alert-text">{value.alert.message}</div>
                 </div>
             )}
             {confirmState && (

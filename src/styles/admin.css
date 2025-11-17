@@ -429,22 +429,19 @@
   background: rgba(0,0,0,0.4);
   z-index: 9999;
 }
-.admin-alert-overlay .admin-alert-inner {
-  background: #fff;
-  padding: 24px 28px;
-  border-radius: 8px;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.35);
-  position: relative;
-  max-width: 90%;
-  width: 560px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
+
+/* Render a simple centered text message without a white inner box or close button */
+.admin-alert-overlay .admin-alert-text {
+  color: var(--admin-accent);
+  font-weight: 600;
+  font-size: 1.1rem;
+  text-align: center;
+  padding: 12px 20px;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.45);
 }
-.admin-alert-overlay.success .admin-alert-inner { border-left: 6px solid #22c55e; }
-.admin-alert-overlay.error .admin-alert-inner { border-left: 6px solid #ef4444; }
-.admin-alert-overlay .admin-alert-message { font-size: 16px; color: #111827; }
-.admin-alert-close { position: absolute; right: 12px; top: 12px; background: none; border: none; font-size: 16px; cursor: pointer; }
+.admin-alert-overlay.error .admin-alert-text { color: var(--admin-danger); }
+.admin-alert-overlay.success .admin-alert-text { color: var(--admin-success); }
+.admin-alert-close { display: none; }
 
 /* Keep the button glowing when it's in pending state */
 .btn-pending {
@@ -471,6 +468,12 @@
   color: var(--admin-text);
   margin-top: 12px;
   font-weight: 600;
+}
+
+/* Make blocking overlay text display as light green (accent) rather than default text color */
+.admin-overlay--blocking .admin-overlay-text {
+  color: var(--admin-accent);
+  font-size: 1.25rem;
 }
 
 .btn-primary {
