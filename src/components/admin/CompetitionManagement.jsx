@@ -432,3 +432,8 @@ export default function CompetitionManagement() {
       </div>
     );
   }
+
+  // Ensure component closure
+
+}
+
