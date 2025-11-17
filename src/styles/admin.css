@@ -401,6 +401,39 @@
   font-size: 1.05rem;
 }
 
+/* Loading overlay to block interaction during background actions */
+.admin-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.admin-spinner {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 8px solid rgba(255,255,255,0.08);
+  border-top-color: var(--admin-accent);
+  animation: admin-spin 1s linear infinite;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+}
+
+@keyframes admin-spin { to { transform: rotate(360deg); } }
+
+.admin-overlay-text {
+  color: var(--admin-text);
+  margin-top: 12px;
+  font-weight: 600;
+}
+
 .btn-primary {
   background: linear-gradient(90deg, var(--admin-accent), var(--admin-accent-2));
   color: var(--admin-bg);

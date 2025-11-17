@@ -23,7 +23,16 @@ export default function CompetitionManagement() {
     loadStatus();
     loadQueue();
     const qTimer = setInterval(loadQueue, 3000);
-    return () => clearInterval(qTimer);
+    // Listen for external refresh events (dispatched by UI after actions)
+    const handleExternalRefresh = () => {
+      loadStatus();
+      loadQueue();
+    };
+    window.addEventListener('admin:refresh', handleExternalRefresh);
+    return () => {
+      clearInterval(qTimer);
+      window.removeEventListener('admin:refresh', handleExternalRefresh);
+    };
   }, []);
 
   const loadStatus = async () => {
@@ -78,6 +87,10 @@ export default function CompetitionManagement() {
       if (res && res.actionId) {
         setPendingPhases((p) => Array.from(new Set([...p, newPhase])));
       }
+      // Refresh the current status so it reflects the authoritative state
+      await loadStatus();
+      await loadQueue();
+      window.dispatchEvent(new Event('admin:refresh'));
     } catch (err) {
       showError(`❌ Failed to change phase: ${err.message}`);
     } finally {
@@ -98,6 +111,7 @@ export default function CompetitionManagement() {
       }
       showSuccess(`✅ Theme updated to: ${currentTheme}`);
       await loadStatus();
+      await loadQueue();
       window.dispatchEvent(new Event('admin:refresh'));
     } catch (err) {
       showError(`❌ Failed to update theme: ${err.message}`);
@@ -113,6 +127,10 @@ export default function CompetitionManagement() {
       if (result.theme) {
         setNextTheme(result.theme);
         showSuccess(`✅ AI generated theme: "${result.theme}"`);
+        // Generated theme is client-side; refresh to ensure UI is up-to-date
+        await loadStatus();
+        await loadQueue();
+        window.dispatchEvent(new Event('admin:refresh'));
       } else {
         showError("❌ Failed to generate theme");
       }
@@ -135,6 +153,7 @@ export default function CompetitionManagement() {
         }
         showSuccess("✅ Starting next week...");
         await loadStatus();
+        await loadQueue();
         window.dispatchEvent(new Event('admin:refresh'));
       } catch (err) {
         showError(`❌ Failed to start next week: ${err.message}`);
@@ -151,6 +170,7 @@ export default function CompetitionManagement() {
         await botApi.cancelWeek();
         showSuccess("✅ Week cancelled");
         await loadStatus();
+        await loadQueue();
         window.dispatchEvent(new Event('admin:refresh'));
       } catch (err) {
         showError(`❌ Failed to cancel week: ${err.message}`);
@@ -167,6 +187,7 @@ export default function CompetitionManagement() {
         await botApi.announceWinners();
         showSuccess("✅ Week ended - announcing results");
         await loadStatus();
+        await loadQueue();
         window.dispatchEvent(new Event('admin:refresh'));
       } catch (err) {
         showError(`❌ Failed to end week: ${err.message}`);
@@ -188,6 +209,9 @@ export default function CompetitionManagement() {
       };
       await botApi.updateAdminConfig(updates);
       showSuccess("✅ Competition settings saved successfully!");
+      await loadStatus();
+      await loadQueue();
+      window.dispatchEvent(new Event('admin:refresh'));
     } catch (err) {
       showError(`❌ Failed to save settings: ${err.message}`);
     } finally {
@@ -197,6 +221,14 @@ export default function CompetitionManagement() {
 
   return (
     <div className="admin-section">
+      {loading && (
+        <div className="admin-overlay" role="status" aria-label="Loading admin action" aria-live="polite">
+          <div style={{ textAlign: 'center' }}>
+            <div className="admin-spinner" />
+            <div className="admin-overlay-text">Processing…</div>
+          </div>
+        </div>
+      )}
       <div className="admin-section-header">
         <h2>🎵 Competition Management</h2>
         <p className="admin-section-subtitle">
