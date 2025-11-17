@@ -5650,17 +5650,58 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         m = mode.lower()
         if m in ('short', 'short-lived', 'short_lived', 'true', 'on'):
             self.backend_use_short_lived_sessions = True
-            await ctx.send("✅ Using short-lived per-request sessions for backend HTTP calls")
+            # Close any existing persistent session if present
+            if getattr(self, 'backend_session', None):
+                try:
+                    await self.backend_session.close()
+                except Exception:
+                    pass
+                self.backend_session = None
+                self.backend_session_loop = None
+            # Restart backend task so the loop uses the new mode
+            if self.backend_task:
+                try:
+                    self.backend_task.cancel()
+                except Exception:
+                    pass
+                self.backend_task = None
+            self.backend_task = self.bot.loop.create_task(self.backend_communication_loop())
+            await ctx.send("✅ Using short-lived per-request sessions for backend HTTP calls (backend loop restarted)")
         elif m in ('persistent', 'persistent_session', 'false', 'off'):
             # enable the persistent path (legacy) - create session on current loop
             self.backend_use_short_lived_sessions = False
             try:
                 await self._ensure_backend_session()
-                await ctx.send("✅ Using persistent backend session (legacy). Please note this may reintroduce session lifecycle issues unless the environment is consistent.")
+                # Restart backend loop to pick up persistent session
+                if self.backend_task:
+                    try:
+                        self.backend_task.cancel()
+                    except Exception:
+                        pass
+                    self.backend_task = None
+                self.backend_task = self.bot.loop.create_task(self.backend_communication_loop())
+                await ctx.send("✅ Using persistent backend session (legacy). Backend loop restarted. Please note this may reintroduce session lifecycle issues unless the environment is consistent.")
             except Exception as e:
                 await ctx.send(f"⚠️ Failed to create persistent session: {e}")
         else:
             await ctx.send("Usage: `!collabwarz backend_sessions short|persistent|status`")
+
+    @collabwarz.command(name="restartbackend")
+    async def restart_backend(self, ctx):
+        """Restart the cog's backend polling loop without restarting the entire bot."""
+        # Guard: only guild admin or owner may run
+        if not ctx.guild:
+            await ctx.send("This command must be run in a guild.")
+            return
+        # Cancel and restart backend task
+        if self.backend_task:
+            try:
+                self.backend_task.cancel()
+            except Exception:
+                pass
+            self.backend_task = None
+        self.backend_task = self.bot.loop.create_task(self.backend_communication_loop())
+        await ctx.send("✅ Backend communication loop restarted for this cog.")
     
     @collabwarz.command(name="help")
     async def show_help(self, ctx):
@@ -5700,6 +5741,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             value=(
                 "`[p]cw noisylogs on|off|status` - Toggle noisy logs suppression (owner/admin). Default: suppressed (off by default).\n"
                 "`[p]cw backend_sessions short|persistent|status` - Switch backend HTTP session handling mode.\n"
+                "`[p]cw restartbackend` - Restart the backend polling loop for this cog (no bot restart).\n"
             ),
             inline=False
         )
