@@ -9,6 +9,7 @@ import VotingManagement from "../components/admin/VotingManagement";
 import AIConfiguration from "../components/admin/AIConfiguration";
 import SystemStatus from "../components/admin/SystemStatus";
 import AdminTokenSetup from "../components/admin/AdminTokenSetup";
+import { AdminOverlayProvider } from "../context/AdminOverlayContext";
 import AuthenticationError from "../components/AuthenticationError";
 import * as botApi from "../services/botApi";
 import "../styles/admin.css";
@@ -131,41 +132,43 @@ export default function Admin() {
   };
 
   return (
-    <div className="admin-page">
-      <div className="admin-header">
-        <div className="admin-header-content">
-          <h1 className="admin-title">
-            <span className="admin-icon">🛡️</span>
-            Admin Control Panel
-          </h1>
-          <div className="admin-user-info">
-            <span className="admin-username">{user?.username || "Admin User"}</span>
-            <span className="admin-badge">Administrator</span>
+    <AdminOverlayProvider>
+      <div className="admin-page">
+        <div className="admin-header">
+          <div className="admin-header-content">
+            <h1 className="admin-title">
+              <span className="admin-icon">🛡️</span>
+              Admin Control Panel
+            </h1>
+            <div className="admin-user-info">
+              <span className="admin-username">{user?.username || "Admin User"}</span>
+              <span className="admin-badge">Administrator</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="admin-layout">
-        <aside className="admin-sidebar">
-          <nav className="admin-nav">
-            {sections.map((section) => (
-              <button
-                key={section.id}
-                className={`admin-nav-item ${activeSection === section.id ? "active" : ""
-                  }`}
-                onClick={() => setActiveSection(section.id)}
-              >
-                <span className="admin-nav-icon">{section.icon}</span>
-                <span className="admin-nav-label">{section.label}</span>
-              </button>
-            ))}
-          </nav>
-        </aside>
+        <div className="admin-layout">
+          <aside className="admin-sidebar">
+            <nav className="admin-nav">
+              {sections.map((section) => (
+                <button
+                  key={section.id}
+                  className={`admin-nav-item ${activeSection === section.id ? "active" : ""
+                    }`}
+                  onClick={() => setActiveSection(section.id)}
+                >
+                  <span className="admin-nav-icon">{section.icon}</span>
+                  <span className="admin-nav-label">{section.label}</span>
+                </button>
+              ))}
+            </nav>
+          </aside>
 
-        <main className="admin-content">
-          {renderSection()}
-        </main>
+          <main className="admin-content">
+            {renderSection()}
+          </main>
+        </div>
       </div>
-    </div>
+    </AdminOverlayProvider>
   );
 }

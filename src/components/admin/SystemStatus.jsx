@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import * as botApi from "../../services/botApi";
+import { useAdminOverlay } from "../../context/AdminOverlayContext";
 
 export default function SystemStatus() {
   const [systemHealth, setSystemHealth] = useState({
@@ -11,18 +12,10 @@ export default function SystemStatus() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const overlay = useAdminOverlay();
 
-  const showSuccess = (message) => {
-    setSuccess(message);
-    setError(null);
-    setTimeout(() => setSuccess(null), 5000);
-  };
-
-  const showError = (message) => {
-    setError(message);
-    setSuccess(null);
-    setTimeout(() => setError(null), 5000);
-  };
+  const showSuccess = (message) => overlay.showAlert('success', message);
+  const showError = (message) => overlay.showAlert('error', message);
 
   const handleEditConfig = () => {
     showSuccess("⚙️ Opening bot configuration editor...");
@@ -34,6 +27,7 @@ export default function SystemStatus() {
 
   const handleSyncData = async () => {
     setLoading(true);
+    overlay.showLoading();
     try {
       await botApi.syncData();
       showSuccess("✅ Data synchronized successfully!");
@@ -41,12 +35,14 @@ export default function SystemStatus() {
       showError(`❌ Failed to sync data: ${err.message}`);
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 
   const handleRestartBot = async () => {
     if (confirm("⚠️ Are you sure you want to restart the bot? This may cause brief downtime.")) {
       setLoading(true);
+      overlay.showLoading();
       try {
         await botApi.restartBot();
         setSystemHealth(prev => ({ ...prev, botOnline: false }));
@@ -58,6 +54,7 @@ export default function SystemStatus() {
         showError(`❌ Failed to restart bot: ${err.message}`);
       } finally {
         setLoading(false);
+        overlay.hideLoading();
       }
     }
   };
@@ -74,6 +71,7 @@ export default function SystemStatus() {
 
   const handleRunDiagnostics = async () => {
     setLoading(true);
+    overlay.showLoading();
     showSuccess("🔍 Running comprehensive diagnostics...");
 
     try {
@@ -102,6 +100,7 @@ export default function SystemStatus() {
       setSystemHealth(prev => ({ ...prev, apiServer: false, botOnline: false }));
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 

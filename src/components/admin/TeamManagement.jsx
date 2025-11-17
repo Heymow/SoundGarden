@@ -1,18 +1,22 @@
 import React, { useState, useEffect } from "react";
 import * as botApi from "../../services/botApi";
+import { useAdminOverlay } from "../../context/AdminOverlayContext";
 import useAdminRefresh from "../../hooks/useAdminRefresh";
 import { dispatchAdminRefresh } from "../../services/adminEvents";
 
 export default function TeamManagement() {
   const [teams, setTeams] = useState([]);
   const [submissions, setSubmissions] = useState([]);
+  const [queueInfo, setQueueInfo] = useState({ queue: [], processed: [] });
+  const [pendingActions, setPendingActions] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const overlay = useAdminOverlay();
 
-  useEffect(() => { loadSubmissions(); }, []);
-  useAdminRefresh({ onRefresh: () => loadSubmissions(), pollInterval: 15000, immediate: true });
+  useEffect(() => { loadSubmissions(); loadQueue(); }, []);
+  useAdminRefresh({ onRefresh: () => { loadSubmissions(); loadQueue(); }, pollInterval: 15000, immediate: true });
 
   const loadSubmissions = async () => {
     setLoading(true);
@@ -26,17 +30,19 @@ export default function TeamManagement() {
     }
   };
 
-  const showSuccess = (message) => {
-    setSuccess(message);
-    setError(null);
-    setTimeout(() => setSuccess(null), 5000);
+  const loadQueue = async () => {
+    try {
+      const q = await botApi.getAdminQueue();
+      setQueueInfo({ queue: q.queue || [], processed: q.processed || [] });
+      const names = Array.from(new Set((q.queue || []).filter(a => a && a.action).map(a => a.action)));
+      setPendingActions(names);
+    } catch (e) {
+      console.warn('Failed to load queue for team management:', e);
+    }
   };
 
-  const showError = (message) => {
-    setError(message);
-    setSuccess(null);
-    setTimeout(() => setError(null), 5000);
-  };
+  const showSuccess = (message) => overlay.showAlert('success', message);
+  const showError = (message) => overlay.showAlert('error', message);
 
   const handleSearch = () => {
     if (searchTerm.trim()) {
@@ -62,6 +68,7 @@ export default function TeamManagement() {
   const handleRejectSubmission = async (team) => {
     if (confirm(`Are you sure you want to reject submission from ${team.team_name}?`)) {
       setLoading(true);
+      overlay.showLoading();
       try {
         await botApi.removeSubmission(team.team_name);
         showSuccess(`❌ Rejected submission from ${team.team_name}`);
@@ -71,6 +78,7 @@ export default function TeamManagement() {
         showError(`❌ Failed to reject submission: ${err.message}`);
       } finally {
         setLoading(false);
+        overlay.hideLoading();
       }
     }
   };
@@ -84,17 +92,7 @@ export default function TeamManagement() {
         </p>
       </div>
 
-      {/* Status Messages */}
-      {success && (
-        <div className="admin-alert alert-success">
-          {success}
-        </div>
-      )}
-      {error && (
-        <div className="admin-alert alert-error">
-          {error}
-        </div>
-      )}
+      {/* Status messages moved to shared Admin overlay (useAdminOverlay) */}
 
       {/* Search and Filters */}
       <div className="admin-card">
@@ -142,7 +140,7 @@ export default function TeamManagement() {
                       ✓ Approve
                     </button>
                     <button
-                      className="admin-btn-sm btn-danger"
+                      className={`admin-btn-sm btn-danger ${pendingActions.includes('remove_submission') ? 'btn-pending' : ''}`}
                       onClick={() => handleRejectSubmission(submission)}
                       disabled={loading}
                     >

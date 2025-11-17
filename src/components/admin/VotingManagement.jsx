@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import * as botApi from "../../services/botApi";
 import useAdminRefresh from "../../hooks/useAdminRefresh";
 import { dispatchAdminRefresh } from "../../services/adminEvents";
+import { useAdminOverlay } from "../../context/AdminOverlayContext";
 
 export default function VotingManagement() {
   const [votingStats, setVotingStats] = useState({
@@ -15,10 +16,24 @@ export default function VotingManagement() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [pendingActions, setPendingActions] = useState([]);
+  const [queueInfo, setQueueInfo] = useState({ queue: [], processed: [] });
+  const overlay = useAdminOverlay();
 
   // Load initial data
-  useEffect(() => { loadStatus(); }, []);
-  useAdminRefresh({ onRefresh: () => loadStatus(), pollInterval: 15000, immediate: true });
+  useEffect(() => { loadStatus(); loadQueue(); }, []);
+  useAdminRefresh({ onRefresh: () => { loadStatus(); loadQueue(); }, pollInterval: 15000, immediate: true });
+
+  const loadQueue = async () => {
+    try {
+      const q = await botApi.getAdminQueue();
+      setQueueInfo({ queue: q.queue || [], processed: q.processed || [] });
+      const names = Array.from(new Set((q.queue || []).filter(a => a && a.action).map(a => a.action)));
+      setPendingActions(names);
+    } catch (e) {
+      console.warn('Failed to load queue for voting:', e);
+    }
+  };
 
   const loadStatus = async () => {
     try {
@@ -56,17 +71,8 @@ export default function VotingManagement() {
     }
   };
 
-  const showSuccess = (message) => {
-    setSuccess(message);
-    setError(null);
-    setTimeout(() => setSuccess(null), 5000);
-  };
-
-  const showError = (message) => {
-    setError(message);
-    setSuccess(null);
-    setTimeout(() => setError(null), 5000);
-  };
+  const showSuccess = (message) => overlay.showAlert('success', message);
+  const showError = (message) => overlay.showAlert('error', message);
 
   const handleLoadAudit = async () => {
     if (!selectedWeek) {
@@ -75,6 +81,7 @@ export default function VotingManagement() {
     }
 
     setLoading(true);
+    overlay.showLoading();
     try {
       const data = await botApi.getVoteDetails(selectedWeek);
       setAuditData(data);
@@ -83,6 +90,7 @@ export default function VotingManagement() {
       showError(`❌ Failed to load vote audit: ${err.message}`);
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 
@@ -90,6 +98,7 @@ export default function VotingManagement() {
     if (confirm("⚠️ Are you sure you want to reset ALL votes? This action CANNOT be undone!")) {
       if (confirm("⚠️ FINAL WARNING: This will permanently delete all votes for the current week. Continue?")) {
         setLoading(true);
+        overlay.showLoading();
         try {
           await botApi.resetVotes();
           showSuccess("🔄 All votes have been reset");
@@ -99,6 +108,7 @@ export default function VotingManagement() {
           showError(`❌ Failed to reset votes: ${err.message}`);
         } finally {
           setLoading(false);
+          overlay.hideLoading();
         }
       }
     }
@@ -107,6 +117,7 @@ export default function VotingManagement() {
   const handleRemoveInvalidVotes = async () => {
     if (confirm("Are you sure you want to remove invalid votes? This will check for duplicate votes and votes from non-members.")) {
       setLoading(true);
+      overlay.showLoading();
       try {
         const result = await botApi.removeInvalidVotes();
         showSuccess(`✅ ${result.message || "Invalid votes removed"}`);
@@ -139,6 +150,7 @@ export default function VotingManagement() {
       showError(`❌ Failed to export results: ${err.message}`);
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 
@@ -150,6 +162,7 @@ export default function VotingManagement() {
 
     if (confirm(`Remove vote from ${username}?`)) {
       setLoading(true);
+      overlay.showLoading();
       try {
         await botApi.removeVote(selectedWeek, userId);
         showSuccess(`✅ Vote from ${username} removed`);
@@ -160,6 +173,7 @@ export default function VotingManagement() {
         showError(`❌ Failed to remove vote: ${err.message}`);
       } finally {
         setLoading(false);
+        overlay.hideLoading();
       }
     }
   };
@@ -173,17 +187,7 @@ export default function VotingManagement() {
         </p>
       </div>
 
-      {/* Status Messages */}
-      {success && (
-        <div className="admin-alert alert-success">
-          {success}
-        </div>
-      )}
-      {error && (
-        <div className="admin-alert alert-error">
-          {error}
-        </div>
-      )}
+      {/* Status messages moved to shared Admin overlay (useAdminOverlay) */}
 
       {/* Voting Stats */}
       <div className="admin-stats-grid">
@@ -312,10 +316,10 @@ export default function VotingManagement() {
         <h3 className="admin-card-title">⚙️ Voting Controls</h3>
         <div className="admin-card-content">
           <div className="voting-controls">
-            <button className="admin-btn btn-warning" onClick={handleResetVotes} disabled={loading}>
+            <button className={`admin-btn btn-warning ${pendingActions.includes('reset_votes') ? 'btn-pending' : ''}`} onClick={handleResetVotes} disabled={loading}>
               🔄 Reset All Votes
             </button>
-            <button className="admin-btn btn-danger" onClick={handleRemoveInvalidVotes} disabled={loading}>
+            <button className={`admin-btn btn-danger ${pendingActions.includes('remove_invalid_votes') ? 'btn-pending' : ''}`} onClick={handleRemoveInvalidVotes} disabled={loading}>
               🗑️ Remove Invalid Votes
             </button>
             <button className="admin-btn btn-success" onClick={handleExportResults} disabled={loading}>

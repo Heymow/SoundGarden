@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import * as botApi from "../../services/botApi";
+import { useAdminOverlay } from "../../context/AdminOverlayContext";
 
 export default function AIConfiguration() {
   const [aiEnabled, setAiEnabled] = useState(true);
@@ -11,21 +12,14 @@ export default function AIConfiguration() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const overlay = useAdminOverlay();
 
-  const showSuccess = (message) => {
-    setSuccess(message);
-    setError(null);
-    setTimeout(() => setSuccess(null), 5000);
-  };
-
-  const showError = (message) => {
-    setError(message);
-    setSuccess(null);
-    setTimeout(() => setError(null), 5000);
-  };
+  const showSuccess = (message) => overlay.showAlert('success', message);
+  const showError = (message) => overlay.showAlert('error', message);
 
   const handleTestAI = async () => {
     setLoading(true);
+    overlay.showLoading();
     try {
       await botApi.testAI();
       showSuccess("✅ AI connection successful! Model is responding correctly.");
@@ -33,6 +27,7 @@ export default function AIConfiguration() {
       showError(`❌ AI connection failed: ${err.message}`);
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 
@@ -41,8 +36,9 @@ export default function AIConfiguration() {
       showError("❌ Please enter an API URL");
       return;
     }
-    
+
     setLoading(true);
+    overlay.showLoading();
     try {
       const updates = {
         ai_api_url: apiUrl,
@@ -56,6 +52,7 @@ export default function AIConfiguration() {
       showError(`❌ Failed to save AI configuration: ${err.message}`);
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 
@@ -151,7 +148,7 @@ export default function AIConfiguration() {
         <div className="admin-card-content">
           <div className="admin-form-group">
             <label>
-              Temperature: {temperature} 
+              Temperature: {temperature}
               <span className="setting-hint">(Creativity level)</span>
             </label>
             <input

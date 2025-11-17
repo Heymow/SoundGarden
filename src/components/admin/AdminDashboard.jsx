@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import * as botApi from "../../services/botApi";
 import useAdminRefresh from "../../hooks/useAdminRefresh";
 import { dispatchAdminRefresh } from "../../services/adminEvents";
+import { useAdminOverlay } from "../../context/AdminOverlayContext";
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState({
@@ -21,6 +22,7 @@ export default function AdminDashboard() {
   const lastQueueJson = useRef(null);
   const [pendingPhases, setPendingPhases] = useState([]);
   const [pendingNextWeek, setPendingNextWeek] = useState(null);
+  const [pendingActions, setPendingActions] = useState([]);
   const [systemDiag, setSystemDiag] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(botApi.hasAdminToken());
   const [statusLogs, setStatusLogs] = useState([]);
@@ -121,6 +123,9 @@ export default function AdminDashboard() {
         // Notify other admin components to refresh their data
         dispatchAdminRefresh({ type: 'queueUpdate', source: 'AdminDashboard', reason: 'queueChanged' });
       }
+      // Also compute pending raw actions list
+      const actionNames = Array.from(new Set((q.queue || []).filter(a => a && a.action).map(a => a.action)));
+      setPendingActions(actionNames);
       const nextWeekQueued = (q.queue || []).find((a) => a && a.action === 'start_new_week');
       setPendingNextWeek(nextWeekQueued?.params?.theme || null);
       // Compute pending phases
@@ -138,21 +143,20 @@ export default function AdminDashboard() {
     }
   };
 
+  const overlay = useAdminOverlay();
+
   const showSuccess = (message) => {
-    setSuccess(message);
-    setError(null);
-    setTimeout(() => setSuccess(null), 5000);
+    overlay.showAlert('success', message);
   };
 
   const showError = (message) => {
-    setError(message);
-    setSuccess(null);
-    setTimeout(() => setError(null), 5000);
+    overlay.showAlert('error', message);
   };
 
   const handleStartNewWeek = async () => {
     if (confirm("Are you sure you want to start a new week? This will create a new competition cycle.")) {
       setLoading(true);
+      overlay.showLoading();
       try {
         const themeToUse = stats.currentTheme && stats.currentTheme !== 'Unknown Theme' ? stats.currentTheme : prompt('Enter a theme for the new week:');
         if (!themeToUse) throw new Error('Theme required to start new week');
@@ -167,6 +171,7 @@ export default function AdminDashboard() {
         showError(`❌ Failed to start new week: ${err.message}`);
       } finally {
         setLoading(false);
+        overlay.hideLoading();
       }
     }
   };
@@ -182,6 +187,7 @@ export default function AdminDashboard() {
 
     if (confirm(`Change phase from "${stats.currentPhase}" to "${nextPhase}"?`)) {
       setLoading(true);
+      overlay.showLoading();
       try {
         const res = await botApi.setPhase(nextPhase);
         if (res && res.actionId) {
@@ -194,12 +200,14 @@ export default function AdminDashboard() {
         showError(`❌ Failed to change phase: ${err.message}`);
       } finally {
         setLoading(false);
+        overlay.hideLoading();
       }
     }
   };
 
   const handleTestConnection = async () => {
     setLoading(true);
+    overlay.showLoading();
     try {
       const result = await botApi.testBotApiConnection();
       if (result.success) {
@@ -212,12 +220,14 @@ export default function AdminDashboard() {
       showError(`❌ Connection test failed: ${err.message}`);
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 
   const handleAnnounceWinner = async () => {
     if (confirm("Are you sure you want to announce the winner? This will end the current voting period.")) {
       setLoading(true);
+      overlay.showLoading();
       try {
         await botApi.announceWinners();
         showSuccess("🏆 Calculating results and announcing winner...");
@@ -227,6 +237,7 @@ export default function AdminDashboard() {
         showError(`❌ Failed to announce winner: ${err.message}`);
       } finally {
         setLoading(false);
+        overlay.hideLoading();
       }
     }
   };
@@ -354,30 +365,33 @@ export default function AdminDashboard() {
             <span className="action-icon">🔌</span>
             <span>Test Connection</span>
           </button>
-          <button className="admin-action-btn action-danger" onClick={async () => {
+          <button className={`admin-action-btn action-danger ${pendingActions.includes('clear_submissions') ? 'btn-pending' : ''}`} onClick={async () => {
             if (!confirm('Clear all submissions for this week?')) return;
             setLoading(true);
+            overlay.showLoading();
             try {
               await botApi.clearSubmissions();
               showSuccess('✅ Submissions cleared');
               dispatchAdminRefresh({ type: 'action', source: 'AdminDashboard', reason: 'clearSubmissions' });
-            } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); }
+            } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); overlay.hideLoading(); }
           }}>
             <span className="action-icon">🧹</span>
             <span>Clear Submissions</span>
           </button>
-          <button className="admin-action-btn action-warning" onClick={async () => {
+          <button className={`admin-action-btn action-warning ${pendingActions.includes('reset_week') ? 'btn-pending' : ''}`} onClick={async () => {
             if (!confirm('Reset the current week state? This rolls back submissions/votes to zero.')) return;
             setLoading(true);
-            try { await botApi.resetWeek(); showSuccess('✅ Week reset'); dispatchAdminRefresh({ type: 'action', source: 'AdminDashboard', reason: 'resetWeek' }); } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); }
+            overlay.showLoading();
+            try { await botApi.resetWeek(); showSuccess('✅ Week reset'); dispatchAdminRefresh({ type: 'action', source: 'AdminDashboard', reason: 'resetWeek' }); } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); overlay.hideLoading(); }
           }}>
             <span className="action-icon">🔁</span>
             <span>Reset Week</span>
           </button>
-          <button className="admin-action-btn action-purple" onClick={async () => {
+          <button className={`admin-action-btn action-purple ${pendingActions.includes('force_voting') ? 'btn-pending' : ''}`} onClick={async () => {
             if (!confirm('Force the competition into voting phase now?')) return;
             setLoading(true);
-            try { await botApi.forceVoting(); showSuccess('✅ Forced into voting'); dispatchAdminRefresh({ type: 'action', source: 'AdminDashboard', reason: 'forceVoting' }); } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); }
+            overlay.showLoading();
+            try { await botApi.forceVoting(); showSuccess('✅ Forced into voting'); dispatchAdminRefresh({ type: 'action', source: 'AdminDashboard', reason: 'forceVoting' }); } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); overlay.hideLoading(); }
           }}>
             <span className="action-icon">⚡</span>
             <span>Force Voting</span>

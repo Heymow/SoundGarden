@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import * as botApi from "../../services/botApi";
 import useAdminRefresh from "../../hooks/useAdminRefresh";
 import { dispatchAdminRefresh } from "../../services/adminEvents";
+import { useAdminOverlay } from "../../context/AdminOverlayContext";
 
 export default function CompetitionManagement() {
   const [currentPhase, setCurrentPhase] = useState("voting");
@@ -70,20 +71,13 @@ export default function CompetitionManagement() {
     }
   };
 
-  const showSuccess = (message) => {
-    setSuccess(message);
-    setError(null);
-    setTimeout(() => setSuccess(null), 5000);
-  };
-
-  const showError = (message) => {
-    setError(message);
-    setSuccess(null);
-    setTimeout(() => setError(null), 5000);
-  };
+  const overlay = useAdminOverlay();
+  const showSuccess = (message) => overlay.showAlert('success', message);
+  const showError = (message) => overlay.showAlert('error', message);
 
   const handlePhaseChange = async (newPhase) => {
     setLoading(true);
+    overlay.showLoading();
     try {
       const res = await botApi.setPhase(newPhase);
       setCurrentPhase(newPhase);
@@ -99,6 +93,7 @@ export default function CompetitionManagement() {
       showError(`❌ Failed to change phase: ${err.message}`);
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 
@@ -108,6 +103,7 @@ export default function CompetitionManagement() {
       return;
     }
     setLoading(true);
+    overlay.showLoading();
     try {
       const res = await botApi.setTheme(currentTheme);
       if (res && res.actionId) {
@@ -121,11 +117,13 @@ export default function CompetitionManagement() {
       showError(`❌ Failed to update theme: ${err.message}`);
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 
   const handleGenerateTheme = async () => {
     setLoading(true);
+    overlay.showLoading();
     try {
       const result = await botApi.generateAITheme();
       if (result.theme) {
@@ -142,12 +140,14 @@ export default function CompetitionManagement() {
       showError(`❌ Failed to generate theme: ${err.message}`);
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 
   const handleNextWeek = async () => {
     if (confirm("Are you sure you want to start the next week? This will begin a new competition cycle.")) {
       setLoading(true);
+      overlay.showLoading();
       try {
         const themeToUse = nextTheme && nextTheme.trim() ? nextTheme.trim() : currentTheme;
         if (!themeToUse) throw new Error('Theme required to start new week');
@@ -163,6 +163,7 @@ export default function CompetitionManagement() {
         showError(`❌ Failed to start next week: ${err.message}`);
       } finally {
         setLoading(false);
+        overlay.hideLoading();
       }
     }
   };
@@ -170,6 +171,7 @@ export default function CompetitionManagement() {
   const handleCancelWeek = async () => {
     if (confirm("Are you sure you want to cancel this week's competition? This action cannot be undone.")) {
       setLoading(true);
+      overlay.showLoading();
       try {
         await botApi.cancelWeek();
         showSuccess("✅ Week cancelled");
@@ -180,6 +182,7 @@ export default function CompetitionManagement() {
         showError(`❌ Failed to cancel week: ${err.message}`);
       } finally {
         setLoading(false);
+        overlay.hideLoading();
       }
     }
   };
@@ -187,6 +190,7 @@ export default function CompetitionManagement() {
   const handleEndWeek = async () => {
     if (confirm("Are you sure you want to end this week and announce results?")) {
       setLoading(true);
+      overlay.showLoading();
       try {
         await botApi.announceWinners();
         showSuccess("✅ Week ended - announcing results");
@@ -197,12 +201,14 @@ export default function CompetitionManagement() {
         showError(`❌ Failed to end week: ${err.message}`);
       } finally {
         setLoading(false);
+        overlay.hideLoading();
       }
     }
   };
 
   const handleSaveSettings = async () => {
     setLoading(true);
+    overlay.showLoading();
     try {
       const updates = {
         min_teams_required: minTeams,
@@ -220,6 +226,7 @@ export default function CompetitionManagement() {
       showError(`❌ Failed to save settings: ${err.message}`);
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 
@@ -240,17 +247,7 @@ export default function CompetitionManagement() {
         </p>
       </div>
 
-      {/* Status Messages */}
-      {success && (
-        <div className="admin-alert alert-success">
-          {success}
-        </div>
-      )}
-      {error && (
-        <div className="admin-alert alert-error">
-          {error}
-        </div>
-      )}
+      {/* Status messages moved to shared Admin overlay (useAdminOverlay) */}
 
       {/* Phase Control */}
       <div className="admin-card">

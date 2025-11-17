@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import * as botApi from "../../services/botApi";
 import { dispatchAdminRefresh } from "../../services/adminEvents";
+import { useAdminOverlay } from "../../context/AdminOverlayContext";
 
 export default function AnnouncementSystem() {
   const [announcementType, setAnnouncementType] = useState("custom");
@@ -16,17 +17,9 @@ export default function AnnouncementSystem() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
-  const showSuccess = (message) => {
-    setSuccess(message);
-    setError(null);
-    setTimeout(() => setSuccess(null), 5000);
-  };
-
-  const showError = (message) => {
-    setError(message);
-    setSuccess(null);
-    setTimeout(() => setError(null), 5000);
-  };
+  const overlay = useAdminOverlay();
+  const showSuccess = (message) => overlay.showAlert('success', message);
+  const showError = (message) => overlay.showAlert('error', message);
 
   const handleSendAnnouncement = async () => {
     if (announcementType === "custom" && !customMessage.trim()) {
@@ -35,6 +28,7 @@ export default function AnnouncementSystem() {
     }
 
     setLoading(true);
+    overlay.showLoading();
     try {
       const message = announcementType === "custom" ? customMessage : announcementType;
       await botApi.sendAnnouncement(announcementType, message);
@@ -48,6 +42,7 @@ export default function AnnouncementSystem() {
       showError(`❌ Failed to send announcement: ${err.message}`);
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 
@@ -57,6 +52,7 @@ export default function AnnouncementSystem() {
       return;
     }
     setLoading(true);
+    overlay.showLoading();
     try {
       await botApi.sendAnnouncement("test", customMessage);
       showSuccess("🧪 Test message sent to test channel");
@@ -65,6 +61,7 @@ export default function AnnouncementSystem() {
       showError(`❌ Failed to send test message: ${err.message}`);
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 
@@ -74,6 +71,7 @@ export default function AnnouncementSystem() {
 
   const handleSaveAutoSettings = async () => {
     setLoading(true);
+    overlay.showLoading();
     try {
       const updates = {
         auto_announce: autoAnnouncements,
@@ -86,6 +84,7 @@ export default function AnnouncementSystem() {
       showError(`❌ Failed to save settings: ${err.message}`);
     } finally {
       setLoading(false);
+      overlay.hideLoading();
     }
   };
 
