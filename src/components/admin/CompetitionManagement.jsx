@@ -433,7 +433,5 @@ export default function CompetitionManagement() {
   );
 }
 
-  // Ensure component closure
-
-}
+// Ensure component closure
 
