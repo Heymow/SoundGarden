@@ -14,6 +14,8 @@ export default function SystemStatus() {
   const [success, setSuccess] = useState(null);
   const [safeModeEnabled, setSafeModeEnabled] = useState(false);
   const fileInputRef = useRef(null);
+  const [latestBackup, setLatestBackup] = useState(null);
+  const [backups, setBackups] = useState([]);
   const overlay = useAdminOverlay();
 
   const showSuccess = (message) => overlay.showAlert('success', message);
@@ -81,6 +83,13 @@ export default function SystemStatus() {
         }
       }
       showSuccess("💾 Backup created successfully!");
+      try {
+        const list = await botApi.getBackups();
+        if (list && Array.isArray(list.backups)) {
+          setBackups(list.backups);
+          if (list.backups.length > 0) setLatestBackup(list.backups[0]);
+        }
+      } catch (e) { }
       overlay.endAction('backup_data');
     });
   };
@@ -96,13 +105,26 @@ export default function SystemStatus() {
     try {
       const text = await file.text();
       const backup = JSON.parse(text);
-      if (!(await overlay.confirm('⚠️ Restoring a backup will overwrite current data. Do you want to continue?'))) return;
+      // Show a quick preview of differences and confirm
+      const currentStatus = await botApi.getAdminStatus().catch(() => ({}));
+      const previewText = buildBackupPreview(currentStatus, backup);
+      if (!(await overlay.confirm(`Preview changes:\n\n${previewText}\n\nProceed with restore?`))) return;
       await overlay.blockingRun('Restoring backup...', async () => {
         overlay.startAction('restore_backup');
         try {
           const res = await botApi.restoreBackup(backup);
           if (res && res.success) {
             showSuccess('✅ Backup restored successfully!');
+            // Refresh admin status and backup list
+            const updatedStatus = await botApi.getAdminStatus().catch(() => ({}));
+            if (updatedStatus && typeof updatedStatus.safe_mode_enabled !== 'undefined') setSafeModeEnabled(!!updatedStatus.safe_mode_enabled);
+            try {
+              const list = await botApi.getBackups();
+              if (list && Array.isArray(list.backups)) {
+                setBackups(list.backups);
+                if (list.backups.length > 0) setLatestBackup(list.backups[0]);
+              }
+            } catch (e) { }
           } else {
             showError(`❌ Restore failed: ${res?.message || 'Unknown error'}`);
           }
@@ -140,6 +162,35 @@ export default function SystemStatus() {
     });
   };
 
+  const handleRestoreLastBackup = async () => {
+    if (!latestBackup) return;
+    try {
+      const data = await botApi.downloadBackup(latestBackup.file);
+      if (!data || !data.backup) { showError('❌ Failed to fetch latest backup'); return; }
+      const backup = data.backup;
+      const currentStatus = await botApi.getAdminStatus().catch(() => ({}));
+      const previewText = buildBackupPreview(currentStatus, backup);
+      if (!(await overlay.confirm(`Preview changes for last backup:\n\n${previewText}\n\nProceed with restore?`))) return;
+      await overlay.blockingRun('Restoring backup...', async () => {
+        overlay.startAction('restore_backup');
+        const res = await botApi.restoreBackup(backup);
+        if (res && res.success) {
+          showSuccess('✅ Last backup restored successfully');
+          try {
+            const list = await botApi.getBackups();
+            if (list && Array.isArray(list.backups)) {
+              setBackups(list.backups);
+              if (list.backups.length > 0) setLatestBackup(list.backups[0]);
+            }
+          } catch (e) { }
+        } else {
+          showError(`❌ Restore failed: ${res?.message || 'Unknown error'}`);
+        }
+        overlay.endAction('restore_backup');
+      })
+    } catch (err) { showError(`❌ Restore failed: ${err.message}`); }
+  };
+
   useEffect(() => {
     // Fetch the current admin status to initialize safe mode toggle
     const fetchStatus = async () => {
@@ -153,6 +204,18 @@ export default function SystemStatus() {
       }
     };
     fetchStatus();
+    const loadBackups = async () => {
+      try {
+        const list = await botApi.getBackups();
+        if (list && Array.isArray(list.backups)) {
+          setBackups(list.backups);
+          if (list.backups.length > 0) setLatestBackup(list.backups[0]);
+        }
+      } catch (e) {
+        console.warn('Failed to load backups:', e);
+      }
+    };
+    loadBackups();
   }, []);
 
   const handleRunDiagnostics = async () => {
@@ -190,6 +253,37 @@ export default function SystemStatus() {
     }
   };
 
+  // Simple preview diff builder (returns a short string listing only differences)
+  const buildBackupPreview = (current = {}, backup = {}) => {
+    const diffs = [];
+    try {
+      if (backup.current_theme && backup.current_theme !== current.theme) {
+        diffs.push(`Theme: ${current.theme || '<none>'} -> ${backup.current_theme}`);
+      }
+      if (backup.current_phase && backup.current_phase !== current.phase) {
+        diffs.push(`Phase: ${current.phase || '<none>'} -> ${backup.current_phase}`);
+      }
+      if (backup.submitted_teams) {
+        const currentCount = (current.submitted_teams && Object.keys(current.submitted_teams).length) || 0;
+        const backupCount = Object.keys(backup.submitted_teams || {}).length;
+        if (currentCount !== backupCount) diffs.push(`Submitted teams: ${currentCount} -> ${backupCount}`);
+      }
+      if (backup.submissions) {
+        const cur = current.submissions || {};
+        const curKeys = new Set(Object.keys(cur));
+        const bkKeys = new Set(Object.keys(backup.submissions || {}));
+        const added = [...bkKeys].filter(k => !curKeys.has(k));
+        const removed = [...curKeys].filter(k => !bkKeys.has(k));
+        if (added.length) diffs.push(`Submissions added: ${added.slice(0, 5).join(', ')}${added.length > 5 ? '...' : ''}`);
+        if (removed.length) diffs.push(`Submissions removed: ${removed.slice(0, 5).join(', ')}${removed.length > 5 ? '...' : ''}`);
+      }
+      if (diffs.length === 0) return 'No major differences detected';
+      return diffs.join('\n');
+    } catch (e) {
+      return 'Preview unavailable';
+    }
+  };
+
   return (
     <div className="admin-section">
       <div className="admin-section-header">
@@ -197,6 +291,89 @@ export default function SystemStatus() {
         <p className="admin-section-subtitle">
           Monitor system health and configuration
         </p>
+      </div>
+
+      {/* Backups List */}
+      <div className="admin-card">
+        <h3 className="admin-card-title">💾 Backups</h3>
+        <div className="admin-card-content">
+          {backups.length === 0 ? (
+            <div>No backups available</div>
+          ) : (
+            <div className="backup-list">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>File</th>
+                    <th style={{ textAlign: 'left' }}>Created</th>
+                    <th style={{ textAlign: 'left' }}>By</th>
+                    <th style={{ textAlign: 'left' }}>Size</th>
+                    <th style={{ textAlign: 'left' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backups.map((b) => (
+                    <tr key={b.file} style={{ borderTop: '1px solid #eee' }}>
+                      <td style={{ padding: '8px' }}>{b.file}</td>
+                      <td style={{ padding: '8px' }}>{new Date(b.ts).toLocaleString()}</td>
+                      <td style={{ padding: '8px' }}>{(b.created_by && (b.created_by.display_name || b.created_by.user_id)) || 'Unknown'}</td>
+                      <td style={{ padding: '8px' }}>{Math.round((b.size || 0) / 1024)} KB</td>
+                      <td style={{ padding: '8px' }}>
+                        <button className="admin-btn btn-info" onClick={async () => {
+                          try {
+                            const data = await botApi.downloadBackup(b.file);
+                            if (data && data.backup) {
+                              const blob = new Blob([JSON.stringify(data.backup, null, 2)], { type: 'application/json' });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = b.file;
+                              document.body.appendChild(a);
+                              a.click();
+                              a.remove();
+                              URL.revokeObjectURL(url);
+                            }
+                          } catch (e) { console.warn('Failed to download backup:', e); }
+                        }}>⬇️</button>
+                        <button className="admin-btn btn-warning" onClick={async () => {
+                          if (safeModeEnabled) { showError('Restore blocked: Safe Mode is enabled'); return; }
+                          try {
+                            const data = await botApi.downloadBackup(b.file);
+                            if (!data || !data.backup) { showError('Failed to fetch backup'); return; }
+                            const backupObj = data.backup;
+                            const currentStatus = await botApi.getAdminStatus().catch(() => ({}));
+                            const previewText = buildBackupPreview(currentStatus, backupObj);
+                            if (!(await overlay.confirm(`Preview changes:\n\n${previewText}\n\nProceed with restore?`))) return;
+                            await overlay.blockingRun('Restoring backup...', async () => {
+                              overlay.startAction('restore_backup');
+                              const res = await botApi.restoreBackup(backupObj);
+                              if (res && res.success) {
+                                showSuccess('✅ Backup restored successfully');
+                                // Refresh status and list
+                                const updatedStatus = await botApi.getAdminStatus().catch(() => ({}));
+                                if (updatedStatus && typeof updatedStatus.safe_mode_enabled !== 'undefined') setSafeModeEnabled(!!updatedStatus.safe_mode_enabled);
+                                try {
+                                  const list = await botApi.getBackups();
+                                  if (list && Array.isArray(list.backups)) {
+                                    setBackups(list.backups);
+                                    if (list.backups.length > 0) setLatestBackup(list.backups[0]);
+                                  }
+                                } catch (e) { }
+                              } else {
+                                showError(`❌ Restore failed: ${res?.message || 'Unknown error'}`);
+                              }
+                              overlay.endAction('restore_backup');
+                            })
+                          } catch (e) { showError(`Restore failed: ${e?.message || e}`); }
+                        }} disabled={safeModeEnabled}>♻️</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* System Health */}
@@ -364,7 +541,25 @@ export default function SystemStatus() {
             <button className="admin-btn btn-warning" onClick={handleRestartBot}>♻️ Restart Bot</button>
             <button className="admin-btn btn-secondary" onClick={handleGenerateReport}>📊 Generate Report</button>
             <button className="admin-btn btn-primary" onClick={handleBackupData}>💾 Backup Data</button>
-            <button className="admin-btn btn-danger" onClick={handleRestoreClick}>♻️ Recover from Backup</button>
+            <button className="admin-btn btn-info" disabled={!latestBackup} onClick={async () => {
+              if (!latestBackup) return;
+              try {
+                const data = await botApi.downloadBackup(latestBackup.file);
+                if (data && data.backup) {
+                  const blob = new Blob([JSON.stringify(data.backup, null, 2)], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = latestBackup.file;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  URL.revokeObjectURL(url);
+                }
+              } catch (e) { console.warn('Failed to download latest backup:', e); }
+            }}>⬇️ Download Last Backup</button>
+            <button className="admin-btn btn-secondary" onClick={handleRestoreClick} disabled={safeModeEnabled}>♻️ Recover from Backup (Upload)</button>
+            <button className="admin-btn btn-warning" onClick={handleRestoreLastBackup} disabled={!latestBackup || safeModeEnabled}>♻️ Restore Last Backup</button>
             <input ref={fileInputRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={handleRestoreFile} />
             <button className={`admin-btn ${safeModeEnabled ? 'btn-secondary' : 'btn-info'}`} onClick={handleToggleSafeMode}>
               {safeModeEnabled ? '🔒 Safe Mode ON' : '🔓 Safe Mode OFF'}

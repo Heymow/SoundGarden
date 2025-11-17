@@ -141,7 +141,7 @@ class CollabWarz(commands.Cog):
             "backend_poll_interval": 10 # Poll interval in seconds when using backend
         }
         # Per-guild toggle to stop potentially destructive operations via admin panel
-        default_guild["safe_mode_enabled"] = False
+        default_guild["safe_mode_enabled"] = True
         # Persistent per-guild toggle to suppress noisy logs (defaults True - logs suppressed)
         default_guild["suppress_noisy_logs"] = True
         
@@ -160,7 +160,15 @@ class CollabWarz(commands.Cog):
         # This is now persisted per-guild in `self.config` if set, fallback to attribute
         self.suppress_noisy_logs = True
         # In-memory safe mode status (default False)
-        self.safe_mode_enabled = False
+        self.safe_mode_enabled = True
+        # Storage for backups on disk
+        self.backup_dir = os.path.join(os.getcwd(), 'collabwarz_backups')
+        try:
+            os.makedirs(self.backup_dir, exist_ok=True)
+        except Exception:
+            pass
+        # Map to store latest backup file per guild (filename string)
+        self.latest_backup = {}
         # Per-guild map to throttle repeated backend export errors (timestamp)
         self.backend_error_throttle = {}
         self.confirmation_messages = {}  # Track confirmation messages for reaction handling
@@ -177,6 +185,30 @@ class CollabWarz(commands.Cog):
         self.bot.loop.create_task(self._ensure_config_defaults())
         # Don't create backend session here — create it in the backend loop
         print("🔁 CollabWarz: Backend session will be created lazily in backend_communication_loop (cog_load)")
+        # Populate latest_backup mapping by scanning backup directory
+        try:
+            for fn in os.listdir(self.backup_dir or ''):
+                if fn.startswith('backup_g') and fn.endswith('.json'):
+                    try:
+                        gid = int(fn.split('_')[0].replace('backup_g', ''))
+                        # Keep most recent
+                        prev = self.latest_backup.get(gid)
+                        path = os.path.join(self.backup_dir, fn)
+                        ts = os.path.getmtime(path)
+                        if not prev:
+                            self.latest_backup[gid] = fn
+                        else:
+                            # Compare previous timestamp
+                            prev_path = os.path.join(self.backup_dir, prev)
+                            try:
+                                if os.path.getmtime(prev_path) < ts:
+                                    self.latest_backup[gid] = fn
+                            except Exception:
+                                self.latest_backup[gid] = fn
+                    except Exception:
+                        continue
+        except Exception:
+            pass
         
     def cog_unload(self):
         """Stop the announcement task and Redis communication when cog unloads"""
@@ -2132,6 +2164,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             app.router.add_get('/api/admin/submissions', self._handle_admin_submissions)
             app.router.add_get('/api/admin/history', self._handle_admin_history)
             app.router.add_post('/api/admin/actions', self._handle_admin_actions)
+            app.router.add_get('/api/admin/backups', self._handle_admin_backups_list)
+            app.router.add_get('/api/admin/backups/{filename}', self._handle_admin_download_backup)
             
             # Admin moderation endpoints
             app.router.add_delete('/api/admin/submissions/{team_name}', self._handle_admin_remove_submission)
@@ -2365,6 +2399,12 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 if token_user_id != primary_admin_id and token_user_id not in admin_ids:
                     return None, web.json_response({"error": "Token user no longer configured as admin"}, status=403)
             
+            # Attach the validated user id (if any) to the request so handlers can reflect who initiated the action
+            try:
+                # This mutates the aiohttp request mapping for later handlers
+                request['admin_user_id'] = token_user_id
+            except Exception:
+                pass
             return guild, None
             
         except Exception as e:
@@ -2615,6 +2655,71 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         except Exception as e:
             print(f"Error getting admin history: {e}")
             return web.json_response({"error": "Failed to get history"}, status=500)
+
+    async def _handle_admin_backups_list(self, request):
+        """List available backups for this guild"""
+        guild, error_response = await self._validate_admin_auth(request)
+        if error_response:
+            return error_response
+        try:
+            files = []
+            if os.path.isdir(self.backup_dir):
+                prefix = f"backup_g{guild.id}_"
+                for fn in os.listdir(self.backup_dir):
+                    if fn.startswith(prefix) and fn.endswith('.json'):
+                        path = os.path.join(self.backup_dir, fn)
+                        try:
+                            stat = os.stat(path)
+                            created_by = None
+                            try:
+                                with open(path, 'r', encoding='utf-8') as f:
+                                    data = json.load(f)
+                                    created_by = data.get('created_by') or data.get('meta', {}).get('created_by')
+                            except Exception:
+                                created_by = None
+                            files.append({
+                                'file': fn,
+                                'size': stat.st_size,
+                                'ts': datetime.utcfromtimestamp(stat.st_mtime).isoformat(),
+                                'created_by': created_by
+                            })
+                        except Exception:
+                            continue
+            files.sort(key=lambda x: x['ts'], reverse=True)
+            return web.json_response({'backups': files})
+        except Exception as e:
+            print(f"Error listing backups: {e}")
+            return web.json_response({'error': 'Failed to list backups'}, status=500)
+
+    async def _handle_admin_download_backup(self, request):
+        """Download a backup file for this guild"""
+        guild, error_response = await self._validate_admin_auth(request)
+        if error_response:
+            return error_response
+        try:
+            filename = request.match_info.get('filename')
+            if not filename:
+                return web.json_response({'error': 'Filename required'}, status=400)
+            # Basic sanitation: ensure no path traversal
+            if '..' in filename or filename.startswith('/') or filename.startswith('\\'):
+                return web.json_response({'error': 'Invalid filename'}, status=400)
+            prefix = f"backup_g{guild.id}_"
+            if not filename.startswith(prefix):
+                return web.json_response({'error': 'File not found for this guild'}, status=404)
+            filepath = os.path.join(self.backup_dir, filename)
+            if not os.path.exists(filepath):
+                return web.json_response({'error': 'File not found'}, status=404)
+            # Return file content as JSON response
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    backup_json = json.load(f)
+                return web.json_response({'backup': backup_json, 'file': filename})
+            except Exception as e:
+                print(f"Error reading backup file {filepath}: {e}")
+                return web.json_response({'error': 'Failed to read backup file'}, status=500)
+        except Exception as e:
+            print(f"Error handling download backup: {e}")
+            return web.json_response({'error': 'Failed to process request'}, status=500)
     
     async def _handle_admin_actions(self, request):
         """Handle admin actions from the web panel"""
@@ -2680,10 +2785,23 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             
             elif action == "set_safe_mode":
                 # params: { enable: bool }
-                enable = params.get('enable', False)
+                enable_raw = params.get('enable', False)
+                # Accept string forms and coerce to bool
                 try:
-                    await self.config.guild(guild).safe_mode_enabled.set(bool(enable))
-                    result = {"success": True, "message": f"Safe mode set to {bool(enable)}"}
+                    if isinstance(enable_raw, str):
+                        enable = enable_raw.lower() in ['true', '1', 'yes', 'on']
+                    else:
+                        enable = bool(enable_raw)
+                except Exception:
+                    enable = False
+                try:
+                    await self.config.guild(guild).safe_mode_enabled.set(enable)
+                    # Update in-memory flag too
+                    try:
+                        self.safe_mode_enabled = enable
+                    except Exception:
+                        pass
+                    result = {"success": True, "message": f"Safe mode set to {enable}"}
                 except Exception as e:
                     result = {"success": False, "message": f"Failed to set safe mode: {e}"}
 
@@ -2716,7 +2834,61 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                         "safe_mode_enabled": cfg_all.get('safe_mode_enabled', False),
                     }
                 }
-                result = {"success": True, "message": "Backup exported", "backup": backup}
+                # Attach metadata about who created the backup when possible
+                try:
+                    admin_user_id = request.get('admin_user_id', None)
+                    if admin_user_id:
+                        try:
+                            # store user id and display name where available
+                            member = guild.get_member(int(admin_user_id)) if isinstance(admin_user_id, (int, str)) else None
+                            display_name = member.display_name if member else None
+                        except Exception:
+                            display_name = None
+                        backup['created_by'] = {
+                            'user_id': int(admin_user_id) if isinstance(admin_user_id, (int, str)) and str(admin_user_id).isdigit() else admin_user_id,
+                            'display_name': display_name
+                        }
+                except Exception:
+                    pass
+
+                # save to disk
+                try:
+                    file_name = f"backup_g{guild.id}_{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.json"
+                    file_path = os.path.join(self.backup_dir, file_name)
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        json.dump(backup, f, indent=2, ensure_ascii=False)
+                    try:
+                        self.latest_backup[guild.id] = file_name
+                    except Exception:
+                        pass
+
+                    # Prune older backups beyond the most recent 3 for this guild
+                    try:
+                        prefix = f"backup_g{guild.id}_"
+                        all_files = [fn for fn in os.listdir(self.backup_dir or '') if fn.startswith(prefix) and fn.endswith('.json')]
+                        # Map to (filename, mtime)
+                        files_with_mtime = []
+                        for fn in all_files:
+                            try:
+                                path = os.path.join(self.backup_dir, fn)
+                                files_with_mtime.append((fn, os.path.getmtime(path)))
+                            except Exception:
+                                continue
+                        # Sort newest first
+                        files_with_mtime.sort(key=lambda x: x[1], reverse=True)
+                        # Files to delete (keep first 3)
+                        to_delete = [fn for (fn, ts) in files_with_mtime[3:]]
+                        for fn in to_delete:
+                            try:
+                                os.remove(os.path.join(self.backup_dir, fn))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    download_url = f"/api/admin/backups/{file_name}"
+                    result = {"success": True, "message": "Backup exported", "backup": backup, "backup_file": file_name, "download_url": download_url}
+                except Exception as e:
+                    result = {"success": True, "message": f"Backup exported (failed file write: {e})", "backup": backup}
 
             elif action == "restore_backup":
                 # params: { backup: {} }

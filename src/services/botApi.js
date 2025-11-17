@@ -583,14 +583,46 @@ export const backupData = async () => {
 };
 
 /**
+ * Get list of backups available for this guild
+ */
+export const getBackups = async () => {
+  return await fetchWithAuth("/api/admin/backups");
+};
+
+/**
+ * Download a specific backup file
+ * @param {string} filename - filename to request
+ */
+export const downloadBackup = async (filename) => {
+  return await fetchWithAuth(
+    `/api/admin/backups/${encodeURIComponent(filename)}`
+  );
+};
+
+/**
+ * Get latest backup if any (helper)
+ */
+export const getLatestBackup = async () => {
+  const res = await getBackups();
+  if (res && Array.isArray(res.backups) && res.backups.length > 0) {
+    return res.backups[0];
+  }
+  return null;
+};
+
+/**
  * Restore a previous backup snapshot
  * @param {Object} backup - backup object previously exported
  */
 export const restoreBackup = async (backup) => {
   if (!backup || typeof backup !== "object") {
-    throw new Error("Invalid backup object supplied");
+    return { success: false, message: "Invalid backup object supplied" };
   }
-  return await executeAdminAction("restore_backup", { backup });
+  try {
+    return await executeAdminAction("restore_backup", { backup });
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
 };
 
 /**
@@ -598,7 +630,11 @@ export const restoreBackup = async (backup) => {
  * @param {boolean} enable - true to enable safe mode, false to disable
  */
 export const setSafeMode = async (enable = true) => {
-  return await executeAdminAction("set_safe_mode", { enable: !!enable });
+  try {
+    return await executeAdminAction("set_safe_mode", { enable: !!enable });
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
 };
 
 // ============= Token Management =============
