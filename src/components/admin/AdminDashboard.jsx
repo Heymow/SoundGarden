@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import * as botApi from "../../services/botApi";
 
 export default function AdminDashboard() {
@@ -16,6 +16,7 @@ export default function AdminDashboard() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [queueInfo, setQueueInfo] = useState({ queueLength: 0, queue: [], processed: [] });
+  const lastQueueJson = useRef(null);
   const [pendingPhases, setPendingPhases] = useState([]);
   const [pendingNextWeek, setPendingNextWeek] = useState(null);
   const [systemDiag, setSystemDiag] = useState(null);
@@ -110,11 +111,18 @@ export default function AdminDashboard() {
   const loadQueue = async () => {
     try {
       const q = await botApi.getAdminQueue();
-      setQueueInfo({
+      const newQueueInfo = {
         queueLength: q.queueLength || 0,
         queue: q.queue || [],
         processed: q.processed || [],
-      });
+      };
+      const newJson = JSON.stringify(newQueueInfo);
+      if (newJson !== lastQueueJson.current) {
+        setQueueInfo(newQueueInfo);
+        lastQueueJson.current = newJson;
+        // Notify other admin components to refresh their data
+        window.dispatchEvent(new Event('admin:refresh'));
+      }
       const nextWeekQueued = (q.queue || []).find((a) => a && a.action === 'start_new_week');
       setPendingNextWeek(nextWeekQueued?.params?.theme || null);
       // Compute pending phases

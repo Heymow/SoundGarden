@@ -100,6 +100,7 @@ export default function VotingManagement() {
           await botApi.resetVotes();
           showSuccess("🔄 All votes have been reset");
           await loadStatus();
+          window.dispatchEvent(new Event('admin:refresh'));
         } catch (err) {
           showError(`❌ Failed to reset votes: ${err.message}`);
         } finally {
@@ -116,6 +117,7 @@ export default function VotingManagement() {
         const result = await botApi.removeInvalidVotes();
         showSuccess(`✅ ${result.message || "Invalid votes removed"}`);
         await loadStatus();
+        window.dispatchEvent(new Event('admin:refresh'));
       } catch (err) {
         showError(`❌ Failed to remove invalid votes: ${err.message}`);
       } finally {
@@ -158,6 +160,8 @@ export default function VotingManagement() {
         await botApi.removeVote(selectedWeek, userId);
         showSuccess(`✅ Vote from ${username} removed`);
         await handleLoadAudit(); // Reload audit data
+        // Notify other admin components that voting status changed
+        window.dispatchEvent(new Event('admin:refresh'));
       } catch (err) {
         showError(`❌ Failed to remove vote: ${err.message}`);
       } finally {

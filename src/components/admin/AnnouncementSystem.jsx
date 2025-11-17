@@ -32,7 +32,7 @@ export default function AnnouncementSystem() {
       showError("❌ Please enter a message");
       return;
     }
-    
+
     setLoading(true);
     try {
       const message = announcementType === "custom" ? customMessage : announcementType;
@@ -41,6 +41,8 @@ export default function AnnouncementSystem() {
       if (announcementType === "custom") {
         setCustomMessage("");
       }
+      // Notify other admin components of status updates
+      window.dispatchEvent(new Event('admin:refresh'));
     } catch (err) {
       showError(`❌ Failed to send announcement: ${err.message}`);
     } finally {
@@ -57,6 +59,7 @@ export default function AnnouncementSystem() {
     try {
       await botApi.sendAnnouncement("test", customMessage);
       showSuccess("🧪 Test message sent to test channel");
+      window.dispatchEvent(new Event('admin:refresh'));
     } catch (err) {
       showError(`❌ Failed to send test message: ${err.message}`);
     } finally {
@@ -77,6 +80,7 @@ export default function AnnouncementSystem() {
       };
       await botApi.updateAdminConfig(updates);
       showSuccess("✅ Auto-announcement settings saved successfully!");
+      window.dispatchEvent(new Event('admin:refresh'));
     } catch (err) {
       showError(`❌ Failed to save settings: ${err.message}`);
     } finally {
@@ -111,9 +115,8 @@ export default function AnnouncementSystem() {
             {announcementTypes.map((type) => (
               <button
                 key={type.id}
-                className={`announcement-type-btn ${
-                  announcementType === type.id ? "active" : ""
-                }`}
+                className={`announcement-type-btn ${announcementType === type.id ? "active" : ""
+                  }`}
                 onClick={() => setAnnouncementType(type.id)}
               >
                 <span className="announcement-icon">{type.icon}</span>
@@ -229,7 +232,7 @@ export default function AnnouncementSystem() {
               🧪 Send Test Message
             </button>
           </div>
-          
+
           <div className="admin-warning">
             ⚠️ This will post the announcement to the configured Discord channel
           </div>
@@ -275,40 +278,40 @@ export default function AnnouncementSystem() {
         <div className="admin-card-content">
           <div className="auto-announcement-settings">
             <label className="admin-checkbox-label">
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 checked={autoAnnouncements}
                 onChange={(e) => setAutoAnnouncements(e.target.checked)}
               />
               <span>Enable automatic announcements</span>
             </label>
             <label className="admin-checkbox-label">
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 checked={autoSubmissionStart}
                 onChange={(e) => setAutoSubmissionStart(e.target.checked)}
               />
               <span>Auto-announce submission phase start</span>
             </label>
             <label className="admin-checkbox-label">
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 checked={autoVotingStart}
                 onChange={(e) => setAutoVotingStart(e.target.checked)}
               />
               <span>Auto-announce voting phase start</span>
             </label>
             <label className="admin-checkbox-label">
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 checked={autoReminders}
                 onChange={(e) => setAutoReminders(e.target.checked)}
               />
               <span>Send deadline reminders (24h before)</span>
             </label>
             <label className="admin-checkbox-label">
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 checked={requireConfirmation}
                 onChange={(e) => setRequireConfirmation(e.target.checked)}
               />

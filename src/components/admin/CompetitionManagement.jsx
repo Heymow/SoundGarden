@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import * as botApi from "../../services/botApi";
 
 export default function CompetitionManagement() {
@@ -14,6 +14,7 @@ export default function CompetitionManagement() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [queueInfo, setQueueInfo] = useState({ queue: [], processed: [] });
+  const lastQueueJson = useRef(null);
   const [pendingPhases, setPendingPhases] = useState([]);
   const [pendingTheme, setPendingTheme] = useState(null);
   const [pendingNextWeek, setPendingNextWeek] = useState(null);
@@ -48,7 +49,14 @@ export default function CompetitionManagement() {
   const loadQueue = async () => {
     try {
       const q = await botApi.getAdminQueue();
-      setQueueInfo({ queue: q.queue || [], processed: q.processed || [] });
+      const newQueueInfo = { queue: q.queue || [], processed: q.processed || [] };
+      const newJson = JSON.stringify(newQueueInfo);
+      if (newJson !== lastQueueJson.current) {
+        setQueueInfo(newQueueInfo);
+        lastQueueJson.current = newJson;
+        // Notify other admin components when the queue changes
+        window.dispatchEvent(new Event('admin:refresh'));
+      }
       // Pending phases: any queued set_phase actions
       const pPhases = (q.queue || [])
         .filter((a) => a && a.action === "set_phase")

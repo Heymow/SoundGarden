@@ -62,6 +62,8 @@ export default function TeamManagement() {
 
   const handleApproveSubmission = async (team) => {
     showSuccess(`✅ Approved submission from ${team.team_name}`);
+    // Refresh other admin components
+    window.dispatchEvent(new Event('admin:refresh'));
   };
 
   const handleRejectSubmission = async (team) => {
@@ -71,6 +73,7 @@ export default function TeamManagement() {
         await botApi.removeSubmission(team.team_name);
         showSuccess(`❌ Rejected submission from ${team.team_name}`);
         await loadSubmissions();
+        window.dispatchEvent(new Event('admin:refresh'));
       } catch (err) {
         showError(`❌ Failed to reject submission: ${err.message}`);
       } finally {
