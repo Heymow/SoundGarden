@@ -322,8 +322,11 @@ class CollabWarz(commands.Cog):
         except Exception as e:
             msg = f"❌ CollabWarz: _post_with_temp_session error for {url}: {e} (type={type(e)})"
             # Use the persisted, per-guild suppression config when available
+            # If the underlying error is a session closed condition, do not print or traceback to avoid noisy logs
+            if 'session is closed' in str(e).lower():
+                return None, None
             suppressed = await self._is_noisy_logs_suppressed(guild)
-            if 'session is closed' in str(e).lower() and suppressed:
+            if suppressed:
                 await self._maybe_noisy_log(msg, guild=guild)
             else:
                 print(msg)
@@ -347,13 +350,16 @@ class CollabWarz(commands.Cog):
                     return resp.status, body
         except Exception as e:
             msg = f"❌ CollabWarz: _get_with_temp_session error for {url}: {e} (type={type(e)})"
-            suppressed = await self._is_noisy_logs_suppressed(guild)
-            # If suppression is enabled, do not log anything for 'session is closed' errors
-            if 'session is closed' in str(e).lower() and suppressed:
+            # If the underlying error is a session closed condition, do not print or traceback to avoid noisy logs
+            if 'session is closed' in str(e).lower():
                 return None, None
-            # Otherwise, log as before
-            print(msg)
-            traceback.print_exc()
+            suppressed = await self._is_noisy_logs_suppressed(guild)
+            # Otherwise, log depending on suppression
+            if suppressed:
+                await self._maybe_noisy_log(msg, guild=guild)
+            else:
+                print(msg)
+                traceback.print_exc()
             return None, None
 
     async def _safe_redis_set(self, key, value, guild=None):
@@ -840,21 +846,33 @@ class CollabWarz(commands.Cog):
                                                 self.backend_error_throttle[guild.id] = now
                                     # Persistent session fallback removed: always use short-lived sessions
                                 except Exception as ee:
-                                    await self._log_backend_error(guild, f"❌ CollabWarz: Error exporting status to backend: {ee}")
-                                    # Only log traceback if noisy logs are enabled for this guild
-                                    if not await self._is_noisy_logs_suppressed(guild):
-                                        await self._log_backend_error(guild, traceback.format_exc())
+                                    # Completely suppress 'Session is closed' export errors; they are expected in short-lived session setups
+                                    if 'session is closed' in str(ee).lower():
+                                        pass
+                                    else:
+                                        suppressed = await self._is_noisy_logs_suppressed(guild)
+                                        await self._log_backend_error(guild, f"❌ CollabWarz: Error exporting status to backend: {ee}")
+                                        # Only log traceback if noisy logs are enabled for this guild
+                                        if not suppressed:
+                                            await self._log_backend_error(guild, traceback.format_exc())
                             else:
                                 # No status to export
                                 print(f"ℹ️ CollabWarz: No status available to export for guild {guild.name}")
                         except Exception as e:
-                            print(f"❌ CollabWarz: Failed to update and export status for guild {guild.name}: {e}")
+                            # Suppress 'Session is closed' errors completely to avoid noisy logs
+                            if 'session is closed' in str(e).lower():
+                                pass
+                            else:
+                                await self._log_backend_error(guild, f"❌ CollabWarz: Failed to update and export status for guild {guild.name}: {e}")
 
                         # Sleep according to guild poll interval
                         await asyncio.sleep(poll_interval or 10)
 
                     except Exception as e:
-                        print(f"❌ CollabWarz: Error in backend loop for guild {guild.name}: {e}")
+                        # Suppress 'Session is closed' error logs to avoid noisy repeated messages
+                        if 'session is closed' in str(e).lower():
+                            continue
+                        await self._log_backend_error(guild, f"❌ CollabWarz: Error in backend loop for guild {guild.name}: {e}")
                         continue
 
                 # Short sleep between full guild iterations
@@ -863,6 +881,10 @@ class CollabWarz(commands.Cog):
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                # Suppress common noisy 'session is closed' errors here as well
+                if 'session is closed' in str(e).lower():
+                    await asyncio.sleep(10)
+                    continue
                 print(f"❌ CollabWarz: Backend communication loop error: {e}")
                 await asyncio.sleep(10)
         
