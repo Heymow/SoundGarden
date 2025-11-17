@@ -7,6 +7,33 @@ Announcements are generated using a free AI API for engaging content.
 """
 
 import discord
+import builtins
+
+# --- Optional: Module-level print filter to hide noisy CollabWarz messages
+# This replaces builtins.print for the running process to avoid printing
+# specific phrases (like 'session is closed' from CollabWarz) until the
+# cog is reloaded or the print function is restored in cog_unload.
+# NOTE: This is invasive and should be used only as a last resort to mute
+# noise in long-running processes that cannot be restarted. It filters only
+# messages that both contain 'collabwarz' and 'session is closed' lower-cased.
+_CW_PRINT_FILTER_ENABLED = True
+_CW_ORIG_PRINT = None
+if _CW_PRINT_FILTER_ENABLED:
+    try:
+        _CW_ORIG_PRINT = builtins.print
+        def _cw_filtered_print(*args, **kwargs):
+            try:
+                s = ' '.join(str(x) for x in args)
+                s_lower = s.lower()
+                if 'collabwarz' in s_lower and 'session is closed' in s_lower:
+                    return
+            except Exception:
+                pass
+            _CW_ORIG_PRINT(*args, **kwargs)
+        builtins.print = _cw_filtered_print
+    except Exception:
+        # If a problem occurs, leave builtins.print unchanged
+        pass
 from redbot.core import commands, Config, checks
 from redbot.core.bot import Red
 from datetime import datetime, timedelta
@@ -123,6 +150,8 @@ class CollabWarz(commands.Cog):
         self.redis_client = None
         self.backend_session = None
         self.backend_session_loop = None
+        # Internal shutdown flag to stop background loops gracefully
+        self._shutdown = False
         # Switch to short-lived per-request aiohttp.ClientSession for safety by default
         self.backend_use_short_lived_sessions = True
         # Suppress noisy warnings (like repeated 'Session is closed' or missing Redis) by default
@@ -134,6 +163,7 @@ class CollabWarz(commands.Cog):
         
     def cog_load(self):
         """Start the announcement task and Redis communication when cog loads"""
+        self._shutdown = False
         self.announcement_task = self.bot.loop.create_task(self.announcement_loop())
         if REDIS_AVAILABLE:
             self.redis_task = self.bot.loop.create_task(self.redis_communication_loop())
@@ -146,6 +176,8 @@ class CollabWarz(commands.Cog):
         
     def cog_unload(self):
         """Stop the announcement task and Redis communication when cog unloads"""
+        # Set shutdown flag so running loops exit quickly
+        self._shutdown = True
         if self.announcement_task:
             self.announcement_task.cancel()
         if self.redis_task:
@@ -165,6 +197,14 @@ class CollabWarz(commands.Cog):
                 asyncio.create_task(self.backend_session.close())
             except Exception:
                 print("🛑 CollabWarz: Exception during backend session close in cog_unload")
+        # Restore the original builtin print if the module-level print filter was applied
+        try:
+            global _CW_PRINT_FILTER_ENABLED, _CW_ORIG_PRINT
+            if _CW_PRINT_FILTER_ENABLED and _CW_ORIG_PRINT:
+                builtins.print = _CW_ORIG_PRINT
+                _CW_ORIG_PRINT = None
+        except Exception:
+            pass
 
     async def _is_noisy_logs_suppressed(self, guild=None) -> bool:
         """Return True when noisy logs are suppressed for a given guild, otherwise False.
@@ -187,6 +227,9 @@ class CollabWarz(commands.Cog):
 
         This function is awaitable because it may consult the persistent guild config.
         """
+        # If we're shutting down, do not log anything
+        if getattr(self, '_shutdown', False):
+            return
         # If this message contains a noisy 'session is closed' substring, always suppress it
         try:
             # If args looks like a single string message, check its text
@@ -202,6 +245,9 @@ class CollabWarz(commands.Cog):
     async def _log_backend_error(self, guild, message, interval=120):
         """Throttle backend error messages per guild for a given interval (seconds)."""
         # Never log noisy 'session is closed' errors — silent suppression
+        # Also do not log anything when the cog is shutting down
+        if getattr(self, '_shutdown', False):
+            return
         try:
             if isinstance(message, str) and 'session is closed' in message.lower():
                 return
@@ -742,6 +788,9 @@ class CollabWarz(commands.Cog):
         last_status_update = 0
         
         while True:
+            # Exit quickly if we're shutting down
+            if getattr(self, '_shutdown', False):
+                break
             try:
                 # Get all guilds where this cog is active
                 for guild in self.bot.guilds:
@@ -790,6 +839,9 @@ class CollabWarz(commands.Cog):
         print("🔁 CollabWarz: Backend communication loop starting (polling backend API)")
 
         while True:
+            # Exit quickly if we're shutting down
+            if getattr(self, '_shutdown', False):
+                break
             try:
                 for guild in self.bot.guilds:
                     try:
