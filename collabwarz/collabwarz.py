@@ -187,6 +187,13 @@ class CollabWarz(commands.Cog):
 
         This function is awaitable because it may consult the persistent guild config.
         """
+        # If this message contains a noisy 'session is closed' substring, always suppress it
+        try:
+            # If args looks like a single string message, check its text
+            if len(args) == 1 and isinstance(args[0], str) and 'session is closed' in args[0].lower():
+                return
+        except Exception:
+            pass
         suppressed = await self._is_noisy_logs_suppressed(guild)
         if suppressed:
             return
@@ -194,6 +201,12 @@ class CollabWarz(commands.Cog):
 
     async def _log_backend_error(self, guild, message, interval=120):
         """Throttle backend error messages per guild for a given interval (seconds)."""
+        # Never log noisy 'session is closed' errors — silent suppression
+        try:
+            if isinstance(message, str) and 'session is closed' in message.lower():
+                return
+        except Exception:
+            pass
         gid = getattr(guild, 'id', None)
         if gid is None:
             await self._maybe_noisy_log(message)
@@ -275,7 +288,7 @@ class CollabWarz(commands.Cog):
             return True
 
         except Exception as e:
-            print(f"❌ CollabWarz: Failed to connect to Redis: {e}")
+            await self._maybe_noisy_log(f"❌ CollabWarz: Failed to connect to Redis: {e}")
             self.redis_client = None
             return False
 
@@ -295,7 +308,7 @@ class CollabWarz(commands.Cog):
                     await self._init_redis_connection()
                 rc = self.redis_client
             except Exception as e:
-                print(f"⚠️ CollabWarz: Unable to (re)initialize Redis: {e}")
+                await self._maybe_noisy_log(f"⚠️ CollabWarz: Unable to (re)initialize Redis: {e}")
                 rc = None
 
         if rc is None:
@@ -471,7 +484,7 @@ class CollabWarz(commands.Cog):
             return status_data
             
         except Exception as e:
-            print(f"❌ CollabWarz: Failed to update Redis status: {e}")
+            await self._maybe_noisy_log(f"❌ CollabWarz: Failed to update Redis status: {e}", guild=guild)
             return None
     
     async def _process_redis_action(self, guild, action_data: dict):
@@ -624,7 +637,7 @@ class CollabWarz(commands.Cog):
                     await self._process_voting_end(guild)
                     print("✅ Announce winners triggered")
                 except Exception as e:
-                    print(f"❌ Failed to announce winners: {e}")
+                    await self._maybe_noisy_log(f"❌ Failed to announce winners: {e}", guild=guild)
                     
             else:
                 await self._maybe_noisy_log(f"❓ Unknown action: {action}", guild=guild)
@@ -657,7 +670,10 @@ class CollabWarz(commands.Cog):
                         headers = {"X-CW-Token": backend_token}
                         await self._post_with_temp_session(result_url, json_payload=action_data, headers=headers, timeout=10, guild=guild)
                 except Exception as e:
-                    print(f"⚠️ CollabWarz: Failed to post action result to backend fallback: {e}")
+                    if 'session is closed' in str(e).lower():
+                        pass
+                    else:
+                        await self._maybe_noisy_log(f"⚠️ CollabWarz: Failed to post action result to backend fallback: {e}", guild=guild)
             
             # Update status after processing action
             await self._update_redis_status(guild)
@@ -675,7 +691,10 @@ class CollabWarz(commands.Cog):
                                         if presp.status != 200:
                                             await self._log_backend_error(guild, f"⚠️ CollabWarz: Backend result post (fallback) returned {presp.status}")
                 except Exception as e:
-                    print(f"⚠️ CollabWarz: Failed to post action result to backend fallback: {e}")
+                    if 'session is closed' in str(e).lower():
+                        pass
+                    else:
+                        await self._maybe_noisy_log(f"⚠️ CollabWarz: Failed to post action result to backend fallback: {e}", guild=guild)
             
         except Exception as e:
             await self._maybe_noisy_log(f"❌ CollabWarz: Failed to process action '{action}': {e}", guild=guild)
@@ -746,7 +765,8 @@ class CollabWarz(commands.Cog):
                             last_status_update = now
                             
                     except Exception as e:
-                        print(f"❌ CollabWarz: Error processing Redis for guild {guild.name}: {e}")
+                        # Use noisy log helper to respect per-guild suppression and avoid noisy traces
+                        await self._maybe_noisy_log(f"❌ CollabWarz: Error processing Redis for guild {guild.name}: {e}", guild=guild)
                 
                 # Sleep before next poll
                 await asyncio.sleep(5)  # Poll every 5 seconds
@@ -816,13 +836,17 @@ class CollabWarz(commands.Cog):
                                     except Exception as e:
                                         await self._log_backend_error(guild, f"❌ CollabWarz: Result post (short-lived) failed: {e}")
                             elif status_code is None:
-                                print("❌ CollabWarz: Failed to get a response from backend (short-lived session)")
+                                await self._log_backend_error(guild, "❌ CollabWarz: Failed to get a response from backend (short-lived session)")
                             else:
-                                print(f"❌ CollabWarz: Unexpected backend response: {status_code}")
+                                await self._log_backend_error(guild, f"❌ CollabWarz: Unexpected backend response: {status_code}")
                         except asyncio.TimeoutError:
-                            print("⚠️ CollabWarz: Backend poll timed out")
+                            await self._maybe_noisy_log("⚠️ CollabWarz: Backend poll timed out", guild=guild)
                         except Exception as e:
-                            print(f"❌ CollabWarz: Error polling backend (short-lived session): {e}")
+                            # Ignore noisy session closed errors; report others via throttled helper
+                            if 'session is closed' in str(e).lower():
+                                pass
+                            else:
+                                await self._log_backend_error(guild, f"❌ CollabWarz: Error polling backend (short-lived session): {e}")
 
                         # After processing, update and export current status back to backend
                         try:
@@ -856,8 +880,8 @@ class CollabWarz(commands.Cog):
                                         if not suppressed:
                                             await self._log_backend_error(guild, traceback.format_exc())
                             else:
-                                # No status to export
-                                print(f"ℹ️ CollabWarz: No status available to export for guild {guild.name}")
+                                # No status to export — use noisy log helper to respect per-guild suppression
+                                await self._maybe_noisy_log(f"ℹ️ CollabWarz: No status available to export for guild {guild.name}", guild=guild)
                         except Exception as e:
                             # Suppress 'Session is closed' errors completely to avoid noisy logs
                             if 'session is closed' in str(e).lower():
@@ -885,7 +909,7 @@ class CollabWarz(commands.Cog):
                 if 'session is closed' in str(e).lower():
                     await asyncio.sleep(10)
                     continue
-                print(f"❌ CollabWarz: Backend communication loop error: {e}")
+                await self._maybe_noisy_log(f"❌ CollabWarz: Backend communication loop error: {e}")
                 await asyncio.sleep(10)
         
         print("🛑 CollabWarz: Backend communication loop stopped")
@@ -936,7 +960,7 @@ class CollabWarz(commands.Cog):
                 self.backend_session_loop = current_loop
                 print(f"🔁 CollabWarz: Persistent backend session (re)created on loop {current_loop} (closed={getattr(self.backend_session, 'closed', 'n/a')})")
             except Exception as e:
-                print(f"❌ CollabWarz: Failed to create persistent backend session: {e}")
+                await self._maybe_noisy_log(f"❌ CollabWarz: Failed to create persistent backend session: {e}")
                 self.backend_session = None
                 self.backend_session_loop = None
 
