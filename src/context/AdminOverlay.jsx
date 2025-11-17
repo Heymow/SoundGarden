@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState, useEffect } from 'react';
 
 const AdminOverlayContext = createContext(null);
 
@@ -72,37 +72,29 @@ export function AdminOverlayProvider({ children }) {
     return (
         <AdminOverlayContext.Provider value={value}>
             {children}
-            {value.loading && (
-                <div className="admin-overlay" role="status" aria-label="Loading admin action" aria-live="polite">
-                    <div style={{ textAlign: 'center' }}>
-                        <div className="admin-spinner" />
-                        <div className="admin-overlay-text">Processing…</div>
+            <FadeOverlay active={value.loading} className="admin-overlay" role="status" aria-label="Loading admin action" aria-live="polite">
+                <div style={{ textAlign: 'center' }}>
+                    <div className="admin-spinner" />
+                    <div className="admin-overlay-text">Processing…</div>
+                </div>
+            </FadeOverlay>
+            <FadeOverlay active={!!value.blockingText} className="admin-overlay admin-overlay--blocking" role="status" aria-label="Blocking action" aria-live="polite">
+                <div style={{ textAlign: 'center' }}>
+                    <div className="admin-overlay-text">{value.blockingText}</div>
+                </div>
+            </FadeOverlay>
+            <FadeOverlay active={!!value.alert} className={`admin-alert-overlay ${value.alert?.type || ''}`} role="status" aria-live="assertive">
+                <div className="admin-alert-text">{value.alert?.message}</div>
+            </FadeOverlay>
+            <FadeOverlay active={!!confirmState} className="admin-overlay admin-overlay--confirm" role="dialog" aria-modal="true">
+                <div className="admin-confirm-box">
+                    <div className="admin-confirm-message">{confirmState?.message}</div>
+                    <div className="admin-confirm-actions">
+                        <button className="btn btn-secondary" onClick={() => _doConfirm(false)}>Cancel</button>
+                        <button className="btn btn-danger" onClick={() => _doConfirm(true)}>Confirm</button>
                     </div>
                 </div>
-            )}
-            {value.blockingText && (
-                <div className="admin-overlay admin-overlay--blocking" role="status" aria-label="Blocking action" aria-live="polite">
-                    <div style={{ textAlign: 'center' }}>
-                        <div className="admin-overlay-text">{value.blockingText}</div>
-                    </div>
-                </div>
-            )}
-            {value.alert && (
-                <div className={`admin-alert-overlay ${value.alert.type}`} role="status" aria-live="assertive">
-                    <div className="admin-alert-text">{value.alert.message}</div>
-                </div>
-            )}
-            {confirmState && (
-                <div className="admin-overlay admin-overlay--confirm" role="dialog" aria-modal="true">
-                    <div className="admin-confirm-box">
-                        <div className="admin-confirm-message">{confirmState.message}</div>
-                        <div className="admin-confirm-actions">
-                            <button className="btn btn-secondary" onClick={() => _doConfirm(false)}>Cancel</button>
-                            <button className="btn btn-danger" onClick={() => _doConfirm(true)}>Confirm</button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            </FadeOverlay>
         </AdminOverlayContext.Provider>
     );
 }
@@ -114,3 +106,32 @@ export function useAdminOverlay() {
 }
 
 export default AdminOverlayContext;
+
+// Helper FadeOverlay component
+function FadeOverlay({ active, className = '', children, duration = 250, ...props }) {
+    const [rendered, setRendered] = useState(active);
+    const [state, setState] = useState(active ? 'in' : 'out');
+
+    useEffect(() => {
+        let timer;
+        if (active) {
+            setRendered(true);
+            // small delay to ensure render before adding class
+            requestAnimationFrame(() => setState('in'));
+        } else {
+            // trigger fade out then unmount after duration
+            setState('out');
+            timer = setTimeout(() => setRendered(false), duration + 20);
+        }
+        return () => timer && clearTimeout(timer);
+    }, [active, duration]);
+
+    if (!rendered) return null;
+
+    const cls = `${className} ${state === 'in' ? 'fade-in' : 'fade-out'}`.trim();
+    return (
+        <div className={cls} {...props}>
+            {children}
+        </div>
+    );
+}

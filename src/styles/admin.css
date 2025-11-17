@@ -416,6 +416,15 @@
   pointer-events: auto;
 }
 
+/* Fade in/out support */
+.admin-overlay, .admin-alert-overlay {
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 0.26s ease, transform 0.26s ease;
+}
+.admin-overlay.fade-in, .admin-alert-overlay.fade-in { opacity: 1; transform: translateY(0); }
+.admin-overlay.fade-out, .admin-alert-overlay.fade-out { opacity: 0; transform: translateY(3px); }
+
 /* Full-screen alert overlay for success/error messages */
 .admin-alert-overlay {
   position: fixed;
@@ -475,6 +484,7 @@
   color: var(--admin-accent);
   font-size: 1.25rem;
 }
+.admin-alert-overlay .admin-alert-text { font-size: 1.1rem; }
 
 .btn-primary {
   background: linear-gradient(90deg, var(--admin-accent), var(--admin-accent-2));
