@@ -219,6 +219,94 @@ async function scanAndPersistBackupsFromRedis(guildId, limit = 200) {
   return persisted;
 }
 
+/**
+ * Scan Redis for backup entries and return list without persisting to DB.
+ * This allows the admin UI to show backups even when Postgres isn't configured.
+ */
+async function listBackupsFromRedis(guildId, limit = 200) {
+  if (!redisClient) return [];
+  const files = [];
+  try {
+    const iterator = redisClient.scanIterator({
+      MATCH: "collabwarz:action:*",
+      COUNT: 100,
+    });
+    for await (const key of iterator) {
+      try {
+        const raw = await redisClient.get(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        const details = parsed.details || parsed.result || null;
+        const maybeBackup =
+          (details && details.backup) ||
+          (details && details.result && details.result.backup);
+        const maybeFile =
+          (details && details.backup_file) ||
+          (details && details.result && details.result.backup_file);
+        if (maybeBackup && maybeFile) {
+          const bid = maybeBackup.guild_id || guildId;
+          if (!bid || String(bid) !== String(guildId)) continue;
+          files.push({
+            file: maybeFile,
+            size: Buffer.byteLength(JSON.stringify(maybeBackup)),
+            ts:
+              maybeBackup.timestamp ||
+              parsed.processed_at ||
+              parsed.created_at ||
+              new Date().toISOString(),
+            created_by: maybeBackup.created_by || null,
+          });
+          if (files.length >= limit) break;
+        }
+      } catch (err) {
+        console.warn("⚠️ Error scanning action key", key, err.message || err);
+      }
+    }
+  } catch (err) {
+    console.error("❌ Failed to scan backups from Redis:", err.message || err);
+  }
+  // Sort by timestamp desc
+  files.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  return files;
+}
+
+async function getBackupFromRedis(guildId, fileName) {
+  if (!redisClient) return null;
+  try {
+    const iterator = redisClient.scanIterator({
+      MATCH: "collabwarz:action:*",
+      COUNT: 100,
+    });
+    for await (const key of iterator) {
+      try {
+        const raw = await redisClient.get(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        const details = parsed.details || parsed.result || null;
+        const maybeBackup =
+          (details && details.backup) ||
+          (details && details.result && details.result.backup);
+        const maybeFile =
+          (details && details.backup_file) ||
+          (details && details.result && details.result.backup_file);
+        if (maybeBackup && maybeFile && maybeFile === fileName) {
+          const bid = maybeBackup.guild_id || guildId;
+          if (!bid || String(bid) !== String(guildId)) continue;
+          return maybeBackup;
+        }
+      } catch (err) {
+        continue;
+      }
+    }
+  } catch (err) {
+    console.error(
+      "❌ Failed to scan/pull backup from Redis:",
+      err.message || err
+    );
+  }
+  return null;
+}
+
 async function getBackupFromDb(guildId, fileName) {
   if (!pgPool) return null;
   try {
@@ -1084,12 +1172,48 @@ app.get("/api/admin/backups", verifyAdminAuth, async (req, res) => {
   try {
     if (!pgPool) {
       console.warn(
-        "⚠️ GET /api/admin/backups called but Postgres pool not initialized"
+        "⚠️ GET /api/admin/backups called but Postgres pool not initialized - falling back to Redis scan"
       );
-      return res.status(404).json({
-        success: false,
-        message: "Backups not available on this server",
-      });
+      const guildId = req.query.guildId || process.env.DISCORD_GUILD_ID || null;
+      if (!guildId) {
+        console.warn(
+          "⚠️ GET /api/admin/backups: DISCORD_GUILD_ID not configured"
+        );
+        return res
+          .status(400)
+          .json({ success: false, message: "Guild ID not configured" });
+      }
+      // Try to retrieve backups from Redis if available
+      if (redisClient) {
+        const list = await listBackupsFromRedis(guildId);
+        return res.json({ success: true, backups: list });
+      }
+      // No Redis or Postgres - attempt to call cog backend URL if configured
+      const backendUrl = process.env.COLLABWARZ_BACKEND_URL || null;
+      if (backendUrl && COLLABWARZ_TOKEN) {
+        try {
+          const url = `${backendUrl.replace(/\/$/, "")}/api/admin/backups`;
+          const resp = await axios.get(url, {
+            headers: { "X-CW-Token": COLLABWARZ_TOKEN },
+          });
+          if (resp && resp.data)
+            return res.json({
+              success: true,
+              backups: resp.data.backups || [],
+            });
+        } catch (err) {
+          console.warn(
+            "⚠️ Failed to query Cog backend for backups:",
+            err.message || err
+          );
+        }
+      }
+      return res
+        .status(404)
+        .json({
+          success: false,
+          message: "Backups not available on this server",
+        });
     }
     const guildId = req.query.guildId || process.env.DISCORD_GUILD_ID || null;
     if (!guildId) {
@@ -1124,13 +1248,79 @@ app.get("/api/admin/backups", verifyAdminAuth, async (req, res) => {
   }
 });
 
+// On-demand: scan Redis for backups and persist to Postgres (admin-only)
+app.post("/api/admin/backups/scan", verifyAdminAuth, async (req, res) => {
+  try {
+    if (!pgPool || !redisClient) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Requires Postgres and Redis configured",
+        });
+    }
+    const guildId = req.query.guildId || process.env.DISCORD_GUILD_ID || null;
+    if (!guildId)
+      return res
+        .status(400)
+        .json({ success: false, message: "Guild ID required" });
+    const limit = Number(req.query.limit) || 200;
+    const persisted = await scanAndPersistBackupsFromRedis(guildId, limit);
+    return res.json({ success: true, persisted });
+  } catch (err) {
+    console.error("❌ /api/admin/backups/scan error:", err.message || err);
+    return res
+      .status(500)
+      .json({ success: false, message: err.message || err });
+  }
+});
+
 // Download a specific backup from Postgres
 app.get("/api/admin/backups/:filename", verifyAdminAuth, async (req, res) => {
   try {
-    if (!pgPool)
+    if (!pgPool) {
+      // Try to fetch from Redis if Postgres disabled
+      const guildId = process.env.DISCORD_GUILD_ID || null;
+      if (!guildId)
+        return res
+          .status(400)
+          .json({ success: false, message: "Guild ID not configured" });
+      if (redisClient) {
+        const fileName = req.params.filename;
+        const backup = await getBackupFromRedis(guildId, fileName);
+        if (!backup)
+          return res
+            .status(404)
+            .json({ success: false, message: "Backup not found" });
+        return res.json({ success: true, backup: backup, file: fileName });
+      }
+      // Fallback: try to call cog backend if configured
+      const backendUrl = process.env.COLLABWARZ_BACKEND_URL || null;
+      if (backendUrl && COLLABWARZ_TOKEN) {
+        try {
+          const url = `${backendUrl.replace(/\/$/, "")}/api/admin/backups/${
+            req.params.filename
+          }`;
+          const resp = await axios.get(url, {
+            headers: { "X-CW-Token": COLLABWARZ_TOKEN },
+          });
+          if (resp && resp.data)
+            return res.json({
+              success: true,
+              backup: resp.data.backup || resp.data,
+              file: req.params.filename,
+            });
+        } catch (err) {
+          console.warn(
+            "⚠️ Failed to query Cog backend for backup file:",
+            err.message || err
+          );
+        }
+      }
       return res
         .status(404)
         .json({ success: false, message: "Backups not available" });
+    }
     const guildId = process.env.DISCORD_GUILD_ID || null;
     if (!guildId)
       return res

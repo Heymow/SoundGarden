@@ -798,7 +798,21 @@ class CollabWarz(commands.Cog):
                     try:
                         admin_user = action_data.get('admin_user') or action_data.get('user')
                         if admin_user:
-                            backup['created_by'] = {'user_id': admin_user, 'display_name': None}
+                            try:
+                                # Attempt to resolve user display name for richer metadata
+                                if isinstance(admin_user, (int, str)):
+                                    try:
+                                        member = guild.get_member(int(admin_user)) if hasattr(guild, 'get_member') else None
+                                    except Exception:
+                                        member = None
+                                    display_name = None
+                                    if member:
+                                        display_name = getattr(member, 'display_name', None) or getattr(member, 'name', None)
+                                    backup['created_by'] = {'user_id': admin_user, 'display_name': display_name}
+                                else:
+                                    backup['created_by'] = {'user_id': admin_user, 'display_name': None}
+                            except Exception:
+                                backup['created_by'] = {'user_id': admin_user, 'display_name': None}
                     except Exception:
                         pass
                     # Save to disk
