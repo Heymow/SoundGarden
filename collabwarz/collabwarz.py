@@ -348,11 +348,12 @@ class CollabWarz(commands.Cog):
         except Exception as e:
             msg = f"❌ CollabWarz: _get_with_temp_session error for {url}: {e} (type={type(e)})"
             suppressed = await self._is_noisy_logs_suppressed(guild)
+            # If suppression is enabled, do not log anything for 'session is closed' errors
             if 'session is closed' in str(e).lower() and suppressed:
-                await self._maybe_noisy_log(msg, guild=guild)
-            else:
-                print(msg)
-                traceback.print_exc()
+                return None, None
+            # Otherwise, log as before
+            print(msg)
+            traceback.print_exc()
             return None, None
 
     async def _safe_redis_set(self, key, value, guild=None):
