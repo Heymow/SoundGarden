@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import * as botApi from "../../services/botApi";
 import useAdminRefresh from "../../hooks/useAdminRefresh";
 import { dispatchAdminRefresh } from "../../services/adminEvents";
-import { useAdminOverlay } from "../../context/AdminOverlayContext";
+import { useAdminOverlay } from "../../context/AdminOverlay";
 
 export default function VotingManagement() {
   const [votingStats, setVotingStats] = useState({
@@ -95,40 +95,30 @@ export default function VotingManagement() {
   };
 
   const handleResetVotes = async () => {
-    if (confirm("⚠️ Are you sure you want to reset ALL votes? This action CANNOT be undone!")) {
-      if (confirm("⚠️ FINAL WARNING: This will permanently delete all votes for the current week. Continue?")) {
-        setLoading(true);
-        overlay.showLoading();
-        try {
-          await botApi.resetVotes();
-          showSuccess("🔄 All votes have been reset");
-          await loadStatus();
-          dispatchAdminRefresh({ type: 'action', source: 'VotingManagement', reason: 'resetVotes' });
-        } catch (err) {
-          showError(`❌ Failed to reset votes: ${err.message}`);
-        } finally {
-          setLoading(false);
-          overlay.hideLoading();
-        }
-      }
-    }
+    if (!(await overlay.confirm("⚠️ Are you sure you want to reset ALL votes? This action CANNOT be undone!"))) return;
+    if (!(await overlay.confirm("⚠️ FINAL WARNING: This will permanently delete all votes for the current week. Continue?"))) return;
+
+    await overlay.blockingRun('Resetting votes...', async () => {
+      overlay.startAction('reset_votes');
+      await botApi.resetVotes();
+      showSuccess("🔄 All votes have been reset");
+      await loadStatus();
+      dispatchAdminRefresh({ type: 'action', source: 'VotingManagement', reason: 'resetVotes' });
+      overlay.endAction('reset_votes');
+    });
   };
 
   const handleRemoveInvalidVotes = async () => {
-    if (confirm("Are you sure you want to remove invalid votes? This will check for duplicate votes and votes from non-members.")) {
-      setLoading(true);
-      overlay.showLoading();
-      try {
-        const result = await botApi.removeInvalidVotes();
-        showSuccess(`✅ ${result.message || "Invalid votes removed"}`);
-        await loadStatus();
-        dispatchAdminRefresh({ type: 'action', source: 'VotingManagement', reason: 'removedInvalidVotes' });
-      } catch (err) {
-        showError(`❌ Failed to remove invalid votes: ${err.message}`);
-      } finally {
-        setLoading(false);
-      }
-    }
+    if (!(await overlay.confirm("Are you sure you want to remove invalid votes? This will check for duplicate votes and votes from non-members."))) return;
+
+    await overlay.blockingRun('Removing invalid votes...', async () => {
+      overlay.startAction('remove_invalid_votes');
+      const result = await botApi.removeInvalidVotes();
+      showSuccess(`✅ ${result.message || "Invalid votes removed"}`);
+      await loadStatus();
+      dispatchAdminRefresh({ type: 'action', source: 'VotingManagement', reason: 'removedInvalidVotes' });
+      overlay.endAction('remove_invalid_votes');
+    });
   };
 
   const handleExportResults = async () => {
@@ -160,22 +150,16 @@ export default function VotingManagement() {
       return;
     }
 
-    if (confirm(`Remove vote from ${username}?`)) {
-      setLoading(true);
-      overlay.showLoading();
-      try {
-        await botApi.removeVote(selectedWeek, userId);
-        showSuccess(`✅ Vote from ${username} removed`);
-        await handleLoadAudit(); // Reload audit data
-        // Notify other admin components that voting status changed
-        dispatchAdminRefresh({ type: 'action', source: 'VotingManagement', reason: 'removedVote', user: userId });
-      } catch (err) {
-        showError(`❌ Failed to remove vote: ${err.message}`);
-      } finally {
-        setLoading(false);
-        overlay.hideLoading();
-      }
-    }
+    if (!(await overlay.confirm(`Remove vote from ${username}?`))) return;
+    await overlay.blockingRun('Removing vote...', async () => {
+      overlay.startAction('remove_vote');
+      await botApi.removeVote(selectedWeek, userId);
+      showSuccess(`✅ Vote from ${username} removed`);
+      await handleLoadAudit(); // Reload audit data
+      // Notify other admin components that voting status changed
+      dispatchAdminRefresh({ type: 'action', source: 'VotingManagement', reason: 'removedVote', user: userId });
+      overlay.endAction('remove_vote');
+    });
   };
 
   return (

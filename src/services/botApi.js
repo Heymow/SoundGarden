@@ -566,6 +566,22 @@ export const restartBot = async () => {
   };
 };
 
+/**
+ * Create a backup of current bot data/configuration
+ * - If the server exposes a backup admin action, call it.
+ * - Otherwise, return a helpful message indicating it's not supported.
+ */
+export const backupData = async () => {
+  try {
+    // Prefer server-side admin action if provided
+    return await executeAdminAction("backup_data");
+  } catch (err) {
+    // If the server doesn't support this action, return a fallback response
+    console.warn("backupData: server-side backups are not implemented", err);
+    return { success: false, message: "Backup is not implemented on server" };
+  }
+};
+
 // ============= Token Management =============
 
 /**

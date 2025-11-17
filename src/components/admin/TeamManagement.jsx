@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import * as botApi from "../../services/botApi";
-import { useAdminOverlay } from "../../context/AdminOverlayContext";
+import { useAdminOverlay } from "../../context/AdminOverlay";
 import useAdminRefresh from "../../hooks/useAdminRefresh";
 import { dispatchAdminRefresh } from "../../services/adminEvents";
 
@@ -66,21 +66,16 @@ export default function TeamManagement() {
   };
 
   const handleRejectSubmission = async (team) => {
-    if (confirm(`Are you sure you want to reject submission from ${team.team_name}?`)) {
-      setLoading(true);
-      overlay.showLoading();
-      try {
-        await botApi.removeSubmission(team.team_name);
-        showSuccess(`❌ Rejected submission from ${team.team_name}`);
-        await loadSubmissions();
-        dispatchAdminRefresh({ type: 'action', source: 'TeamManagement', reason: 'rejectedSubmission', team: team.team_name });
-      } catch (err) {
-        showError(`❌ Failed to reject submission: ${err.message}`);
-      } finally {
-        setLoading(false);
-        overlay.hideLoading();
-      }
-    }
+    if (!(await overlay.confirm(`Are you sure you want to reject submission from ${team.team_name}?`))) return;
+
+    await overlay.blockingRun('Rejecting submission...', async () => {
+      overlay.startAction('remove_submission');
+      await botApi.removeSubmission(team.team_name);
+      showSuccess(`❌ Rejected submission from ${team.team_name}`);
+      await loadSubmissions();
+      dispatchAdminRefresh({ type: 'action', source: 'TeamManagement', reason: 'rejectedSubmission', team: team.team_name });
+      overlay.endAction('remove_submission');
+    });
   };
 
   return (

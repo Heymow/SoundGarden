@@ -9,7 +9,7 @@ import VotingManagement from "../components/admin/VotingManagement";
 import AIConfiguration from "../components/admin/AIConfiguration";
 import SystemStatus from "../components/admin/SystemStatus";
 import AdminTokenSetup from "../components/admin/AdminTokenSetup";
-import { AdminOverlayProvider } from "../context/AdminOverlayContext";
+import { AdminOverlayProvider } from "../context/AdminOverlay";
 import AuthenticationError from "../components/AuthenticationError";
 import * as botApi from "../services/botApi";
 import "../styles/admin.css";

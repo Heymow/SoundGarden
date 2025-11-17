@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import * as botApi from "../../services/botApi";
-import { useAdminOverlay } from "../../context/AdminOverlayContext";
+import { useAdminOverlay } from "../../context/AdminOverlay";
 
 export default function AIConfiguration() {
   const [aiEnabled, setAiEnabled] = useState(true);

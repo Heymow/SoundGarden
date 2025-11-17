@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import * as botApi from "../../services/botApi";
-import { useAdminOverlay } from "../../context/AdminOverlayContext";
+import { useAdminOverlay } from "../../context/AdminOverlay";
 
 export default function SystemStatus() {
   const [systemHealth, setSystemHealth] = useState({
@@ -40,33 +40,31 @@ export default function SystemStatus() {
   };
 
   const handleRestartBot = async () => {
-    if (confirm("⚠️ Are you sure you want to restart the bot? This may cause brief downtime.")) {
-      setLoading(true);
-      overlay.showLoading();
-      try {
-        await botApi.restartBot();
-        setSystemHealth(prev => ({ ...prev, botOnline: false }));
-        showSuccess("♻️ Bot restart initiated...");
-        setTimeout(() => {
-          setSystemHealth(prev => ({ ...prev, botOnline: true }));
-        }, 3000);
-      } catch (err) {
-        showError(`❌ Failed to restart bot: ${err.message}`);
-      } finally {
-        setLoading(false);
-        overlay.hideLoading();
-      }
-    }
+    if (!(await overlay.confirm("⚠️ Are you sure you want to restart the bot? This may cause brief downtime."))) return;
+    await overlay.blockingRun('Restarting bot...', async () => {
+      overlay.startAction('restart_bot');
+      await botApi.restartBot();
+      setSystemHealth(prev => ({ ...prev, botOnline: false }));
+      showSuccess("♻️ Bot restart initiated...");
+      setTimeout(() => {
+        setSystemHealth(prev => ({ ...prev, botOnline: true }));
+      }, 3000);
+      overlay.endAction('restart_bot');
+    });
   };
 
   const handleGenerateReport = () => {
     showSuccess("📊 Generating system report...");
   };
 
-  const handleBackupData = () => {
-    if (confirm("Create a backup of all competition data?")) {
-      showSuccess("💾 Creating data backup...");
-    }
+  const handleBackupData = async () => {
+    if (!(await overlay.confirm("Create a backup of all competition data?"))) return;
+    await overlay.blockingRun('Creating backup...', async () => {
+      overlay.startAction('backup_data');
+      await botApi.backupData();
+      showSuccess("💾 Backup created successfully!");
+      overlay.endAction('backup_data');
+    });
   };
 
   const handleRunDiagnostics = async () => {

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import * as botApi from "../../services/botApi";
 import useAdminRefresh from "../../hooks/useAdminRefresh";
 import { dispatchAdminRefresh } from "../../services/adminEvents";
-import { useAdminOverlay } from "../../context/AdminOverlayContext";
+import { useAdminOverlay } from "../../context/AdminOverlay";
 
 export default function CompetitionManagement() {
   const [currentPhase, setCurrentPhase] = useState("voting");
@@ -145,65 +145,49 @@ export default function CompetitionManagement() {
   };
 
   const handleNextWeek = async () => {
-    if (confirm("Are you sure you want to start the next week? This will begin a new competition cycle.")) {
-      setLoading(true);
-      overlay.showLoading();
-      try {
-        const themeToUse = nextTheme && nextTheme.trim() ? nextTheme.trim() : currentTheme;
-        if (!themeToUse) throw new Error('Theme required to start new week');
-        const res = await botApi.startNextWeek(themeToUse);
-        if (res && res.actionId) {
-          setPendingNextWeek(themeToUse);
-        }
-        showSuccess("✅ Starting next week...");
-        await loadStatus();
-        await loadQueue();
-        dispatchAdminRefresh({ type: 'action', source: 'CompetitionManagement', reason: 'startNextWeek', actionId: res?.actionId });
-      } catch (err) {
-        showError(`❌ Failed to start next week: ${err.message}`);
-      } finally {
-        setLoading(false);
-        overlay.hideLoading();
+    if (!(await overlay.confirm("Are you sure you want to start the next week? This will begin a new competition cycle."))) return;
+    await overlay.blockingRun('Starting next week...', async () => {
+      overlay.startAction('start_next_week');
+      const themeToUse = nextTheme && nextTheme.trim() ? nextTheme.trim() : currentTheme;
+      if (!themeToUse) throw new Error('Theme required to start new week');
+      const res = await botApi.startNextWeek(themeToUse);
+      if (res && res.actionId) {
+        setPendingNextWeek(themeToUse);
       }
-    }
+      showSuccess("✅ Starting next week...");
+      await loadStatus();
+      await loadQueue();
+      dispatchAdminRefresh({ type: 'action', source: 'CompetitionManagement', reason: 'startNextWeek', actionId: res?.actionId });
+      overlay.endAction('start_next_week');
+    });
   };
 
   const handleCancelWeek = async () => {
-    if (confirm("Are you sure you want to cancel this week's competition? This action cannot be undone.")) {
-      setLoading(true);
-      overlay.showLoading();
-      try {
-        await botApi.cancelWeek();
-        showSuccess("✅ Week cancelled");
-        await loadStatus();
-        await loadQueue();
-        dispatchAdminRefresh({ type: 'action', source: 'CompetitionManagement', reason: 'cancelWeek' });
-      } catch (err) {
-        showError(`❌ Failed to cancel week: ${err.message}`);
-      } finally {
-        setLoading(false);
-        overlay.hideLoading();
-      }
-    }
+    if (!(await overlay.confirm("Are you sure you want to cancel this week's competition? This action cannot be undone."))) return;
+
+    await overlay.blockingRun('Canceling week...', async () => {
+      overlay.startAction('cancel_week');
+      await botApi.cancelWeek();
+      showSuccess("✅ Week cancelled");
+      await loadStatus();
+      await loadQueue();
+      dispatchAdminRefresh({ type: 'action', source: 'CompetitionManagement', reason: 'cancelWeek' });
+      overlay.endAction('cancel_week');
+    });
   };
 
   const handleEndWeek = async () => {
-    if (confirm("Are you sure you want to end this week and announce results?")) {
-      setLoading(true);
-      overlay.showLoading();
-      try {
-        await botApi.announceWinners();
-        showSuccess("✅ Week ended - announcing results");
-        await loadStatus();
-        await loadQueue();
-        dispatchAdminRefresh({ type: 'action', source: 'CompetitionManagement', reason: 'endWeek' });
-      } catch (err) {
-        showError(`❌ Failed to end week: ${err.message}`);
-      } finally {
-        setLoading(false);
-        overlay.hideLoading();
-      }
-    }
+    if (!(await overlay.confirm("Are you sure you want to end this week and announce results?"))) return;
+
+    await overlay.blockingRun('Ending week & announcing results...', async () => {
+      overlay.startAction('end_week');
+      await botApi.announceWinners();
+      showSuccess("✅ Week ended - announcing results");
+      await loadStatus();
+      await loadQueue();
+      dispatchAdminRefresh({ type: 'action', source: 'CompetitionManagement', reason: 'endWeek' });
+      overlay.endAction('end_week');
+    });
   };
 
   const handleSaveSettings = async () => {

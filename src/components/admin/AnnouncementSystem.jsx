@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import * as botApi from "../../services/botApi";
 import { dispatchAdminRefresh } from "../../services/adminEvents";
-import { useAdminOverlay } from "../../context/AdminOverlayContext";
+import { useAdminOverlay } from "../../context/AdminOverlay";
 
 export default function AnnouncementSystem() {
   const [announcementType, setAnnouncementType] = useState("custom");

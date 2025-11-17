@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import * as botApi from "../../services/botApi";
+import { useAdminOverlay } from "../../context/AdminOverlay";
 
 /**
  * AdminTokenSetup Component
@@ -11,6 +12,7 @@ export default function AdminTokenSetup({ onTokenValidated }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [hasStoredToken, setHasStoredToken] = useState(false);
+  const overlay = useAdminOverlay();
 
   useEffect(() => {
     // Check if a token is already stored
@@ -19,7 +21,7 @@ export default function AdminTokenSetup({ onTokenValidated }) {
 
   const handleTokenSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!token.trim()) {
       setError("Please enter a valid token");
       return;
@@ -31,10 +33,10 @@ export default function AdminTokenSetup({ onTokenValidated }) {
     try {
       // Save the token
       botApi.setAdminToken(token.trim());
-      
+
       // Validate the token by making a test API call
       await botApi.getAdminStatus();
-      
+
       // If successful, token is valid and user is an admin
       setHasStoredToken(true);
       if (onTokenValidated) {
@@ -44,7 +46,7 @@ export default function AdminTokenSetup({ onTokenValidated }) {
       // Token validation failed - remove it
       botApi.clearAdminToken();
       setHasStoredToken(false);
-      
+
       if (err.message.includes("403") || err.message.includes("Invalid token")) {
         setError("Invalid token or you are not authorized as an admin. Please check your token and admin configuration.");
       } else if (err.message.includes("401") || err.message.includes("Missing authorization")) {
@@ -59,13 +61,12 @@ export default function AdminTokenSetup({ onTokenValidated }) {
     }
   };
 
-  const handleClearToken = () => {
-    if (confirm("Are you sure you want to clear the stored admin token?")) {
-      botApi.clearAdminToken();
-      setToken("");
-      setHasStoredToken(false);
-      setError(null);
-    }
+  const handleClearToken = async () => {
+    if (!(await overlay.confirm("Are you sure you want to clear the stored admin token?"))) return;
+    botApi.clearAdminToken();
+    setToken("");
+    setHasStoredToken(false);
+    setError(null);
   };
 
   const handleTestConnection = async () => {
@@ -91,15 +92,15 @@ export default function AdminTokenSetup({ onTokenValidated }) {
             <h3>Admin Token Configured</h3>
             <p>You are authenticated as an admin.</p>
             <div className="token-actions">
-              <button 
-                className="btn-secondary" 
+              <button
+                className="btn-secondary"
                 onClick={handleTestConnection}
                 disabled={loading}
               >
                 {loading ? "Testing..." : "🔍 Test Connection"}
               </button>
-              <button 
-                className="btn-danger" 
+              <button
+                className="btn-danger"
                 onClick={handleClearToken}
                 disabled={loading}
               >
@@ -161,8 +162,8 @@ export default function AdminTokenSetup({ onTokenValidated }) {
           )}
 
           <div className="form-actions">
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               className="btn-primary"
               disabled={loading || !token.trim()}
             >
