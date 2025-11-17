@@ -123,7 +123,28 @@ async function saveBackupToDb(guildId, fileName, backupJson) {
       createdByName,
       createdAt,
     ];
-    await pgPool.query(text, values);
+    // Avoid duplicates: insert only if file_name for guild not present
+    const exists = await pgPool.query(
+      "SELECT 1 FROM backups WHERE guild_id=$1 AND file_name=$2 LIMIT 1",
+      [guildId, fileName]
+    );
+    if (exists.rowCount === 0) {
+      await pgPool.query(text, values);
+    } else {
+      // Optionally update to latest content
+      await pgPool.query(
+        "UPDATE backups SET backup_content=$1, size=$2, created_by_user_id=$3, created_by_display=$4, created_at=$5 WHERE guild_id=$6 AND file_name=$7",
+        [
+          backupJson,
+          size,
+          createdBy,
+          createdByName,
+          createdAt,
+          guildId,
+          fileName,
+        ]
+      );
+    }
     return true;
   } catch (err) {
     console.error("❌ Failed to save backup to DB:", err.message || err);
@@ -150,6 +171,52 @@ async function listBackupsFromDb(guildId) {
     console.error("❌ Failed to list backups from DB:", err.message || err);
     return [];
   }
+}
+
+/**
+ * Scan Redis for action-result keys and persist any backups found into Postgres
+ * Useful when action-result arrives in Redis instead of HTTP.
+ */
+async function scanAndPersistBackupsFromRedis(guildId, limit = 200) {
+  if (!pgPool || !redisClient) return 0;
+  let persisted = 0;
+  try {
+    // Use scanIterator for efficiency
+    const iterator = redisClient.scanIterator({
+      MATCH: "collabwarz:action:*",
+      COUNT: 100,
+    });
+    for await (const key of iterator) {
+      try {
+        const raw = await redisClient.get(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        const details = parsed.details || parsed.result || null;
+        const maybeBackup =
+          (details && details.backup) ||
+          (details && details.result && details.result.backup);
+        const maybeFile =
+          (details && details.backup_file) ||
+          (details && details.result && details.result.backup_file);
+        if (maybeBackup && maybeFile) {
+          const bid = maybeBackup.guild_id || guildId;
+          if (!bid) continue;
+          await saveBackupToDb(Number(bid), maybeFile, maybeBackup);
+          persisted++;
+          if (persisted >= limit) break;
+        }
+      } catch (err) {
+        console.warn("⚠️ Error scanning action key", key, err.message || err);
+        continue;
+      }
+    }
+  } catch (err) {
+    console.error(
+      "❌ Failed to scan/persist backups from Redis:",
+      err.message || err
+    );
+  }
+  return persisted;
 }
 
 async function getBackupFromDb(guildId, fileName) {
@@ -1033,7 +1100,20 @@ app.get("/api/admin/backups", verifyAdminAuth, async (req, res) => {
         .status(400)
         .json({ success: false, message: "Guild ID not configured" });
     }
-    const list = await listBackupsFromDb(guildId);
+    // If there are no backups in DB yet, scan Redis action keys to persist missed backups
+    let list = await listBackupsFromDb(guildId);
+    if (list.length === 0 && redisClient && pgPool) {
+      console.log(
+        `ℹ️ No backups in DB for guild ${guildId}, scanning Redis for action results...`
+      );
+      const persisted = await scanAndPersistBackupsFromRedis(guildId, 100);
+      if (persisted > 0) {
+        console.log(
+          `✅ Persisted ${persisted} backup(s) from Redis to Postgres`
+        );
+        list = await listBackupsFromDb(guildId);
+      }
+    }
     console.log(
       `ℹ️ GET /api/admin/backups: returning ${list.length} backups for guild ${guildId}`
     );

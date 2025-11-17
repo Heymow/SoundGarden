@@ -961,12 +961,15 @@ class CollabWarz(commands.Cog):
             saved_to_redis = False
             if redis_enabled:
                 try:
+                    await self._maybe_noisy_log(f"🔁 Attempting to save action result to Redis (enabled={redis_enabled})", guild=guild)
+                    await self._maybe_noisy_log(f"🔁 Redis client presence: {bool(self.redis_client)}", guild=guild)
                     saved_to_redis = await self._safe_redis_setex(
                         f'collabwarz:action:{action_id}',
                         86400,
                         json.dumps(action_data),
                         guild=guild,
                     )
+                    await self._maybe_noisy_log(f"🔁 saveToRedis result: {saved_to_redis}", guild=guild)
                 except Exception as e:
                     saved_to_redis = False
                     await self._maybe_noisy_log(f"⚠️ Exception when saving action result to Redis: {e}", guild=guild)
