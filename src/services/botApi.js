@@ -582,6 +582,25 @@ export const backupData = async () => {
   }
 };
 
+/**
+ * Restore a previous backup snapshot
+ * @param {Object} backup - backup object previously exported
+ */
+export const restoreBackup = async (backup) => {
+  if (!backup || typeof backup !== "object") {
+    throw new Error("Invalid backup object supplied");
+  }
+  return await executeAdminAction("restore_backup", { backup });
+};
+
+/**
+ * Set safe mode (enable/disable)
+ * @param {boolean} enable - true to enable safe mode, false to disable
+ */
+export const setSafeMode = async (enable = true) => {
+  return await executeAdminAction("set_safe_mode", { enable: !!enable });
+};
+
 // ============= Token Management =============
 
 /**

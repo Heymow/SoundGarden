@@ -9,13 +9,14 @@ export default function TeamManagement() {
   const [submissions, setSubmissions] = useState([]);
   const [queueInfo, setQueueInfo] = useState({ queue: [], processed: [] });
   const [pendingActions, setPendingActions] = useState([]);
+  const [safeModeEnabled, setSafeModeEnabled] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const overlay = useAdminOverlay();
 
-  useEffect(() => { loadSubmissions(); loadQueue(); }, []);
+  useEffect(() => { loadSubmissions(); loadQueue(); (async () => { try { const status = await botApi.getAdminStatus(); if (status && typeof status.safe_mode_enabled !== 'undefined') setSafeModeEnabled(Boolean(status.safe_mode_enabled)); } catch (e) { } })(); }, []);
   useAdminRefresh({ onRefresh: () => { loadSubmissions(); loadQueue(); }, pollInterval: 15000, immediate: true });
 
   const loadSubmissions = async () => {
@@ -68,6 +69,10 @@ export default function TeamManagement() {
   const handleRejectSubmission = async (team) => {
     if (!(await overlay.confirm(`Are you sure you want to reject submission from ${team.team_name}?`))) return;
 
+    if (safeModeEnabled) {
+      showError('❌ Reject action blocked while Safe Mode is enabled');
+      return;
+    }
     await overlay.blockingRun('Rejecting submission...', async () => {
       overlay.startAction('remove_submission');
       await botApi.removeSubmission(team.team_name);
@@ -137,7 +142,7 @@ export default function TeamManagement() {
                     <button
                       className={`admin-btn-sm btn-danger ${pendingActions.includes('remove_submission') ? 'btn-pending' : ''}`}
                       onClick={() => handleRejectSubmission(submission)}
-                      disabled={loading}
+                      disabled={loading || safeModeEnabled}
                     >
                       ✗ Reject
                     </button>

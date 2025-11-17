@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import * as botApi from "../../services/botApi";
 import { useAdminOverlay } from "../../context/AdminOverlay";
 
@@ -12,6 +12,8 @@ export default function SystemStatus() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [safeModeEnabled, setSafeModeEnabled] = useState(false);
+  const fileInputRef = useRef(null);
   const overlay = useAdminOverlay();
 
   const showSuccess = (message) => overlay.showAlert('success', message);
@@ -61,11 +63,97 @@ export default function SystemStatus() {
     if (!(await overlay.confirm("Create a backup of all competition data?"))) return;
     await overlay.blockingRun('Creating backup...', async () => {
       overlay.startAction('backup_data');
-      await botApi.backupData();
+      const res = await botApi.backupData();
+      // If server returns a backup payload, download it
+      if (res && res.backup) {
+        try {
+          const blob = new Blob([JSON.stringify(res.backup, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `collabwarz-backup-${res.backup.guild_id || 'unknown'}-${new Date().toISOString()}.json`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (err) {
+          console.warn('Failed to download backup file', err);
+        }
+      }
       showSuccess("💾 Backup created successfully!");
       overlay.endAction('backup_data');
     });
   };
+
+  const handleRestoreClick = () => {
+    if (fileInputRef.current) fileInputRef.current.click();
+  };
+
+  const handleRestoreFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+      if (!(await overlay.confirm('⚠️ Restoring a backup will overwrite current data. Do you want to continue?'))) return;
+      await overlay.blockingRun('Restoring backup...', async () => {
+        overlay.startAction('restore_backup');
+        try {
+          const res = await botApi.restoreBackup(backup);
+          if (res && res.success) {
+            showSuccess('✅ Backup restored successfully!');
+          } else {
+            showError(`❌ Restore failed: ${res?.message || 'Unknown error'}`);
+          }
+        } catch (err) {
+          showError(`❌ Restore failed: ${err.message}`);
+        } finally {
+          overlay.endAction('restore_backup');
+        }
+      });
+    } catch (err) {
+      showError('❌ Failed to read backup file or invalid JSON');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleToggleSafeMode = async () => {
+    const newVal = !safeModeEnabled;
+    if (!(await overlay.confirm(`${newVal ? 'Enable' : 'Disable'} Safe Mode? This will ${newVal ? 'block' : 'allow'} destructive admin actions.`))) return;
+    await overlay.blockingRun(`${newVal ? 'Enabling' : 'Disabling'} Safe Mode...`, async () => {
+      overlay.startAction('set_safe_mode');
+      try {
+        const res = await botApi.setSafeMode(newVal);
+        if (res && res.success) {
+          setSafeModeEnabled(newVal);
+          showSuccess(`✅ Safe Mode ${newVal ? 'enabled' : 'disabled'}`);
+        } else {
+          showError(`❌ Failed to set Safe Mode: ${res?.message || 'Unknown error'}`);
+        }
+      } catch (err) {
+        showError(`❌ Failed to set Safe Mode: ${err.message}`);
+      } finally {
+        overlay.endAction('set_safe_mode');
+      }
+    });
+  };
+
+  useEffect(() => {
+    // Fetch the current admin status to initialize safe mode toggle
+    const fetchStatus = async () => {
+      try {
+        const status = await botApi.getAdminStatus();
+        if (status && typeof status.safe_mode_enabled !== 'undefined') {
+          setSafeModeEnabled(!!status.safe_mode_enabled);
+        }
+      } catch (err) {
+        console.warn('Failed to get admin status', err);
+      }
+    };
+    fetchStatus();
+  }, []);
 
   const handleRunDiagnostics = async () => {
     setLoading(true);
@@ -173,6 +261,10 @@ export default function SystemStatus() {
               <span className="config-label">Require Confirmation:</span>
               <span className="config-value">Disabled</span>
             </div>
+            <div className="config-item">
+              <span className="config-label">Safe Mode:</span>
+              <span className="config-value">{safeModeEnabled ? 'Enabled' : 'Disabled'}</span>
+            </div>
           </div>
           <button className="admin-btn btn-secondary" onClick={handleEditConfig}>Edit Configuration</button>
         </div>
@@ -272,6 +364,11 @@ export default function SystemStatus() {
             <button className="admin-btn btn-warning" onClick={handleRestartBot}>♻️ Restart Bot</button>
             <button className="admin-btn btn-secondary" onClick={handleGenerateReport}>📊 Generate Report</button>
             <button className="admin-btn btn-primary" onClick={handleBackupData}>💾 Backup Data</button>
+            <button className="admin-btn btn-danger" onClick={handleRestoreClick}>♻️ Recover from Backup</button>
+            <input ref={fileInputRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={handleRestoreFile} />
+            <button className={`admin-btn ${safeModeEnabled ? 'btn-secondary' : 'btn-info'}`} onClick={handleToggleSafeMode}>
+              {safeModeEnabled ? '🔒 Safe Mode ON' : '🔓 Safe Mode OFF'}
+            </button>
           </div>
         </div>
       </div>

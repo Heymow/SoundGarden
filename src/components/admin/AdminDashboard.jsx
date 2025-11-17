@@ -23,6 +23,7 @@ export default function AdminDashboard() {
   const [pendingPhases, setPendingPhases] = useState([]);
   const [pendingNextWeek, setPendingNextWeek] = useState(null);
   const [pendingActions, setPendingActions] = useState([]);
+  const [safeModeEnabled, setSafeModeEnabled] = useState(false);
   const [systemDiag, setSystemDiag] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(botApi.hasAdminToken());
   const [statusLogs, setStatusLogs] = useState([]);
@@ -96,6 +97,7 @@ export default function AdminDashboard() {
         totalArtists: 0,
         systemStatus: "operational",
       });
+      if (typeof status.safe_mode_enabled !== 'undefined') setSafeModeEnabled(Boolean(status.safe_mode_enabled));
       if (status.error) {
         showError(`⚠️ Backend status warning: ${status.error}`);
       }
@@ -354,7 +356,7 @@ export default function AdminDashboard() {
             <span className="action-icon">🔌</span>
             <span>Test Connection</span>
           </button>
-          <button className={`admin-action-btn action-danger ${pendingActions.includes('clear_submissions') ? 'btn-pending' : ''}`} onClick={async () => {
+          <button className={`admin-action-btn action-danger ${pendingActions.includes('clear_submissions') ? 'btn-pending' : ''}`} disabled={safeModeEnabled} onClick={async () => {
             if (!(await overlay.confirm('Clear all submissions for this week?'))) return;
             setLoading(true);
             overlay.showLoading();
@@ -367,7 +369,7 @@ export default function AdminDashboard() {
             <span className="action-icon">🧹</span>
             <span>Clear Submissions</span>
           </button>
-          <button className={`admin-action-btn action-warning ${pendingActions.includes('reset_week') ? 'btn-pending' : ''}`} onClick={async () => {
+          <button className={`admin-action-btn action-warning ${pendingActions.includes('reset_week') ? 'btn-pending' : ''}`} disabled={safeModeEnabled} onClick={async () => {
             if (!(await overlay.confirm('Reset the current week state? This rolls back submissions/votes to zero.'))) return;
             setLoading(true);
             overlay.showLoading();

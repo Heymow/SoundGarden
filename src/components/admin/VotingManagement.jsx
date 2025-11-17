@@ -17,6 +17,7 @@ export default function VotingManagement() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [pendingActions, setPendingActions] = useState([]);
+  const [safeModeEnabled, setSafeModeEnabled] = useState(false);
   const [queueInfo, setQueueInfo] = useState({ queue: [], processed: [] });
   const overlay = useAdminOverlay();
 
@@ -68,6 +69,12 @@ export default function VotingManagement() {
       }
     } catch (err) {
       console.error("Failed to load status:", err);
+    }
+    try {
+      const status = await botApi.getAdminStatus();
+      if (status && typeof status.safe_mode_enabled !== 'undefined') setSafeModeEnabled(Boolean(status.safe_mode_enabled));
+    } catch (e) {
+      // ignore
     }
   };
 
@@ -276,7 +283,7 @@ export default function VotingManagement() {
                           <button
                             className="admin-btn-sm btn-danger"
                             onClick={() => handleRemoveVote(vote.user_id, vote.username)}
-                            disabled={loading}
+                            disabled={loading || safeModeEnabled}
                           >
                             Remove
                           </button>
@@ -300,7 +307,7 @@ export default function VotingManagement() {
         <h3 className="admin-card-title">⚙️ Voting Controls</h3>
         <div className="admin-card-content">
           <div className="voting-controls">
-            <button className={`admin-btn btn-warning ${pendingActions.includes('reset_votes') ? 'btn-pending' : ''}`} onClick={handleResetVotes} disabled={loading}>
+            <button className={`admin-btn btn-warning ${pendingActions.includes('reset_votes') ? 'btn-pending' : ''}`} onClick={handleResetVotes} disabled={loading || safeModeEnabled}>
               🔄 Reset All Votes
             </button>
             <button className={`admin-btn btn-danger ${pendingActions.includes('remove_invalid_votes') ? 'btn-pending' : ''}`} onClick={handleRemoveInvalidVotes} disabled={loading}>

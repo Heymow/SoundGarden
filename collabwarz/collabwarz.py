@@ -140,6 +140,8 @@ class CollabWarz(commands.Cog):
             "backend_token": None,      # Shared secret token for cog<->backend auth
             "backend_poll_interval": 10 # Poll interval in seconds when using backend
         }
+        # Per-guild toggle to stop potentially destructive operations via admin panel
+        default_guild["safe_mode_enabled"] = False
         # Persistent per-guild toggle to suppress noisy logs (defaults True - logs suppressed)
         default_guild["suppress_noisy_logs"] = True
         
@@ -157,6 +159,8 @@ class CollabWarz(commands.Cog):
         # Suppress noisy warnings (like repeated 'Session is closed' or missing Redis) by default
         # This is now persisted per-guild in `self.config` if set, fallback to attribute
         self.suppress_noisy_logs = True
+        # In-memory safe mode status (default False)
+        self.safe_mode_enabled = False
         # Per-guild map to throttle repeated backend export errors (timestamp)
         self.backend_error_throttle = {}
         self.confirmation_messages = {}  # Track confirmation messages for reaction handling
@@ -548,6 +552,10 @@ class CollabWarz(commands.Cog):
             action_id = None
         
         print(f"🎯 CollabWarz: Processing Redis action '{action}' (ID: {action_id})")
+        try:
+            safe_mode = await self.config.guild(guild).safe_mode_enabled()
+        except Exception:
+            safe_mode = getattr(self, 'safe_mode_enabled', False)
         
         try:
             if action == 'start_phase':
@@ -627,19 +635,25 @@ class CollabWarz(commands.Cog):
                     print("❌ start_new_week requires a theme")
 
             elif action == 'clear_submissions':
-                await self._clear_submissions_safe(guild)
-                print("✅ Submissions cleared")
+                if safe_mode:
+                    print(f"⚠️ Clear submissions blocked by Safe Mode for guild {guild.name}")
+                else:
+                    await self._clear_submissions_safe(guild)
+                    print("✅ Submissions cleared")
 
             elif action == 'remove_submission':
                 team_name = params.get('team_name')
                 if team_name:
-                    submissions = await self._get_submissions_safe(guild)
-                    if team_name in submissions:
-                        del submissions[team_name]
-                        await self._set_submissions_safe(guild, submissions)
-                        print(f"✅ Removed submission for team {team_name}")
+                    if safe_mode:
+                        print(f"⚠️ Remove submission blocked by Safe Mode (team: {team_name}) in guild {guild.name}")
                     else:
-                        print(f"⚠️ No submission found for team {team_name}")
+                        submissions = await self._get_submissions_safe(guild)
+                        if team_name in submissions:
+                            del submissions[team_name]
+                            await self._set_submissions_safe(guild, submissions)
+                            print(f"✅ Removed submission for team {team_name}")
+                        else:
+                            print(f"⚠️ No submission found for team {team_name}")
                 else:
                     print("❌ remove_submission requires team_name")
 
@@ -647,30 +661,31 @@ class CollabWarz(commands.Cog):
                 week = params.get('week')
                 user_id = params.get('user_id')
                 if week and user_id:
-                    votes = await self.config.guild(guild).individual_votes()
-                    week_votes = votes.get(week, {})
-                    if str(user_id) in week_votes:
-                        del week_votes[str(user_id)]
-                        votes[week] = week_votes
-                        await self.config.guild(guild).individual_votes.set(votes)
-                        # Also adjust aggregated voting_results
-                        voting_results = await self.config.guild(guild).voting_results()
-                        week_results = voting_results.get(week, {})
-                        # Find which team this user voted for (we cannot always find team without logs)
-                        # As a simplification, we will refresh voting_results from raw votes when needed
-                        print(f"✅ Removed vote from user {user_id} for week {week}")
+                    if safe_mode:
+                        print(f"⚠️ Remove vote blocked by Safe Mode (week: {week}, user: {user_id}) in guild {guild.name}")
                     else:
-                        print(f"⚠️ No vote from user {user_id} found for week {week}")
+                        votes = await self.config.guild(guild).individual_votes()
+                        week_votes = votes.get(week, {})
+                        if str(user_id) in week_votes:
+                            del week_votes[str(user_id)]
+                            votes[week] = week_votes
+                            await self.config.guild(guild).individual_votes.set(votes)
+                            print(f"✅ Removed vote from user {user_id} for week {week}")
+                        else:
+                            print(f"⚠️ No vote from user {user_id} found for week {week}")
                 else:
                     print("❌ remove_vote requires week and user_id")
 
-            elif action == 'reset_week':
-                await self.config.guild(guild).current_phase.set('submission')
-                await self.config.guild(guild).week_cancelled.set(False)
-                await self._clear_submissions_safe(guild)
-                await self.config.guild(guild).voting_results.clear()
-                await self.config.guild(guild).weekly_winners.clear()
-                print("✅ Week reset")
+            elif action == "reset_week":
+                if safe_mode:
+                    print(f"⚠️ Reset week blocked by Safe Mode in guild {guild.name}")
+                else:
+                    await self.config.guild(guild).current_phase.set('submission')
+                    await self.config.guild(guild).week_cancelled.set(False)
+                    await self._clear_submissions_safe(guild)
+                    await self.config.guild(guild).voting_results.clear()
+                    await self.config.guild(guild).weekly_winners.clear()
+                    print("✅ Week reset")
 
             elif action == 'force_voting':
                 await self.config.guild(guild).current_phase.set('voting')
@@ -2470,6 +2485,12 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             except Exception as e:
                 print(f"Error getting next phase time: {e}")
             
+            safe_mode = False
+            try:
+                safe_mode = await self.config.guild(guild).safe_mode_enabled()
+            except Exception:
+                safe_mode = getattr(self, 'safe_mode_enabled', False)
+
             status = {
                 "phase": current_phase,
                 "theme": current_theme,
@@ -2478,6 +2499,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 "team_count": team_count,
                 "voting_results": voting_results,
                 "next_phase_change": next_phase_time,
+                "safe_mode_enabled": safe_mode,
                 "timestamp": datetime.utcnow().isoformat()
             }
             
@@ -2625,14 +2647,17 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             
             elif action == "start_new_week":
                 theme = params.get('theme', '').strip()
-                if theme:
-                    await self.config.guild(guild).current_theme.set(theme)
-                    await self.config.guild(guild).current_phase.set('submission')
-                    await self.config.guild(guild).week_cancelled.set(False)
-                    await self._clear_submissions_safe(guild)
-                    result = {"success": True, "message": f"New week started with theme: {theme}"}
+                if await self.config.guild(guild).safe_mode_enabled():
+                    result = {"success": False, "message": "Action blocked: Safe mode is enabled"}
                 else:
-                    result = {"success": False, "message": "Theme required for new week"}
+                    if theme:
+                        await self.config.guild(guild).current_theme.set(theme)
+                        await self.config.guild(guild).current_phase.set('submission')
+                        await self.config.guild(guild).week_cancelled.set(False)
+                        await self._clear_submissions_safe(guild)
+                        result = {"success": True, "message": f"New week started with theme: {theme}"}
+                    else:
+                        result = {"success": False, "message": "Theme required for new week"}
             
             elif action == "cancel_week":
                 reason = params.get('reason', 'Admin cancelled')
@@ -2641,14 +2666,107 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 result = {"success": True, "message": f"Week cancelled: {reason}"}
             
             elif action == "clear_submissions":
-                await self._clear_submissions_safe(guild)
-                result = {"success": True, "message": "All submissions cleared"}
+                if await self.config.guild(guild).safe_mode_enabled():
+                    result = {"success": False, "message": "Action blocked: Safe mode is enabled"}
+                else:
+                    await self._clear_submissions_safe(guild)
+                    result = {"success": True, "message": "All submissions cleared"}
             
             elif action == "toggle_automation":
                 current = await self.config.guild(guild).automation_enabled()
                 await self.config.guild(guild).automation_enabled.set(not current)
                 status = "enabled" if not current else "disabled"
                 result = {"success": True, "message": f"Automation {status}"}
+            
+            elif action == "set_safe_mode":
+                # params: { enable: bool }
+                enable = params.get('enable', False)
+                try:
+                    await self.config.guild(guild).safe_mode_enabled.set(bool(enable))
+                    result = {"success": True, "message": f"Safe mode set to {bool(enable)}"}
+                except Exception as e:
+                    result = {"success": False, "message": f"Failed to set safe mode: {e}"}
+
+            elif action == "backup_data":
+                # Generate a JSON snapshot of important guild-level configuration keys
+                try:
+                    cfg_all = await self.config.guild(guild).all()
+                except Exception:
+                    cfg_all = {}
+
+                # Assemble a reasonable snapshot
+                backup = {
+                    "guild_id": guild.id,
+                    "guild_name": guild.name,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    # Keep stable subsets of databases and config
+                    "current_theme": cfg_all.get('current_theme'),
+                    "current_phase": cfg_all.get('current_phase'),
+                    "submitted_teams": cfg_all.get('submitted_teams', {}),
+                    "submissions": cfg_all.get('submissions', {}),
+                    "teams_db": cfg_all.get('teams_db', {}),
+                    "artists_db": cfg_all.get('artists_db', {}),
+                    "songs_db": cfg_all.get('songs_db', {}),
+                    "weeks_db": cfg_all.get('weeks_db', {}),
+                    "voting_results": cfg_all.get('voting_results', {}),
+                    "next_unique_ids": cfg_all.get('next_unique_ids', {}),
+                    "settings": {
+                        "auto_announce": cfg_all.get('auto_announce'),
+                        "suppress_noisy_logs": cfg_all.get('suppress_noisy_logs'),
+                        "safe_mode_enabled": cfg_all.get('safe_mode_enabled', False),
+                    }
+                }
+                result = {"success": True, "message": "Backup exported", "backup": backup}
+
+            elif action == "restore_backup":
+                # params: { backup: {} }
+                if await self.config.guild(guild).safe_mode_enabled():
+                    result = {"success": False, "message": "Restore blocked: Safe mode is enabled"}
+                else:
+                    backup = params.get('backup')
+                    if not isinstance(backup, dict):
+                        result = {"success": False, "message": "Missing or invalid backup object"}
+                    else:
+                        try:
+                            # Restore allowed keys only
+                            if 'current_theme' in backup:
+                                await self.config.guild(guild).current_theme.set(backup['current_theme'])
+                            if 'current_phase' in backup:
+                                await self.config.guild(guild).current_phase.set(backup['current_phase'])
+                            if 'submitted_teams' in backup:
+                                await self.config.guild(guild).submitted_teams.set(backup.get('submitted_teams') or {})
+                            if 'submissions' in backup:
+                                try:
+                                    subs_group = getattr(self.config.guild(guild), 'submissions', None)
+                                    if subs_group is not None:
+                                        await subs_group.set(backup.get('submissions') or {})
+                                except Exception:
+                                    pass
+                            if 'teams_db' in backup:
+                                await self.config.guild(guild).teams_db.set(backup.get('teams_db') or {})
+                            if 'artists_db' in backup:
+                                await self.config.guild(guild).artists_db.set(backup.get('artists_db') or {})
+                            if 'songs_db' in backup:
+                                await self.config.guild(guild).songs_db.set(backup.get('songs_db') or {})
+                            if 'weeks_db' in backup:
+                                await self.config.guild(guild).weeks_db.set(backup.get('weeks_db') or {})
+                            if 'voting_results' in backup:
+                                await self.config.guild(guild).voting_results.set(backup.get('voting_results') or {})
+                            if 'next_unique_ids' in backup:
+                                await self.config.guild(guild).next_unique_ids.set(backup.get('next_unique_ids') or {})
+                            # Apply settings
+                            settings = backup.get('settings') or {}
+                            if settings:
+                                if 'auto_announce' in settings:
+                                    await self.config.guild(guild).auto_announce.set(settings.get('auto_announce'))
+                                if 'suppress_noisy_logs' in settings:
+                                    await self.config.guild(guild).suppress_noisy_logs.set(settings.get('suppress_noisy_logs'))
+                                if 'safe_mode_enabled' in settings:
+                                    await self.config.guild(guild).safe_mode_enabled.set(settings.get('safe_mode_enabled', False))
+
+                            result = {"success": True, "message": "Backup restored successfully"}
+                        except Exception as e:
+                            result = {"success": False, "message": f"Restore failed: {e}"}
             
             else:
                 result = {"success": False, "message": f"Unknown action: {action}"}
@@ -2667,6 +2785,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             return error_response
         
         try:
+            if await self.config.guild(guild).safe_mode_enabled():
+                return web.json_response({"error": "Action blocked: Safe mode is enabled"}, status=403)
             team_name = request.match_info.get('team_name')
             if not team_name:
                 return web.json_response({"error": "Team name required"}, status=400)
@@ -2694,6 +2814,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             return error_response
         
         try:
+            if await self.config.guild(guild).safe_mode_enabled():
+                return web.json_response({"error": "Action blocked: Safe mode is enabled"}, status=403)
             week = request.match_info.get('week')
             user_id = request.match_info.get('user_id')
             
@@ -2739,6 +2861,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             return error_response
         
         try:
+            if await self.config.guild(guild).safe_mode_enabled():
+                return web.json_response({"error": "Action blocked: Safe mode is enabled"}, status=403)
             week = request.match_info.get('week')
             if not week:
                 return web.json_response({"error": "Week identifier required"}, status=400)
