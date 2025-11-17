@@ -66,6 +66,12 @@ export default function SystemStatus() {
     await overlay.blockingRun('Creating backup...', async () => {
       overlay.startAction('backup_data');
       const res = await botApi.backupData();
+      if (!res || (typeof res.success !== 'undefined' && !res.success)) {
+        // Show server-provided message if available
+        showError(`❌ Backup failed: ${res?.message || 'Unknown error'}`);
+        overlay.endAction('backup_data');
+        return;
+      }
       // If server returns a backup payload, download it
       if (res && res.backup) {
         try {
@@ -215,6 +221,7 @@ export default function SystemStatus() {
         }
       } catch (e) {
         console.warn('Failed to load backups:', e);
+        showError('⚠️ Failed to load backups from server (not implemented on this instance)');
       }
     };
     loadBackups();

@@ -572,21 +572,63 @@ export const restartBot = async () => {
  * - Otherwise, return a helpful message indicating it's not supported.
  */
 export const backupData = async () => {
-  try {
-    // Prefer server-side admin action if provided
-    return await executeAdminAction("backup_data");
-  } catch (err) {
-    // If the server doesn't support this action, return a fallback response
-    console.warn("backupData: server-side backups are not implemented", err);
-    return { success: false, message: "Backup is not implemented on server" };
+  const aliases = [
+    "backup_data",
+    "backupData",
+    "export_backup",
+    "exportBackup",
+  ];
+  let lastErr = null;
+  for (const a of aliases) {
+    try {
+      const res = await executeAdminAction(a);
+      if (
+        res &&
+        res.success === false &&
+        res.message &&
+        res.message.toLowerCase().includes("unknown action")
+      ) {
+        lastErr = res;
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastErr = err;
+      continue;
+    }
   }
+  console.warn(
+    "backupData: server-side backups are not implemented or action not supported",
+    lastErr
+  );
+  return { success: false, message: "Backup is not implemented on server" };
 };
 
 /**
  * Get list of backups available for this guild
  */
 export const getBackups = async () => {
-  return await fetchWithAuth("/api/admin/backups");
+  try {
+    return await fetchWithAuth("/api/admin/backups");
+  } catch (err) {
+    // Fallback: try admin actions that might return backups list
+    const aliases = [
+      "get_backups",
+      "list_backups",
+      "backup_list",
+      "backups_list",
+    ];
+    for (const a of aliases) {
+      try {
+        const res = await executeAdminAction(a);
+        if (res && Array.isArray(res.backups)) return res;
+        if (res && res.success && res.backups) return res;
+      } catch (e) {
+        // ignore and try next alias
+      }
+    }
+    throw err;
+  }
 };
 
 /**
@@ -594,9 +636,28 @@ export const getBackups = async () => {
  * @param {string} filename - filename to request
  */
 export const downloadBackup = async (filename) => {
-  return await fetchWithAuth(
-    `/api/admin/backups/${encodeURIComponent(filename)}`
-  );
+  try {
+    return await fetchWithAuth(
+      `/api/admin/backups/${encodeURIComponent(filename)}`
+    );
+  } catch (err) {
+    // Fallback: try admin action that returns backup content
+    const aliases = [
+      "download_backup",
+      "backup_download",
+      "get_backup",
+      "get_backup_file",
+    ];
+    for (const a of aliases) {
+      try {
+        const res = await executeAdminAction(a, { filename });
+        if (res && res.backup) return res;
+      } catch (e) {
+        // continue
+      }
+    }
+    throw err;
+  }
 };
 
 /**
@@ -619,7 +680,35 @@ export const restoreBackup = async (backup) => {
     return { success: false, message: "Invalid backup object supplied" };
   }
   try {
-    return await executeAdminAction("restore_backup", { backup });
+    const aliases = [
+      "restore_backup",
+      "restoreBackup",
+      "restore",
+      "import_backup",
+    ];
+    let lastErr = null;
+    for (const a of aliases) {
+      try {
+        const res = await executeAdminAction(a, { backup });
+        if (
+          res &&
+          res.success === false &&
+          res.message &&
+          res.message.toLowerCase().includes("unknown action")
+        ) {
+          lastErr = res;
+          continue;
+        }
+        return res;
+      } catch (err) {
+        lastErr = err;
+        continue;
+      }
+    }
+    return {
+      success: false,
+      message: lastErr?.message || "Restore action not supported",
+    };
   } catch (err) {
     return { success: false, message: err.message };
   }

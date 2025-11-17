@@ -2810,7 +2810,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 except Exception as e:
                     result = {"success": False, "message": f"Failed to set safe mode: {e}"}
 
-            elif action == "backup_data":
+            elif action in ("backup_data", "backupData", "export_backup", "exportBackup"):
                 # Generate a JSON snapshot of important guild-level configuration keys
                 try:
                     cfg_all = await self.config.guild(guild).all()
@@ -2894,6 +2894,64 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     result = {"success": True, "message": "Backup exported", "backup": backup, "backup_file": file_name, "download_url": download_url}
                 except Exception as e:
                     result = {"success": True, "message": f"Backup exported (failed file write: {e})", "backup": backup}
+
+            elif action in ("list_backups", "get_backups", "backup_list", "backups_list"):
+                # Return the same format as GET /api/admin/backups
+                try:
+                    files = []
+                    if os.path.isdir(self.backup_dir):
+                        prefix = f"backup_g{guild.id}_"
+                        for fn in os.listdir(self.backup_dir):
+                            if fn.startswith(prefix) and fn.endswith('.json'):
+                                path = os.path.join(self.backup_dir, fn)
+                                try:
+                                    stat = os.stat(path)
+                                    created_by = None
+                                    try:
+                                        with open(path, 'r', encoding='utf-8') as f:
+                                            data = json.load(f)
+                                            created_by = data.get('created_by') or data.get('meta', {}).get('created_by')
+                                    except Exception:
+                                        created_by = None
+                                    files.append({
+                                        'file': fn,
+                                        'size': stat.st_size,
+                                        'ts': datetime.utcfromtimestamp(stat.st_mtime).isoformat(),
+                                        'created_by': created_by
+                                    })
+                                except Exception:
+                                    continue
+                    files.sort(key=lambda x: x['ts'], reverse=True)
+                    result = {"success": True, "backups": files}
+                except Exception as e:
+                    result = {"success": False, "message": f"Failed to list backups: {e}"}
+
+            elif action in ("download_backup", "backup_download", "get_backup", "get_backup_file"):
+                # params: { filename }
+                try:
+                    filename = params.get('filename')
+                    if not filename:
+                        result = {"success": False, "message": "Filename required"}
+                    else:
+                        if '..' in filename or filename.startswith('/') or filename.startswith('\\'):
+                            result = {"success": False, "message": "Invalid filename"}
+                        else:
+                            prefix = f"backup_g{guild.id}_"
+                            if not filename.startswith(prefix):
+                                result = {"success": False, "message": "File not found for this guild"}
+                            else:
+                                filepath = os.path.join(self.backup_dir, filename)
+                                if not os.path.exists(filepath):
+                                    result = {"success": False, "message": "File not found"}
+                                else:
+                                    try:
+                                        with open(filepath, 'r', encoding='utf-8') as f:
+                                            backup_json = json.load(f)
+                                        result = {"success": True, "backup": backup_json, "file": filename}
+                                    except Exception as e:
+                                        result = {"success": False, "message": f"Failed to read backup file: {e}"}
+                except Exception as e:
+                    result = {"success": False, "message": f"Failed to process download request: {e}"}
 
             elif action == "restore_backup":
                 # params: { backup: {} }
