@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import * as botApi from "../../services/botApi";
+import useAdminRefresh from "../../hooks/useAdminRefresh";
+import { dispatchAdminRefresh } from "../../services/adminEvents";
 
 export default function VotingManagement() {
   const [votingStats, setVotingStats] = useState({
@@ -15,16 +17,8 @@ export default function VotingManagement() {
   const [success, setSuccess] = useState(null);
 
   // Load initial data
-  useEffect(() => {
-    loadStatus();
-    const handler = () => loadStatus();
-    window.addEventListener('admin:refresh', handler);
-    const poll = setInterval(loadStatus, 15000);
-    return () => {
-      window.removeEventListener('admin:refresh', handler);
-      clearInterval(poll);
-    };
-  }, []);
+  useEffect(() => { loadStatus(); }, []);
+  useAdminRefresh({ onRefresh: () => loadStatus(), pollInterval: 15000, immediate: true });
 
   const loadStatus = async () => {
     try {
@@ -100,7 +94,7 @@ export default function VotingManagement() {
           await botApi.resetVotes();
           showSuccess("🔄 All votes have been reset");
           await loadStatus();
-          window.dispatchEvent(new Event('admin:refresh'));
+          dispatchAdminRefresh({ type: 'action', source: 'VotingManagement', reason: 'resetVotes' });
         } catch (err) {
           showError(`❌ Failed to reset votes: ${err.message}`);
         } finally {
@@ -117,7 +111,7 @@ export default function VotingManagement() {
         const result = await botApi.removeInvalidVotes();
         showSuccess(`✅ ${result.message || "Invalid votes removed"}`);
         await loadStatus();
-        window.dispatchEvent(new Event('admin:refresh'));
+        dispatchAdminRefresh({ type: 'action', source: 'VotingManagement', reason: 'removedInvalidVotes' });
       } catch (err) {
         showError(`❌ Failed to remove invalid votes: ${err.message}`);
       } finally {
@@ -161,7 +155,7 @@ export default function VotingManagement() {
         showSuccess(`✅ Vote from ${username} removed`);
         await handleLoadAudit(); // Reload audit data
         // Notify other admin components that voting status changed
-        window.dispatchEvent(new Event('admin:refresh'));
+        dispatchAdminRefresh({ type: 'action', source: 'VotingManagement', reason: 'removedVote', user: userId });
       } catch (err) {
         showError(`❌ Failed to remove vote: ${err.message}`);
       } finally {

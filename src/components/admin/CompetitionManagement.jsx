@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import * as botApi from "../../services/botApi";
+import useAdminRefresh from "../../hooks/useAdminRefresh";
+import { dispatchAdminRefresh } from "../../services/adminEvents";
 
 export default function CompetitionManagement() {
   const [currentPhase, setCurrentPhase] = useState("voting");
@@ -24,17 +26,11 @@ export default function CompetitionManagement() {
     loadStatus();
     loadQueue();
     const qTimer = setInterval(loadQueue, 3000);
-    // Listen for external refresh events (dispatched by UI after actions)
-    const handleExternalRefresh = () => {
-      loadStatus();
-      loadQueue();
-    };
-    window.addEventListener('admin:refresh', handleExternalRefresh);
-    return () => {
-      clearInterval(qTimer);
-      window.removeEventListener('admin:refresh', handleExternalRefresh);
-    };
+    return () => { clearInterval(qTimer); };
   }, []);
+
+  // subscribe to admin:refresh events and polling using the shared hook
+  useAdminRefresh({ onRefresh: () => { loadStatus(); loadQueue(); }, pollInterval: 5000 });
 
   const loadStatus = async () => {
     try {
@@ -55,7 +51,7 @@ export default function CompetitionManagement() {
         setQueueInfo(newQueueInfo);
         lastQueueJson.current = newJson;
         // Notify other admin components when the queue changes
-        window.dispatchEvent(new Event('admin:refresh'));
+        dispatchAdminRefresh({ type: 'queueUpdate', source: 'CompetitionManagement', reason: 'queueChanged' });
       }
       // Pending phases: any queued set_phase actions
       const pPhases = (q.queue || [])
@@ -98,7 +94,7 @@ export default function CompetitionManagement() {
       // Refresh the current status so it reflects the authoritative state
       await loadStatus();
       await loadQueue();
-      window.dispatchEvent(new Event('admin:refresh'));
+      dispatchAdminRefresh({ type: 'statusUpdate', source: 'CompetitionManagement', reason: 'phaseChanged', actionId: res?.actionId });
     } catch (err) {
       showError(`❌ Failed to change phase: ${err.message}`);
     } finally {
@@ -120,7 +116,7 @@ export default function CompetitionManagement() {
       showSuccess(`✅ Theme updated to: ${currentTheme}`);
       await loadStatus();
       await loadQueue();
-      window.dispatchEvent(new Event('admin:refresh'));
+      dispatchAdminRefresh({ type: 'statusUpdate', source: 'CompetitionManagement', reason: 'themeUpdated', actionId: res?.actionId });
     } catch (err) {
       showError(`❌ Failed to update theme: ${err.message}`);
     } finally {
@@ -138,7 +134,7 @@ export default function CompetitionManagement() {
         // Generated theme is client-side; refresh to ensure UI is up-to-date
         await loadStatus();
         await loadQueue();
-        window.dispatchEvent(new Event('admin:refresh'));
+        dispatchAdminRefresh({ type: 'action', source: 'CompetitionManagement', reason: 'generatedTheme' });
       } else {
         showError("❌ Failed to generate theme");
       }
@@ -162,7 +158,7 @@ export default function CompetitionManagement() {
         showSuccess("✅ Starting next week...");
         await loadStatus();
         await loadQueue();
-        window.dispatchEvent(new Event('admin:refresh'));
+        dispatchAdminRefresh({ type: 'action', source: 'CompetitionManagement', reason: 'startNextWeek', actionId: res?.actionId });
       } catch (err) {
         showError(`❌ Failed to start next week: ${err.message}`);
       } finally {
@@ -179,7 +175,7 @@ export default function CompetitionManagement() {
         showSuccess("✅ Week cancelled");
         await loadStatus();
         await loadQueue();
-        window.dispatchEvent(new Event('admin:refresh'));
+        dispatchAdminRefresh({ type: 'action', source: 'CompetitionManagement', reason: 'cancelWeek' });
       } catch (err) {
         showError(`❌ Failed to cancel week: ${err.message}`);
       } finally {
@@ -196,7 +192,7 @@ export default function CompetitionManagement() {
         showSuccess("✅ Week ended - announcing results");
         await loadStatus();
         await loadQueue();
-        window.dispatchEvent(new Event('admin:refresh'));
+        dispatchAdminRefresh({ type: 'action', source: 'CompetitionManagement', reason: 'endWeek' });
       } catch (err) {
         showError(`❌ Failed to end week: ${err.message}`);
       } finally {
@@ -219,7 +215,7 @@ export default function CompetitionManagement() {
       showSuccess("✅ Competition settings saved successfully!");
       await loadStatus();
       await loadQueue();
-      window.dispatchEvent(new Event('admin:refresh'));
+      dispatchAdminRefresh({ type: 'configUpdate', source: 'CompetitionManagement', reason: 'configSaved' });
     } catch (err) {
       showError(`❌ Failed to save settings: ${err.message}`);
     } finally {

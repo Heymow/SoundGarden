@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import * as botApi from "../../services/botApi";
+import useAdminRefresh from "../../hooks/useAdminRefresh";
+import { dispatchAdminRefresh } from "../../services/adminEvents";
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState({
@@ -32,11 +34,7 @@ export default function AdminDashboard() {
     const qTimer = setInterval(() => { loadQueue(); }, 10000);
     return () => { clearInterval(sTimer); clearInterval(qTimer); };
   }, []);
-  useEffect(() => {
-    const handler = () => { loadStats(); loadQueue(); };
-    window.addEventListener('admin:refresh', handler);
-    return () => window.removeEventListener('admin:refresh', handler);
-  }, [])
+  useAdminRefresh({ onRefresh: () => { loadStats(); loadQueue(); } });
 
   useEffect(() => {
     // Periodically check login state
@@ -121,7 +119,7 @@ export default function AdminDashboard() {
         setQueueInfo(newQueueInfo);
         lastQueueJson.current = newJson;
         // Notify other admin components to refresh their data
-        window.dispatchEvent(new Event('admin:refresh'));
+        dispatchAdminRefresh({ type: 'queueUpdate', source: 'AdminDashboard', reason: 'queueChanged' });
       }
       const nextWeekQueued = (q.queue || []).find((a) => a && a.action === 'start_new_week');
       setPendingNextWeek(nextWeekQueued?.params?.theme || null);
@@ -164,7 +162,7 @@ export default function AdminDashboard() {
         }
         showSuccess("✅ New week started successfully!");
         await loadStats();
-        window.dispatchEvent(new Event('admin:refresh'));
+        dispatchAdminRefresh({ type: 'queueUpdate', source: 'AdminDashboard', reason: 'startNewWeek', actionId: res.actionId });
       } catch (err) {
         showError(`❌ Failed to start new week: ${err.message}`);
       } finally {
@@ -191,7 +189,7 @@ export default function AdminDashboard() {
         }
         showSuccess(`✅ Phase changed to: ${nextPhase}`);
         await loadStats();
-        window.dispatchEvent(new Event('admin:refresh'));
+        dispatchAdminRefresh({ type: 'statusUpdate', source: 'AdminDashboard', reason: 'phaseChanged', actionId: res.actionId });
       } catch (err) {
         showError(`❌ Failed to change phase: ${err.message}`);
       } finally {
@@ -224,7 +222,7 @@ export default function AdminDashboard() {
         await botApi.announceWinners();
         showSuccess("🏆 Calculating results and announcing winner...");
         await loadStats();
-        window.dispatchEvent(new Event('admin:refresh'));
+        dispatchAdminRefresh({ type: 'statusUpdate', source: 'AdminDashboard', reason: 'announceWinner' });
       } catch (err) {
         showError(`❌ Failed to announce winner: ${err.message}`);
       } finally {
@@ -362,7 +360,7 @@ export default function AdminDashboard() {
             try {
               await botApi.clearSubmissions();
               showSuccess('✅ Submissions cleared');
-              window.dispatchEvent(new Event('admin:refresh'));
+              dispatchAdminRefresh({ type: 'action', source: 'AdminDashboard', reason: 'clearSubmissions' });
             } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); }
           }}>
             <span className="action-icon">🧹</span>
@@ -371,7 +369,7 @@ export default function AdminDashboard() {
           <button className="admin-action-btn action-warning" onClick={async () => {
             if (!confirm('Reset the current week state? This rolls back submissions/votes to zero.')) return;
             setLoading(true);
-            try { await botApi.resetWeek(); showSuccess('✅ Week reset'); window.dispatchEvent(new Event('admin:refresh')); } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); }
+            try { await botApi.resetWeek(); showSuccess('✅ Week reset'); dispatchAdminRefresh({ type: 'action', source: 'AdminDashboard', reason: 'resetWeek' }); } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); }
           }}>
             <span className="action-icon">🔁</span>
             <span>Reset Week</span>
@@ -379,7 +377,7 @@ export default function AdminDashboard() {
           <button className="admin-action-btn action-purple" onClick={async () => {
             if (!confirm('Force the competition into voting phase now?')) return;
             setLoading(true);
-            try { await botApi.forceVoting(); showSuccess('✅ Forced into voting'); window.dispatchEvent(new Event('admin:refresh')); } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); }
+            try { await botApi.forceVoting(); showSuccess('✅ Forced into voting'); dispatchAdminRefresh({ type: 'action', source: 'AdminDashboard', reason: 'forceVoting' }); } catch (e) { showError(`❌ Failed: ${e.message}`); } finally { setLoading(false); }
           }}>
             <span className="action-icon">⚡</span>
             <span>Force Voting</span>

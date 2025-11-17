@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import * as botApi from "../../services/botApi";
+import useAdminRefresh from "../../hooks/useAdminRefresh";
+import { dispatchAdminRefresh } from "../../services/adminEvents";
 
 export default function TeamManagement() {
   const [teams, setTeams] = useState([]);
@@ -9,17 +11,8 @@ export default function TeamManagement() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
-  useEffect(() => {
-    loadSubmissions();
-    const poll = setInterval(loadSubmissions, 15000);
-    const handler = () => loadSubmissions();
-    window.addEventListener('admin:refresh', handler);
-    return () => {
-      clearInterval(poll);
-      window.removeEventListener('admin:refresh', handler);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { loadSubmissions(); }, []);
+  useAdminRefresh({ onRefresh: () => loadSubmissions(), pollInterval: 15000, immediate: true });
 
   const loadSubmissions = async () => {
     setLoading(true);
@@ -63,7 +56,7 @@ export default function TeamManagement() {
   const handleApproveSubmission = async (team) => {
     showSuccess(`✅ Approved submission from ${team.team_name}`);
     // Refresh other admin components
-    window.dispatchEvent(new Event('admin:refresh'));
+    dispatchAdminRefresh({ type: 'action', source: 'TeamManagement', reason: 'approvedSubmission', team: team.team_name, actionId: null });
   };
 
   const handleRejectSubmission = async (team) => {
@@ -73,7 +66,7 @@ export default function TeamManagement() {
         await botApi.removeSubmission(team.team_name);
         showSuccess(`❌ Rejected submission from ${team.team_name}`);
         await loadSubmissions();
-        window.dispatchEvent(new Event('admin:refresh'));
+        dispatchAdminRefresh({ type: 'action', source: 'TeamManagement', reason: 'rejectedSubmission', team: team.team_name });
       } catch (err) {
         showError(`❌ Failed to reject submission: ${err.message}`);
       } finally {

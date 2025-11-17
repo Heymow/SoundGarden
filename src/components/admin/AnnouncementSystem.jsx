@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import * as botApi from "../../services/botApi";
+import { dispatchAdminRefresh } from "../../services/adminEvents";
 
 export default function AnnouncementSystem() {
   const [announcementType, setAnnouncementType] = useState("custom");
@@ -42,7 +43,7 @@ export default function AnnouncementSystem() {
         setCustomMessage("");
       }
       // Notify other admin components of status updates
-      window.dispatchEvent(new Event('admin:refresh'));
+      dispatchAdminRefresh({ type: 'action', source: 'AnnouncementSystem', reason: 'sentAnnouncement', announcementType });
     } catch (err) {
       showError(`❌ Failed to send announcement: ${err.message}`);
     } finally {
@@ -59,7 +60,7 @@ export default function AnnouncementSystem() {
     try {
       await botApi.sendAnnouncement("test", customMessage);
       showSuccess("🧪 Test message sent to test channel");
-      window.dispatchEvent(new Event('admin:refresh'));
+      dispatchAdminRefresh({ type: 'action', source: 'AnnouncementSystem', reason: 'sendTest', announcementType });
     } catch (err) {
       showError(`❌ Failed to send test message: ${err.message}`);
     } finally {
@@ -80,7 +81,7 @@ export default function AnnouncementSystem() {
       };
       await botApi.updateAdminConfig(updates);
       showSuccess("✅ Auto-announcement settings saved successfully!");
-      window.dispatchEvent(new Event('admin:refresh'));
+      dispatchAdminRefresh({ type: 'configUpdate', source: 'AnnouncementSystem', reason: 'autoSettingsSaved' });
     } catch (err) {
       showError(`❌ Failed to save settings: ${err.message}`);
     } finally {
