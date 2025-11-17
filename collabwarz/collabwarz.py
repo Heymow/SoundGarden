@@ -840,7 +840,9 @@ class CollabWarz(commands.Cog):
                                     # Persistent session fallback removed: always use short-lived sessions
                                 except Exception as ee:
                                     await self._log_backend_error(guild, f"❌ CollabWarz: Error exporting status to backend: {ee}")
-                                    await self._log_backend_error(guild, traceback.format_exc())
+                                    # Only log traceback if noisy logs are enabled for this guild
+                                    if not await self._is_noisy_logs_suppressed(guild):
+                                        await self._log_backend_error(guild, traceback.format_exc())
                             else:
                                 # No status to export
                                 print(f"ℹ️ CollabWarz: No status available to export for guild {guild.name}")
