@@ -345,9 +345,16 @@ class CollabWarz(commands.Cog):
 
         This allows setting the Redis URL at runtime via the cog config (no restart required).
         """
+        # If redis module not available at import time, try to import dynamically
+        global REDIS_AVAILABLE, redis
         if not REDIS_AVAILABLE:
-            print("⚠️ CollabWarz: redis.asyncio package not installed; install 'redis' package to enable Redis support")
-            return False
+            try:
+                mod = importlib.import_module('redis.asyncio')
+                redis = mod
+                REDIS_AVAILABLE = True
+            except Exception:
+                print("⚠️ CollabWarz: redis.asyncio package not installed; install 'redis' package to enable Redis support")
+                return False
 
         try:
             # 1) If a specific guild requested a URL, try it first
@@ -391,6 +398,51 @@ class CollabWarz(commands.Cog):
             self.redis_client = None
             return False
 
+    async def _attempt_runtime_install_redis(self, ctx: Optional[commands.Context] = None) -> bool:
+        """Attempt to install redis (asyncio flavour) at runtime via pip then import it.
+
+        Returns True if redis.asyncio becomes importable, False otherwise.
+        If a Context is provided, send informative messages back to that context.
+        """
+        # Avoid trying to install if importlib reports the module
+        try:
+            importlib.import_module('redis.asyncio')
+            return True
+        except Exception:
+            pass
+
+        loop = asyncio.get_running_loop()
+        def _install():
+            try:
+                print("🔁 CollabWarz: Attempting to install redis via pip...")
+                subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'redis>=4.5.0'])
+                return True
+            except Exception as e:
+                print(f"❌ CollabWarz: pip install redis failed: {e}")
+                return False
+
+        ok = await loop.run_in_executor(None, _install)
+        if not ok:
+            if ctx:
+                try:
+                    await ctx.send("❌ Failed to install redis via pip. Please install package in the environment or redeploy.")
+                except Exception:
+                    pass
+            return False
+
+        try:
+            mod = importlib.import_module('redis.asyncio')
+            globals()['redis'] = mod
+            globals()['REDIS_AVAILABLE'] = True
+            return True
+        except Exception as e:
+            if ctx:
+                try:
+                    await ctx.send(f"❌ Unable to import redis even after install: {e}")
+                except Exception:
+                    pass
+            return False
+
     async def _safe_redis_setex(self, key, ttl, value, guild=None):
         """Safely set a key in Redis, with minor retries and reconnection attempts.
 
@@ -416,8 +468,8 @@ class CollabWarz(commands.Cog):
 
         try:
             # Defensive: rc might have been set but not be a proper client
-            if not hasattr(rc, 'setex'):
-                # Try re-initialize Redis to get a valid client
+            if not rc or not hasattr(rc, 'setex'):
+                # Try to re-initialize Redis to get a valid client
                 try:
                     if guild:
                         await self._init_redis_connection(guild_for_config=guild)
@@ -427,11 +479,21 @@ class CollabWarz(commands.Cog):
                 except Exception:
                     rc = None
             if not rc:
+                await self._maybe_noisy_log(f"⚠️ CollabWarz: Redis client not usable; not saving key {key}", guild=guild)
                 return False
-            await rc.setex(key, ttl, value)
-            return True
+            # Final safety: ensure setex exists and call it inside try/except to handle races
+            if not hasattr(rc, 'setex'):
+                await self._maybe_noisy_log(f"⚠️ CollabWarz: Redis client lacks setex; not saving key {key}", guild=guild)
+                return False
+            try:
+                await rc.setex(key, ttl, value)
+                return True
+            except Exception as e:
+                # Log and return False when the underlying call fails (including AttributeError)
+                await self._maybe_noisy_log(f"⚠️ CollabWarz: setex failed for key {key}: {e}", guild=guild)
+                return False
         except Exception as e:
-            await self._maybe_noisy_log(f"⚠️ CollabWarz: Unable to save key {key} with TTL {ttl} in Redis: {e}", guild=guild)
+            await self._maybe_noisy_log(f"⚠️ CollabWarz: Unexpected error saving key {key} with TTL {ttl} in Redis: {e}", guild=guild)
             return False
 
     async def _post_with_temp_session(self, url, json_payload=None, headers=None, timeout=10, guild=None):
@@ -623,6 +685,12 @@ class CollabWarz(commands.Cog):
             norm_action = (action or '').strip().lower().replace('-', '_').replace(' ', '_')
         except Exception:
             norm_action = action
+        # Use normalized action for all matching logic below, but keep original for logging
+        try:
+            orig_action = action
+        except Exception:
+            orig_action = action
+        action = norm_action
         try:
             safe_mode = await self.config.guild(guild).safe_mode_enabled()
         except Exception:
@@ -1490,6 +1558,17 @@ class CollabWarz(commands.Cog):
         )
         await ctx.send(f"``\n{msg}\n``")
 
+    @redis.command(name="install")
+    @checks.is_owner()
+    async def redis_install(self, ctx: commands.Context):
+        """Attempt to install redis package at runtime (owner-only)."""
+        await ctx.send("🔁 Attempting to install redis package (redis.asyncio)...")
+        ok = await self._attempt_runtime_install_redis(ctx)
+        if ok:
+            await ctx.send("✅ redis.asyncio installed and importable. You can now run `!redis enable` or retry `!redis ping`.")
+        else:
+            await ctx.send("❌ redis runtime install/import failed. Please install via environment/redeploy.")
+
     @redis.command(name="ping")
     async def redis_ping(self, ctx: commands.Context):
         """Ping the Redis server to verify connectivity."""
@@ -1644,6 +1723,69 @@ class CollabWarz(commands.Cog):
         pg_mod = 'present' if asyncpg else 'missing'
         db_url = os.environ.get('DATABASE_URL') or '(not set)'
         await ctx.send(f"``\nasyncpg: {pg_mod}\npool: {pool_status}\nDATABASE_URL: {db_url}\n``")
+
+    @backend.command(name="persist_backup")
+    @checks.is_owner()
+    async def backend_persist_backup(self, ctx: commands.Context, filename: str):
+        """Force-persist a local backup file to Postgres (owner-only)."""
+        if not ctx.guild:
+            await ctx.send("This command must be run in a guild.")
+            return
+        if not getattr(self, 'pg_pool', None):
+            await ctx.send("❌ Postgres is not initialized. Run `!backend enable_postgres` first.")
+            return
+        path = os.path.join(self.backup_dir, filename)
+        if not os.path.exists(path):
+            await ctx.send(f"❌ Backup not found: {filename}")
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                backup = json.load(f)
+        except Exception as e:
+            await ctx.send(f"❌ Failed to load backup file: {e}")
+            return
+        ok = await self._save_backup_to_db(ctx.guild, filename, backup)
+        if ok:
+            await ctx.send(f"✅ Backup {filename} persisted to Postgres.")
+        else:
+            await ctx.send(f"❌ Failed to persist backup {filename} to Postgres. Check logs.")
+
+    @backend.command(name="persist_all_backups")
+    @checks.is_owner()
+    async def backend_persist_all_backups(self, ctx: commands.Context):
+        """Persist all local backup files for the guild to Postgres (owner-only)."""
+        if not ctx.guild:
+            await ctx.send("This command must be run in a guild.")
+            return
+        if not getattr(self, 'pg_pool', None):
+            await ctx.send("❌ Postgres is not initialized. Run `!backend enable_postgres` first.")
+            return
+        prefix = f"backup_g{ctx.guild.id}_"
+        files = []
+        try:
+            for fn in os.listdir(self.backup_dir or ''):
+                if fn.startswith(prefix) and fn.endswith('.json'):
+                    files.append(fn)
+        except Exception:
+            await ctx.send("❌ Error listing backup directory.")
+            return
+        if not files:
+            await ctx.send("⚠️ No local backups found for this guild.")
+            return
+        results = { 'persisted': [], 'failed': [] }
+        for fn in files:
+            path = os.path.join(self.backup_dir, fn)
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    backup = json.load(f)
+                ok = await self._save_backup_to_db(ctx.guild, fn, backup)
+                if ok:
+                    results['persisted'].append(fn)
+                else:
+                    results['failed'].append(fn)
+            except Exception:
+                results['failed'].append(fn)
+        await ctx.send(f"✅ Persisted: {len(results['persisted'])} backups. Failed: {len(results['failed'])} backups.")
     
     def _get_next_deadline(self, announcement_type: str) -> datetime:
         """Get the next deadline based on announcement type"""
