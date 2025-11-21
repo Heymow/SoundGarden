@@ -39,6 +39,9 @@ from redbot.core.bot import Red
 from datetime import datetime, timedelta
 import aiohttp
 import asyncio
+import importlib
+import sys
+import subprocess
 import json
 from typing import Optional
 from aiohttp import web
@@ -1302,10 +1305,16 @@ class CollabWarz(commands.Cog):
 
     async def _init_postgres_pool(self):
         """Initialize Postgres pool for persistent backups if DATABASE_URL is configured."""
-        if not PG_AVAILABLE:
-            await self._maybe_noisy_log("⚠️ asyncpg not installed; Postgres support disabled")
-            print("⚠️ asyncpg not installed; Postgres support disabled")
-            return False
+        # Ensure asyncpg is importable; attempt a dynamic import if possible
+        if asyncpg is None:
+            try:
+                # Try to import if it was installed since load time
+                mod = importlib.import_module('asyncpg')
+                globals()['asyncpg'] = mod
+            except Exception:
+                await self._maybe_noisy_log("⚠️ asyncpg not installed; Postgres support disabled")
+                print("⚠️ asyncpg not installed; Postgres support disabled")
+                return False
         db_url = os.environ.get('DATABASE_URL') or os.environ.get('POSTGRES_URL')
         if not db_url:
             await self._maybe_noisy_log("⚠️ No DATABASE_URL or POSTGRES_URL found; Postgres disabled")
@@ -1334,6 +1343,54 @@ class CollabWarz(commands.Cog):
             print(f"❌ Failed to initialize Postgres pool: {e}")
             self.pg_pool = None
             return False
+
+    async def _attempt_runtime_install_asyncpg(self, ctx: Optional[commands.Context] = None) -> bool:
+        """Attempt to install asyncpg at runtime via pip then import it.
+
+        Returns True if asyncpg becomes importable, False otherwise.
+        If a Context is provided, send informative messages back to that context.
+        """
+        # Avoid trying to install if importlib reports the module
+        try:
+            importlib.import_module('asyncpg')
+            return True
+        except Exception:
+            pass
+
+        # Attempt pip install in a subprocess (non-blocking via run_in_executor)
+        loop = asyncio.get_running_loop()
+        def _install():
+            try:
+                print("🔁 CollabWarz: Attempting to install asyncpg via pip...")
+                subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'asyncpg'])
+                return True
+            except Exception as e:
+                print(f"❌ CollabWarz: pip install asyncpg failed: {e}")
+                return False
+
+        ok = await loop.run_in_executor(None, _install)
+        if not ok:
+            if ctx:
+                try:
+                    await ctx.send("❌ Failed to install asyncpg via pip. Please install package in the environment or redeploy.")
+                except Exception:
+                    pass
+            return False
+
+        # After install, try to import again
+        try:
+            mod = importlib.import_module('asyncpg')
+            globals()['asyncpg'] = mod
+            globals()['PG_AVAILABLE'] = True
+            return True
+        except Exception as e:
+            if ctx:
+                try:
+                    await ctx.send(f"❌ Unable to import asyncpg even after install: {e}")
+                except Exception:
+                    pass
+            return False
+
 
     async def _save_backup_to_db(self, guild, file_name, backup_json):
         """Save a backup JSON to Postgres if pool available."""
@@ -1526,6 +1583,67 @@ class CollabWarz(commands.Cog):
         )
 
         await ctx.send(f"``\n{msg}\n``")
+
+    @backend.command(name="install_asyncpg")
+    @checks.is_owner()
+    async def backend_install_asyncpg(self, ctx: commands.Context):
+        """Attempt to install `asyncpg` at runtime (owner-only)."""
+        await ctx.send("🔁 Attempting to install asyncpg...")
+        ok = await self._attempt_runtime_install_asyncpg(ctx)
+        if ok:
+            await ctx.send("✅ asyncpg installed and importable. You can now run `!backend enable_postgres` to initialize the pool.")
+        else:
+            await ctx.send("❌ asyncpg install/import failed. Please install it in the environment or re-deploy the bot with asyncpg in requirements.")
+
+    @backend.command(name="enable_postgres")
+    @checks.is_owner()
+    async def backend_enable_postgres(self, ctx: commands.Context, db_url: Optional[str] = None, try_install: bool = False):
+        """Enable Postgres for this cog at runtime. Optionally set DATABASE_URL and attempt to install asyncpg.
+
+        Usage: `!backend enable_postgres <DATABASE_URL>` or `!backend enable_postgres <DATABASE_URL> true` to try runtime install.
+        """
+        # Optionally set DB URL
+        if db_url:
+            os.environ['DATABASE_URL'] = db_url
+        if asyncpg is None:
+            if try_install:
+                await ctx.send("🔁 asyncpg not found; attempting to install...")
+                ok = await self._attempt_runtime_install_asyncpg(ctx)
+                if not ok:
+                    await ctx.send("❌ Failed to install asyncpg at runtime; please install via environment or redeploy.")
+                    return
+            else:
+                await ctx.send("⚠️ asyncpg not installed; use `!backend install_asyncpg` or supply `try_install=True` to attempt an install.")
+                return
+
+        # Initialize the pool
+        await ctx.send("🔁 Initializing Postgres pool...")
+        ok = await self._init_postgres_pool()
+        if ok:
+            await ctx.send("✅ Postgres pool initialized and backups table ensured.")
+        else:
+            await ctx.send("❌ Failed to initialize Postgres pool; check logs for reasons.")
+
+    @backend.command(name="disable_postgres")
+    @checks.is_owner()
+    async def backend_disable_postgres(self, ctx: commands.Context):
+        """Disable Postgres for this cog at runtime (close pool if present)."""
+        if getattr(self, 'pg_pool', None):
+            try:
+                await self.pg_pool.close()
+            except Exception as e:
+                print(f"⚠️ CollabWarz: Error closing Postgres pool: {e}")
+        self.pg_pool = None
+        await ctx.send("✅ Postgres disabled for Cog (pool closed).")
+
+    @backend.command(name="pg_status")
+    @checks.is_owner()
+    async def backend_pg_status(self, ctx: commands.Context):
+        """Show runtime Postgres status for the cog (owner-only)."""
+        pool_status = 'initialized' if getattr(self, 'pg_pool', None) else 'not initialized'
+        pg_mod = 'present' if asyncpg else 'missing'
+        db_url = os.environ.get('DATABASE_URL') or '(not set)'
+        await ctx.send(f"``\nasyncpg: {pg_mod}\npool: {pool_status}\nDATABASE_URL: {db_url}\n``")
     
     def _get_next_deadline(self, announcement_type: str) -> datetime:
         """Get the next deadline based on announcement type"""
