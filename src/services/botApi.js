@@ -628,7 +628,18 @@ export const getBackups = async (guildId = null) => {
   try {
     let url = "/api/admin/backups";
     if (guildId) url = `${url}?guildId=${encodeURIComponent(guildId)}`;
-    return await fetchWithAuth(url);
+    const res = await fetchWithAuth(url);
+    // If server replies with an explicit success and backups list, return it
+    if (res && res.success && Array.isArray(res.backups)) return res;
+    // If server responded but with no backups, fall back to Cog admin action (may return backups from Cog directly)
+    if (
+      res &&
+      (!res.success || !Array.isArray(res.backups) || res.backups.length === 0)
+    ) {
+      // fallthrough to fallback logic below
+    } else {
+      return res;
+    }
   } catch (err) {
     // Fallback: try admin actions that might return backups list
     const aliases = [
@@ -639,7 +650,7 @@ export const getBackups = async (guildId = null) => {
     ];
     for (const a of aliases) {
       try {
-        const res = await executeAdminAction(a);
+        const res = await executeAdminAction(a, guildId ? { guildId } : {});
         if (res && Array.isArray(res.backups)) return res;
         if (res && res.success && res.backups) return res;
       } catch (e) {

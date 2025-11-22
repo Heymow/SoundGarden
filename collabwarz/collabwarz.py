@@ -486,6 +486,11 @@ class CollabWarz(commands.Cog):
                 await self._maybe_noisy_log(f"⚠️ CollabWarz: Redis client lacks setex; not saving key {key}", guild=guild)
                 return False
             try:
+                # Debugging info to catch odd race conditions where rc becomes None or loses attribute
+                try:
+                    await self._maybe_noisy_log(f"🔁 _safe_redis_setex: rc_type={type(rc)}, rc_repr={repr(rc)[:200]}, has_setex={hasattr(rc, 'setex')}", guild=guild)
+                except Exception:
+                    pass
                 await rc.setex(key, ttl, value)
                 return True
             except Exception as e:
@@ -681,16 +686,23 @@ class CollabWarz(commands.Cog):
             print("🎯 CollabWarz: Processing Redis action (unable to format action debug)")
 
         # Normalize action name for robust matching
+        # Robust normalization: ensure value is a string and normalized to lower/underscore
         try:
-            norm_action = (action or '').strip().lower().replace('-', '_').replace(' ', '_')
+            norm_action = str(action or '')
+            norm_action = norm_action.strip().lower().replace('-', '_').replace(' ', '_')
         except Exception:
-            norm_action = action
+            norm_action = (action or '')
         # Use normalized action for all matching logic below, but keep original for logging
         try:
             orig_action = action
         except Exception:
             orig_action = action
         action = norm_action
+        # Debugging output: log both original and normalized action for diagnostics
+        try:
+            await self._maybe_noisy_log(f"🔍 Action normalization: orig={repr(orig_action)}, norm={repr(norm_action)}", guild=guild)
+        except Exception:
+            pass
         try:
             safe_mode = await self.config.guild(guild).safe_mode_enabled()
         except Exception:
