@@ -951,6 +951,7 @@ class CollabWarz(commands.Cog):
             elif action == 'update_config':
                 # updates param is expected to be a dict of keys to set in guild config
                 updates = params.get('updates') if isinstance(params, dict) else None
+                print(f"🔁 update_config raw updates: {updates}")
                 if not updates or not isinstance(updates, dict):
                     print("⚠️ update_config: no updates provided")
                 else:
@@ -1006,7 +1007,13 @@ class CollabWarz(commands.Cog):
                                     prev = 2
                                 print(f"🔁 update_config: {k}: {prev} -> {v_parsed}")
                                 cfg_obj = getattr(self.config.guild(guild), cfgkey)
-                                await cfg_obj.set(v_parsed)
+                                if v_parsed is None:
+                                    print(f"⚠️ Skipping update for {k}: value is None (no change)")
+                                else:
+                                    try:
+                                        await cfg_obj.set(v_parsed)
+                                    except Exception as inner_e:
+                                        print(f"⚠️ Failed to set {cfgkey}: {inner_e}")
                             except Exception:
                                 # Fallback to direct attribute access if needed
                                 try:

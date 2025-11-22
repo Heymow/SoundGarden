@@ -1184,7 +1184,7 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
         .status(400)
         .json({ success: false, message: "No updates provided" });
     }
-    // Sanitize: allow only a safe subset of keys
+    // Sanitize: allow only a safe subset of keys, and remove unset/null/empty values
     const allowed = new Set([
       "announcement_channel",
       "submission_channel",
@@ -1200,6 +1200,12 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
     const clean = {};
     Object.keys(updates).forEach((k) => {
       if (allowed.has(k)) clean[k] = updates[k];
+    });
+    // Remove keys that are null/undefined/empty string to avoid unintentionally clearing values
+    Object.keys(clean).forEach((k) => {
+      if (typeof clean[k] === "undefined" || clean[k] === null) delete clean[k];
+      if (typeof clean[k] === "string" && clean[k].trim() === "")
+        delete clean[k];
     });
     if (Object.keys(clean).length === 0)
       return res
