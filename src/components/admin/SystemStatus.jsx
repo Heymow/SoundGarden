@@ -22,6 +22,7 @@ export default function SystemStatus() {
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [configDraft, setConfigDraft] = useState(null);
   const [channels, setChannels] = useState([]);
+  const [channelsError, setChannelsError] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
@@ -36,9 +37,12 @@ export default function SystemStatus() {
       // Fetch channels first so we can try to resolve existing configured channels into the dropdown
       try {
         const chRes = await botApi.getAdminChannels();
-        if (chRes && Array.isArray(chRes.channels)) setChannels(chRes.channels);
+        if (chRes && Array.isArray(chRes.channels) && chRes.channels.length > 0) setChannels(chRes.channels);
+        else if (chRes && chRes.success === false && chRes.message) showError(`⚠️ Failed to load channels: ${chRes.message}`);
+        else if (chRes && Array.isArray(chRes.channels) && chRes.channels.length === 0) showError('⚠️ Channel list empty - check that the bot is in the guild and has permission to list channels.');
       } catch (e) {
         console.warn("Failed to load channels", e);
+        showError(`⚠️ Failed to load channels: ${e?.message || e}`);
       }
 
       const cfg = await botApi.getAdminConfig();
@@ -390,10 +394,37 @@ export default function SystemStatus() {
   const fetchChannels = async () => {
     try {
       const ch = await botApi.getAdminChannels();
-      if (ch && Array.isArray(ch.channels)) setChannels(ch.channels);
+      if (ch && Array.isArray(ch.channels) && ch.channels.length > 0) {
+        setChannels(ch.channels);
+        setChannelsError(null);
+        return ch.channels;
+      } else {
+        // If server returned an error, surface it; otherwise, display a helpful warning
+        if (ch && ch.success === false && ch.message) {
+          showError(`⚠️ Failed to load channels: ${ch.message}`);
+          setChannelsError(ch.message);
+        } else {
+          // Use available server info if present to help diagnostics
+          const guildId = serverInfo?.guildInfo?.id || null;
+          const msg = 'Channel list returned empty. Ensure the bot is in the configured guild and has permission to view channels.';
+          showError(`⚠️ ${msg}`);
+          setChannelsError(msg);
+          console.warn('Admin channels endpoint returned empty or malformed list', ch);
+        }
+      }
     } catch (e) {
       console.warn('Failed to load admin channels:', e);
+      const message = `Failed to load channels: ${e?.message || e}`;
+      showError(`⚠️ ${message}`);
+      setChannelsError(message);
+      return null;
     }
+  };
+
+  const handleRefreshChannels = async () => {
+    const res = await fetchChannels();
+    if (res && res.length > 0) showSuccess(`✅ Channels refreshed (${res.length})`);
+    else showError('⚠️ No channels available after refresh');
   };
 
   useEffect(() => {
@@ -552,6 +583,11 @@ export default function SystemStatus() {
       <div className="admin-card">
         <h3 className="admin-card-title">💾 Backups</h3>
         <div className="admin-card-content">
+          {channelsError && (
+            <div style={{ marginBottom: '8px', color: 'var(--admin-text-muted)' }}>
+              ⚠️ {channelsError}
+            </div>
+          )}
           {backups.length === 0 ? (
             <div>No backups available</div>
           ) : (
@@ -889,11 +925,14 @@ export default function SystemStatus() {
               <button className="admin-modal-close" onClick={() => { setIsSaving(false); setSaveSuccess(false); setConfigModalOpen(false); }}>×</button>
             </div>
             <div className="admin-modal-content">
-              <p style={{ color: 'var(--admin-text-muted)', marginBottom: '8px' }}>Changes are queued and will be applied by the cog shortly.</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <p style={{ color: 'var(--admin-text-muted)', margin: 0 }}>Changes are queued and will be applied by the cog shortly.</p>
+                <button className="admin-btn btn-secondary" style={{ marginLeft: 'auto' }} onClick={handleRefreshChannels}>🔁 Refresh Channels</button>
+              </div>
               <div className="config-edit-grid">
                 {channels.length === 0 && (
                   <div style={{ marginBottom: 8, color: 'var(--admin-text-muted)' }}>
-                    ⚠️ Channel list not available. Ensure the server is configured with the bot token or enter channels via "Other..." as an ID or mention.
+                    {channelsError ? `⚠️ ${channelsError}` : '⚠️ Channel list not available. Ensure the server is configured with the bot token or enter channels via "Other..." as an ID or mention.'}
                   </div>
                 )}
                 <label>Announcement Channel (id or mention)</label>

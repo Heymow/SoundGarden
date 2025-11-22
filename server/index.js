@@ -680,14 +680,6 @@ app.post("/api/collabwarz/status", async (req, res) => {
   try {
     const auth = validateCogAuth(req, res);
     if (!auth.ok) {
-      const tokenHeader =
-        req.header("x-cw-token") || req.header("X-CW-Token") || null;
-      pushStatusLog({
-        result: "auth_failed",
-        headerPresent: !!tokenHeader,
-        ip: req.ip || req.headers["x-forwarded-for"] || null,
-        reason: auth.message,
-      });
       return res.status(401).json({ success: false, message: auth.message });
     }
 
@@ -1230,7 +1222,10 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
 app.get("/api/admin/channels", verifyAdminAuth, async (req, res) => {
   try {
     if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID) {
-      return res.json({ success: true, channels: [] });
+      const msg =
+        "Server not configured to fetch Discord channels: DISCORD_BOT_TOKEN and/or DISCORD_GUILD_ID not set";
+      console.warn("/api/admin/channels: " + msg);
+      return res.status(400).json({ success: false, message: msg });
     }
     const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/channels`;
     const resp = await axios.get(url, {
@@ -1244,10 +1239,32 @@ app.get("/api/admin/channels", verifyAdminAuth, async (req, res) => {
       .filter((c) => c.type === 0)
       .map((c) => ({ id: c.id, name: c.name, display: `#${c.name}` }))
       .sort((a, b) => a.name.localeCompare(b.name));
+    console.log(
+      `/api/admin/channels fetched ${channels.length} text channels for guild ${DISCORD_GUILD_ID}`
+    );
     return res.json({ success: true, channels });
   } catch (err) {
-    console.error("/api/admin/channels error:", err.message || err);
-    return res.status(500).json({ success: false, message: err.message });
+    console.error(
+      "/api/admin/channels error:",
+      (err.response && err.response.status) || err.message || err
+    );
+    let msg =
+      err.message || "Unknown error when fetching channels from Discord";
+    if (err.response && err.response.status) {
+      const status = err.response.status;
+      if (status === 401)
+        msg = "Invalid Discord bot token. Check DISCORD_BOT_TOKEN";
+      else if (status === 403)
+        msg =
+          "Discord API forbidden (403). Bot may lack permissions or be banned from guild";
+      else if (status === 404)
+        msg = "Guild not found (404). Check DISCORD_GUILD_ID";
+      else if (err.response.data && err.response.data.message)
+        msg = `${status}: ${err.response.data.message}`;
+    }
+    return res
+      .status(err.response?.status || 500)
+      .json({ success: false, message: msg });
   }
 });
 
