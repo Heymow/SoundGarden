@@ -1353,6 +1353,16 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
       actionData = await queueCollabWarzAction("update_config", {
         updates: clean,
       });
+      // Give a short window for the cog/backend to process and publish a status
+      try {
+        await new Promise((r) => setTimeout(r, 800));
+      } catch (e) {}
+      let queuedStatus = null;
+      try {
+        queuedStatus = await getCompetitionStatusFromRedis();
+      } catch (e) {
+        queuedStatus = null;
+      }
     } catch (queueErr) {
       console.error(
         "/api/admin/config: failed to queue action:",
@@ -1368,6 +1378,7 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
       success: true,
       actionId: actionData.id,
       unresolved: failedResolutions,
+      queuedStatus: queuedStatus,
     });
   } catch (err) {
     console.error(

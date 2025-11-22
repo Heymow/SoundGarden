@@ -281,17 +281,23 @@ export default function SystemStatus() {
     await overlay.blockingRun('Applying configuration...', async () => {
       overlay.startAction('update_config');
       try {
-        // Pre-parse channel mentions: <#123> or numeric strings - these may still be strings
+        // Normalise channel mentions: keep IDs as strings
         for (const c of ['announcement_channel', 'submission_channel', 'test_channel']) {
           if (typeof updates[c] === 'string') {
             const m = updates[c].match(/^<#(\d+)>$/);
-            if (m) updates[c] = Number(m[1]);
-            else if (/^\d+$/.test(updates[c])) updates[c] = Number(updates[c]);
+            if (m) updates[c] = String(m[1]);
+            else if (/^\d+$/.test(updates[c])) updates[c] = String(updates[c]);
           }
         }
         const res = await botApi.updateAdminConfig(updates);
         if (res && res.success) {
           showSuccess('✅ Configuration update queued');
+          if (res.queuedStatus) {
+            console.log('🧭 Server queuedStatus:', res.queuedStatus);
+            // If queuedStatus already includes the channel, show info message
+            const announce = res.queuedStatus.announcement_channel || res.queuedStatus.announcementChannel;
+            if (announce) overlay.showAlert('info', `Server status indicates Announcement Channel: ${announce}`);
+          }
           setConfigModalOpen(false);
           if (res.unresolved && Array.isArray(res.unresolved) && res.unresolved.length) {
             const list = res.unresolved.map(r => `${r.key}: ${r.value}`).join(', ');
@@ -490,6 +496,18 @@ export default function SystemStatus() {
     else showError('⚠️ No channels available after refresh');
   };
 
+  const handleClearChannelCache = async () => {
+    try {
+      const res = await botApi.clearAdminChannelCache();
+      if (res && res.success && res.channels) {
+        setChannels(res.channels);
+        showSuccess(`✅ Channel cache cleared & refreshed (${res.channels.length})`);
+      } else {
+        showError(`⚠️ Failed to clear channel cache: ${res?.message || 'unknown'}`);
+      }
+    } catch (e) { showError(`⚠️ Failed to clear channel cache: ${e?.message || e}`); }
+  };
+
   const handleTestBotToken = async () => {
     try {
       const res = await botApi.testBotToken();
@@ -571,7 +589,7 @@ export default function SystemStatus() {
   // Debug: log configDraft changes (top-level hook)
   useEffect(() => {
     try {
-      if (configDraft) console.log('📋 configDraft change:', configDraft);
+      if (configDraft) console.log('📋 configDraft change:', JSON.parse(JSON.stringify(configDraft || {})));
     } catch (e) {
       // ignore
     }
@@ -1014,7 +1032,10 @@ export default function SystemStatus() {
             <div className="admin-modal-content">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                 <p style={{ color: 'var(--admin-text-muted)', margin: 0 }}>Changes are queued and will be applied by the cog shortly.</p>
-                <button className="admin-btn btn-secondary" style={{ marginLeft: 'auto' }} onClick={handleRefreshChannels}>🔁 Refresh Channels</button>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                  <button className="admin-btn btn-secondary" onClick={handleRefreshChannels}>🔁 Refresh Channels</button>
+                  <button className="admin-btn btn-secondary" onClick={handleClearChannelCache}>🧹 Hard Refresh</button>
+                </div>
               </div>
               <div className="config-edit-grid">
                 {channels.length === 0 && (
@@ -1029,7 +1050,7 @@ export default function SystemStatus() {
                     if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: '__other', announcement_channel_raw: '' }));
                     else {
                       setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: v, announcement_channel_raw: undefined }));
-                      console.log(`📡 Config draft update: announcement_channel set to ${v}`, { prev: configDraft });
+                      try { console.log(`📡 Config draft update: announcement_channel set to ${v}`, { prev: JSON.parse(JSON.stringify(configDraft || {})) }); } catch (e) { console.log('📡 Config draft update: announcement_channel set to', v); }
                     }
                   }}>
                     <option value="">Not configured</option>
@@ -1048,7 +1069,7 @@ export default function SystemStatus() {
                     if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), submission_channel: '__other', submission_channel_raw: '' }));
                     else {
                       setConfigDraft(prev => ({ ...(prev || {}), submission_channel: v, submission_channel_raw: undefined }));
-                      console.log(`📡 Config draft update: submission_channel set to ${v}`, { prev: configDraft });
+                      try { console.log(`📡 Config draft update: submission_channel set to ${v}`, { prev: JSON.parse(JSON.stringify(configDraft || {})) }); } catch (e) { console.log('📡 Config draft update: submission_channel set to', v); }
                     }
                   }}>
                     <option value="">Not configured</option>
@@ -1067,7 +1088,7 @@ export default function SystemStatus() {
                     if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), test_channel: '__other', test_channel_raw: '' }));
                     else {
                       setConfigDraft(prev => ({ ...(prev || {}), test_channel: v, test_channel_raw: undefined }));
-                      console.log(`📡 Config draft update: test_channel set to ${v}`, { prev: configDraft });
+                      try { console.log(`📡 Config draft update: test_channel set to ${v}`, { prev: JSON.parse(JSON.stringify(configDraft || {})) }); } catch (e) { console.log('📡 Config draft update: test_channel set to', v); }
                     }
                   }}>
                     <option value="">Not configured</option>

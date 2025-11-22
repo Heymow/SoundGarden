@@ -264,6 +264,10 @@ export const getAdminChannels = async (force = false) => {
   return await fetchWithAuth(`/api/admin/channels${qs}`);
 };
 
+export const clearAdminChannelCache = async () => {
+  return await fetchWithAuth(`/api/admin/channels/clear`, { method: "POST" });
+};
+
 /**
  * Update bot configuration
  * @param {Object} updates - Configuration updates to apply
@@ -278,9 +282,9 @@ export const updateAdminConfig = async (updates) => {
   ]) {
     if (parseUpdates[k] && typeof parseUpdates[k] === "string") {
       const m = parseUpdates[k].match(/^<#(\d+)>$/);
-      if (m) parseUpdates[k] = Number(m[1]);
+      if (m) parseUpdates[k] = m[1];
       else if (/^\d+$/.test(parseUpdates[k]))
-        parseUpdates[k] = Number(parseUpdates[k]);
+        parseUpdates[k] = String(parseUpdates[k]);
     }
   }
   return await fetchWithAuth("/api/admin/config", {
