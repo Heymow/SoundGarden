@@ -70,6 +70,8 @@ class CollabWarz(commands.Cog):
     
     def __init__(self, bot: Red):
         self.bot = bot
+        # Mark cog start time for uptime reporting
+        self._cog_start_ts = datetime.utcnow()
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         
         default_guild = {
@@ -659,6 +661,31 @@ class CollabWarz(commands.Cog):
                 "last_updated": datetime.utcnow().isoformat(),
                 "cog_version": "redis-integration-1.0.0"
             }
+            # Add cog uptime and guild-level member count for diagnostics
+            try:
+                if hasattr(self, '_cog_start_ts') and self._cog_start_ts:
+                    uptime_seconds = int((datetime.utcnow() - self._cog_start_ts).total_seconds())
+                    status_data['cog_uptime_seconds'] = uptime_seconds
+                    # Build a readable uptime string
+                    days = uptime_seconds // (60 * 60 * 24)
+                    hours = (uptime_seconds % (60 * 60 * 24)) // (60 * 60)
+                    minutes = (uptime_seconds % (60 * 60)) // 60
+                    seconds = uptime_seconds % 60
+                    readable = []
+                    if days: readable.append(f"{days} day{'s' if days != 1 else ''}")
+                    if hours: readable.append(f"{hours} hour{'s' if hours != 1 else ''}")
+                    if minutes: readable.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+                    if not readable:
+                        readable.append(f"{seconds} second{'s' if seconds != 1 else ''}")
+                    status_data['cog_uptime_readable'] = ", ".join(readable)
+            except Exception:
+                pass
+            try:
+                # Guild member count for the guild being updated (if available)
+                if guild and hasattr(guild, 'member_count'):
+                    status_data['guild_member_count'] = getattr(guild, 'member_count', None)
+            except Exception:
+                pass
             # Attach detailed snapshots
             try:
                 status_data['submissions'] = submissions or {}

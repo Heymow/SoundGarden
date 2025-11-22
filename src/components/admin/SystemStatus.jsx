@@ -539,8 +539,12 @@ export default function SystemStatus() {
               <span className="info-value">{serverInfo?.cogVersion || serverInfo?.cog_version || 'Unknown'}</span>
             </div>
             <div className="info-item">
-              <span className="info-label">Uptime:</span>
+              <span className="info-label">Server Uptime:</span>
               <span className="info-value">{serverInfo?.serverUptimeReadable || 'Unknown'}</span>
+            </div>
+            <div className="info-item">
+              <span className="info-label">Bot Uptime:</span>
+              <span className="info-value">{serverInfo?.cogUptimeReadable || serverInfo?.cog_uptime_readable || 'Unknown'}</span>
             </div>
             <div className="info-item">
               <span className="info-label">Server Members:</span>

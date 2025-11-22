@@ -50,11 +50,14 @@ function formatDuration(seconds) {
   const days = Math.floor(seconds / (60 * 60 * 24));
   const hours = Math.floor((seconds % (60 * 60 * 24)) / (60 * 60));
   const minutes = Math.floor((seconds % (60 * 60)) / 60);
+  const secs = Math.floor(seconds % 60);
   const parts = [];
   if (days) parts.push(`${days} day${days !== 1 ? "s" : ""}`);
   if (hours) parts.push(`${hours} hour${hours !== 1 ? "s" : ""}`);
   if (minutes) parts.push(`${minutes} minute${minutes !== 1 ? "s" : ""}`);
-  if (parts.length === 0) return "0 minutes";
+  if (parts.length === 0) {
+    return `${secs} second${secs !== 1 ? "s" : ""}`;
+  }
   return parts.join(", ");
 }
 
@@ -1053,12 +1056,18 @@ app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
 
     // Optionally gather a couple of dynamic values: cog version from status and guild info
     let cogVersion = null;
+    let cogUptimeReadable = null;
+    let cogUptimeSeconds = null;
+    let statusFromCog = null;
     try {
       const st = await getCompetitionStatusFromRedis();
+      statusFromCog = st || null;
       if (st && st.cog_version) cogVersion = st.cog_version;
+      if (st && typeof st.cog_uptime_seconds === "number") {
+        cogUptimeSeconds = st.cog_uptime_seconds;
+        cogUptimeReadable = formatDuration(cogUptimeSeconds);
+      }
     } catch (e) {}
-
-    // Attempt to query Discord for guild info (member count) if the bot token is configured
     let guildInfo = null;
     try {
       if (DISCORD_BOT_TOKEN && DISCORD_GUILD_ID) {
@@ -1084,6 +1093,26 @@ app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
     }
 
     const uptimeSeconds = Math.floor((Date.now() - SERVER_START_TS) / 1000);
+    // If Discord API info missing, use data from Redis status (if cog published)
+    if (!guildInfo && statusFromCog) {
+      try {
+        if (
+          statusFromCog.guild_id ||
+          statusFromCog.guildName ||
+          statusFromCog.guild_name
+        ) {
+          guildInfo = {
+            id: statusFromCog.guild_id || statusFromCog.guildId || null,
+            name: statusFromCog.guild_name || statusFromCog.guildName || null,
+            member_count:
+              statusFromCog.guild_member_count ||
+              statusFromCog.member_count ||
+              null,
+          };
+        }
+      } catch (e) {}
+    }
+
     const diagnostics = {
       redisConnected,
       redisUrl: REDIS_URL || null,
@@ -1107,6 +1136,8 @@ app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
       serverUptimeSeconds: uptimeSeconds,
       serverUptimeReadable: formatDuration(uptimeSeconds),
       cogVersion: cogVersion,
+      cogUptimeSeconds: cogUptimeSeconds,
+      cogUptimeReadable: cogUptimeReadable,
       guildInfo: guildInfo,
       cliTimestamp: new Date().toISOString(),
     };
