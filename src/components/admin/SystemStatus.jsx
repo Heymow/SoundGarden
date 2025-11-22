@@ -49,7 +49,8 @@ export default function SystemStatus() {
       const cfg = await botApi.getAdminConfig();
       if (cfg && cfg.config) {
         const draft = { ...cfg.config };
-        setAdminConfig(draft);
+        // Keep adminConfig as the raw config from backend but use a cloned draft for editing
+        setAdminConfig(cfg.config);
         // Prefer freshly fetched channels when available during normalization
         const availableChannels = (chRes && chRes.channels && chRes.channels.length > 0) ? chRes.channels : channels;
         // Normalize channel fields for the dropdowns - prefer the channel id as string
@@ -549,12 +550,7 @@ export default function SystemStatus() {
     };
     loadConfig();
     fetchChannels();
-    // Debug: log configDraft changes
-    useEffect(() => {
-      try {
-        if (configDraft) console.log('📋 configDraft change:', configDraft);
-      } catch (e) { }
-    }, [configDraft]);
+    // Debug: log configDraft changes will be registered at component scope
     // Also refresh serverInfo that includes cog status when opening the screen
     // Do not show toast when automatically refreshing on mount
     refreshSystemInfo(false);
@@ -571,6 +567,15 @@ export default function SystemStatus() {
     };
     loadLogs();
   }, []);
+
+  // Debug: log configDraft changes (top-level hook)
+  useEffect(() => {
+    try {
+      if (configDraft) console.log('📋 configDraft change:', configDraft);
+    } catch (e) {
+      // ignore
+    }
+  }, [configDraft]);
 
   const refreshSystemInfo = async (showToast = false) => {
     try {
@@ -1019,7 +1024,7 @@ export default function SystemStatus() {
                 )}
                 <div className="form-row">
                   <label>Announcement Channel (id or mention)</label>
-                  <select value={configDraft?.announcement_channel ?? ''} onChange={(e) => {
+                  <select key="announcement_channel_select" value={configDraft?.announcement_channel ?? ''} onChange={(e) => {
                     const v = e.target.value;
                     if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: '__other', announcement_channel_raw: '' }));
                     else {
@@ -1032,13 +1037,13 @@ export default function SystemStatus() {
                     <option value="__other">Other...</option>
                   </select>
                   {configDraft?.announcement_channel === '__other' && (
-                    <input type="text" placeholder="id or <#id>" value={configDraft?.announcement_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), announcement_channel_raw: e.target.value }))} />
+                    <input key="announcement_channel_raw" type="text" placeholder="id or <#id>" value={configDraft?.announcement_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), announcement_channel_raw: e.target.value }))} />
                   )}
                 </div>
 
                 <div className="form-row">
                   <label>Submission Channel</label>
-                  <select value={configDraft?.submission_channel ?? ''} onChange={(e) => {
+                  <select key="submission_channel_select" value={configDraft?.submission_channel ?? ''} onChange={(e) => {
                     const v = e.target.value;
                     if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), submission_channel: '__other', submission_channel_raw: '' }));
                     else {
@@ -1051,13 +1056,13 @@ export default function SystemStatus() {
                     <option value="__other">Other...</option>
                   </select>
                   {configDraft?.submission_channel === '__other' && (
-                    <input type="text" placeholder="id or <#id>" value={configDraft?.submission_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), submission_channel_raw: e.target.value }))} />
+                    <input key="submission_channel_raw" type="text" placeholder="id or <#id>" value={configDraft?.submission_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), submission_channel_raw: e.target.value }))} />
                   )}
                 </div>
 
                 <div className="form-row">
                   <label>Test Channel</label>
-                  <select value={configDraft?.test_channel ?? ''} onChange={(e) => {
+                  <select key="test_channel_select" value={configDraft?.test_channel ?? ''} onChange={(e) => {
                     const v = e.target.value;
                     if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), test_channel: '__other', test_channel_raw: '' }));
                     else {
@@ -1070,7 +1075,7 @@ export default function SystemStatus() {
                     <option value="__other">Other...</option>
                   </select>
                   {configDraft?.test_channel === '__other' && (
-                    <input type="text" placeholder="id or <#id>" value={configDraft?.test_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), test_channel_raw: e.target.value }))} />
+                    <input key="test_channel_raw" type="text" placeholder="id or <#id>" value={configDraft?.test_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), test_channel_raw: e.target.value }))} />
                   )}
                 </div>
 
