@@ -16,6 +16,7 @@ export default function SystemStatus() {
   const fileInputRef = useRef(null);
   const [latestBackup, setLatestBackup] = useState(null);
   const [backups, setBackups] = useState([]);
+  const [currentIssue, setCurrentIssue] = useState(null);
   const overlay = useAdminOverlay();
 
   const showSuccess = (message) => overlay.showAlert('success', message);
@@ -232,8 +233,10 @@ export default function SystemStatus() {
         if (status && typeof status.safe_mode_enabled !== 'undefined') {
           setSafeModeEnabled(!!status.safe_mode_enabled);
         }
+        setCurrentIssue(null); // Clear issue if successful
       } catch (err) {
         console.warn('Failed to get admin status', err);
+        setCurrentIssue('Getting HTML error "Cannot GET /api/admin/status". This means the bot API server is not running, not accessible, or authentication failed.');
       }
     };
     fetchStatus();
@@ -264,6 +267,7 @@ export default function SystemStatus() {
       if (apiTest.success) {
         showSuccess("✅ Diagnostics passed: Bot API is reachable and responding");
         setSystemHealth(prev => ({ ...prev, apiServer: true, botOnline: true }));
+        setCurrentIssue(null);
       } else {
         showError(`❌ Configured URL failed: ${apiTest.error}`);
         setSystemHealth(prev => ({ ...prev, apiServer: false }));
@@ -542,10 +546,11 @@ export default function SystemStatus() {
         <div className="admin-card-content">
           <div className="diagnostic-info">
             <p>Test the connection between the admin panel and the Discord bot API server.</p>
-            <div className="error-info" style={{ background: '#fff3cd', padding: '10px', borderRadius: '5px', margin: '10px 0' }}>
-              <strong>🚨 Current Issue:</strong> Getting HTML error "Cannot GET /api/admin/status"
-              <br />This means the bot API server is not running or not accessible.
-            </div>
+            {currentIssue && (
+              <div className="error-info" style={{ background: '#fff3cd', padding: '10px', borderRadius: '5px', margin: '10px 0' }}>
+                <strong>🚨 Current Issue:</strong> {currentIssue}
+              </div>
+            )}
             <p><strong>Fix this by running these Discord commands:</strong></p>
             <ol>
               <li><code>!cw help</code> - Verify the bot is loaded and responding</li>
