@@ -318,6 +318,17 @@ class CollabWarz(commands.Cog):
 
     async def _send_competition_log(self, message, level="INFO", guild=None):
         """Send a competition log entry to the backend for admin panel viewing."""
+        # NOTE: The backend expects a POST on `/api/collabwarz/log` using the header
+        # `X-CW-Token: <token>` (the token must match server COLLABWARZ_TOKEN). The
+        # payload is a small JSON containing message, level, timestamp and guild info.
+        # Example:
+        # {
+        #   "message": "Phase started: submission with theme: My Theme",
+        #   "level": "INFO",
+        #   "timestamp": "2025-11-01T12:00:00Z",
+        #   "guild_id": 1234567890,
+        #   "guild_name": "SoundGarden"
+        # }
         try:
             backend_url = await self.config.guild(guild).backend_url() if guild else None
             if not backend_url:
@@ -332,8 +343,19 @@ class CollabWarz(commands.Cog):
                 "guild_id": guild.id if guild else None,
                 "guild_name": guild.name if guild else None
             }
-            headers = {"Authorization": f"Bearer {token}"} if token else None
-            await self._post_with_temp_session(f"{backend_url}/api/admin/log", json_payload=data, headers=headers, guild=guild)
+            # Use X-CW-Token header for backend cog auth (server expects this header)
+            # Also include Authorization: Bearer header for compatibility with endpoints that expect it
+            if token:
+                headers = {"X-CW-Token": token, "Authorization": f"Bearer {token}"}
+            else:
+                headers = None
+            status, text = await self._post_with_temp_session(f"{backend_url.rstrip('/')}/api/collabwarz/log", json_payload=data, headers=headers, guild=guild)
+            # If the server returns an error status, log it (throttled) for operators
+            try:
+                if status and int(status) >= 400:
+                    await self._log_backend_error(guild, f"Failed to send competition log to backend: {status} {text}")
+            except Exception:
+                pass
         except Exception as e:
             # Don't log errors in logging to avoid loops
             pass

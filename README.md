@@ -109,6 +109,38 @@ REDIS_URL=redis://username:password@hostname:port
 export REDIS_URL="redis://username:password@hostname:port"
 ```
 
+### Cog <-> Backend Token (Secure logging & action exchange)
+
+To allow the CollabWarz cog to securely POST logs and action results to the backend (admin panel), set a shared secret on the backend and configure the cog to use it:
+
+1. Set on the backend server's `.env`:
+```env
+COLLABWARZ_TOKEN=your_shared_secret_here
+```
+2. Configure the cog for the guild where it's running:
+```bash
+# Use the backend command from the cog to set the backend URL and token (per-guild)
+[p]backend set http://your-backend-host:3001 your_shared_secret_here
+```
+
+The `COLLABWARZ_TOKEN` is required by the backend to validate POST requests from the cog and must match the `backend_token` the cog uses in its per-guild config.
+
+Security note: treat this token like a password - keep it secret and rotate it as necessary.
+
+### Testing the Logging Endpoint
+Once the cog is configured and the backend is running, you can test the logging flow using curl (on the server):
+
+```bash
+# POST a log as if coming from a cog
+curl -X POST http://localhost:3001/api/collabwarz/log \
+   -H "Content-Type: application/json" \
+   -H "X-CW-Token: your_shared_secret_here" \
+   -d '{"message":"Test log","level":"INFO","timestamp":"2010-01-01T00:00:00Z","guild_id":123,"guild_name":"Test Guild"}'
+
+# As an admin user, fetch logs (replace BEARER_TOKEN with a valid Discord OAuth bearer token if DISCORD_ADMIN_IDS is set)
+curl -H "Authorization: Bearer BEARER_TOKEN" http://localhost:3001/api/admin/competition-logs
+```
+
 ### Environment Variables
 
 #### Frontend (`.env`)
@@ -273,6 +305,12 @@ redis-cli -u "your_redis_url" ping
 - Confirm Redis URL is set in bot environment
 - Check bot logs for Redis connection messages
 - Verify cog is loaded: `[p]cogs`
+
+### Logs Not Appearing in Admin Panel
+- Ensure `COLLABWARZ_TOKEN` is set on the backend and that the cog's per-guild `backend_token` matches it.
+- If not using Redis, ensure the cog's `backend_url` is configured (using `[p]backend set`) so the cog can POST logs to the server.
+- Check server console for `🔔 Competition log received` messages indicating the server accepted log POSTs from the cog.
+- If no message appears, verify the cog's backend config and that the bot is able to reach the backend (network/firewall). Also confirm the header `X-CW-Token: <token>` is present when sending logs.
 
 ## 📚 Additional Documentation
 

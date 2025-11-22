@@ -675,9 +675,29 @@ app.get("/api/admin/status-log", verifyAdminAuth, async (req, res) => {
 });
 
 // Admin-only: Receive competition logs from cog
+// Admin-only: Receive competition logs from admin web UI
 app.post("/api/admin/log", verifyAdminAuth, (req, res) => {
   try {
     pushCompetitionLog(req.body);
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Cog-only: Receive competition logs from the CollabWarz cog (validated with X-CW-Token header)
+app.post("/api/collabwarz/log", (req, res) => {
+  try {
+    const auth = validateCogAuth(req, res);
+    if (!auth.ok)
+      return res.status(401).json({ success: false, message: auth.message });
+    // Push to in-memory competition logs and print a small audit message
+    pushCompetitionLog(req.body);
+    console.log(
+      `🔔 Competition log received from cog: ${
+        req.body.message || "(no message)"
+      }`
+    );
     return res.json({ success: true });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -1014,6 +1034,8 @@ app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
 });
 
 // Simple middleware for cog auth
+// The cog posts logs and action results using a header 'X-CW-Token' with a shared secret
+// The server validates the header against the `COLLABWARZ_TOKEN` env var to avoid unauthorized postings.
 function validateCogAuth(req, res) {
   const header = req.header("x-cw-token") || req.header("X-CW-Token");
   if (!COLLABWARZ_TOKEN) {

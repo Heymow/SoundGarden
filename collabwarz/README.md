@@ -154,6 +154,45 @@ git clone https://github.com/Heymow/SoundGarden.git
 [p]cw toggle
 ```
 
+### Backend Logging & Admin Panel Integration
+
+For admin panel visibility of runtime events (phase changes, cancellations and winner announcements), the cog can POST competition logs to the backend server. This is secured with a shared secret token and can be configured per guild via the cog's `backend` commands.
+
+1. **Set backend URL + token** (per-guild):
+```bash
+[p]backend set http://your-backend-host:3001 your_shared_secret_here
+```
+
+2. **What the cog posts**:
+- Endpoint: `POST /api/collabwarz/log`
+- Header: `X-CW-Token: your_shared_secret_here` (the server compares with its `COLLABWARZ_TOKEN` value)
+- Payload JSON example:
+```json
+{
+  "message": "Phase started: submission with theme: My Theme",
+  "level": "INFO",
+  "timestamp": "2025-11-01T12:00:00Z",
+  "guild_id": 1234567890,
+  "guild_name": "SoundGarden"
+}
+```
+
+3. **Admin UI access**
+- Admins can view the last 100 competition logs via the admin panel or `GET /api/admin/competition-logs` (requires Discord OAuth admin token or configured `DISCORD_ADMIN_IDS` on the backend).
+
+4. **Server configuration**
+- You must set **COLLABWARZ_TOKEN** in the backend's environment to the same token used by the cog's per-guild `backend_token`.
+  ```env
+  COLLABWARZ_TOKEN=your_shared_secret_here
+  ```
+
+Security considerations:
+- The backend will reject log posts without a valid `X-CW-Token` header. Do not expose the token publicly. Treat it like a password for the cog<->backend bridge.
+
+Testing tips:
+- Post a test log using the example `curl` in the main README, then open the admin panel and click "View Full Logs" to see the new log entry.
+
+
 ### Advanced Configuration (Recommended)
 ```bash
 # Set admin for confirmations
