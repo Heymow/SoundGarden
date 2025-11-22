@@ -276,6 +276,12 @@
   transition: all 0.2s ease;
 }
 
+/* When admin-input is used on selects (component-level), ensure strong contrast */
+.admin-input, .admin-input select {
+  background: var(--admin-card) !important;
+  color: var(--admin-text) !important;
+}
+
 .admin-input:focus,
 .admin-textarea:focus {
   outline: none;
@@ -1962,8 +1968,42 @@
   padding: 8px 10px;
   border-radius: 6px;
   border: 1px solid var(--admin-border);
-  background: rgba(255,255,255,0.02);
+  background: var(--admin-card);
   color: var(--admin-text);
+}
+
+/* Style dropdowns within admin sections to ensure legible contrast */
+.admin-card select,
+.admin-modal select,
+.config-edit-grid select,
+.admin-section select {
+  background: var(--admin-card) !important;
+  color: var(--admin-text) !important;
+  border: 1px solid var(--admin-border);
+  padding-right: 30px; /* give room for the arrow */
+  /* Keep native appearance for platform-specific dropdown arrow while ensuring contrast */
+}
+.admin-card select option,
+.admin-modal select option,
+.config-edit-grid select option,
+.admin-section select option {
+  background: var(--admin-card) !important;
+  color: var(--admin-text) !important;
+}
+/* Disabled/default options should appear muted but still legible */
+.admin-card select option[disabled], .admin-modal select option[disabled], .config-edit-grid select option[disabled], .admin-section select option[disabled] {
+  color: var(--admin-text-muted) !important;
+}
+/* IE/Edge: remove default arrow when customizing appearance */
+select::-ms-expand {
+  display: none;
+}
+
+/* Ensure focus states are clearly highlighted */
+.admin-card select:focus, .admin-modal select:focus, .config-edit-grid select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.12);
+  border-color: var(--admin-accent);
 }
 .config-edit-grid .full-row {
   grid-column: 1 / -1;
