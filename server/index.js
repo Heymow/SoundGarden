@@ -1214,8 +1214,8 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
         .json({ success: false, message: "No allowed keys to update" });
 
     // Normalize channel refs (#name, <#id>, id) if server has permissions
+    let failedResolutions = [];
     try {
-      const failedResolutions = [];
       for (const chanKey of [
         "announcement_channel",
         "submission_channel",
@@ -1287,13 +1287,11 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
         "/api/admin/config: failed to queue action:",
         queueErr.stack || queueErr.message || queueErr
       );
-      return res
-        .status(500)
-        .json({
-          success: false,
-          message: "Failed to queue update action",
-          details: queueErr.message || String(queueErr),
-        });
+      return res.status(500).json({
+        success: false,
+        message: "Failed to queue update action",
+        details: queueErr.message || String(queueErr),
+      });
     }
     return res.json({
       success: true,
@@ -1305,15 +1303,11 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
       "/api/admin/config POST error:",
       err.stack || err.message || err
     );
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: err.message,
-        details: err.stack
-          ? err.stack.split("\n").slice(0, 5).join("\n")
-          : null,
-      });
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+      details: err.stack ? err.stack.split("\n").slice(0, 5).join("\n") : null,
+    });
   }
 });
 
