@@ -131,10 +131,10 @@ export default function SystemStatus() {
           ensurePresent('submission_channel');
           ensurePresent('test_channel');
           setChannels(currentChannels);
-          console.log('🧭 Admin modal: availableChannels used', availableChannels ? availableChannels.map(ch => ch.id) : [], 'currentChannels', currentChannels.map(ch => ch.id));
+          // debug logging removed
         } catch (e) { console.warn('Failed to ensure configured channels present in dropdown', e); }
         setConfigDraft(draft);
-        console.log('🧭 Admin modal: draft built', draft);
+        // debug logging removed
         setSaveSuccess(false);
         setConfigModalOpen(true);
       } else {

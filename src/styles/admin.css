@@ -1956,14 +1956,9 @@
 /* Config edit form inside modal */
 .config-edit-grid {
   display: grid;
-  grid-template-columns: 1fr; /* Single column by default for clarity */
+  grid-template-columns: 1fr; /* Always use a single column layout (vertical stacking) */
   gap: 12px 20px;
   align-items: center;
-}
-@media (min-width: 900px) {
-  .config-edit-grid {
-    grid-template-columns: 1fr 1fr; /* two columns on wider screens */
-  }
 }
 .config-edit-grid label {
   color: var(--admin-text-muted);
