@@ -261,6 +261,31 @@ export default function SystemStatus() {
         if (res && res.success) {
           showSuccess('✅ Configuration update queued');
           setConfigModalOpen(false);
+          // If we have an action id from the server, poll the queue's processed items for a result
+          const actionId = res.actionId || res.id || null;
+          let actionProcessed = null;
+          if (actionId) {
+            const maxQueueAttempts = 12; // 12s
+            let qa = 0;
+            while (qa < maxQueueAttempts) {
+              try {
+                const q = await botApi.getAdminQueue();
+                if (q && Array.isArray(q.processed)) {
+                  const found = q.processed.find(p => p && p.id === actionId);
+                  if (found) { actionProcessed = found; break; }
+                }
+              } catch (e) { /* ignore */ }
+              qa++;
+              await new Promise(r => setTimeout(r, 1000));
+            }
+            if (actionProcessed) {
+              if (actionProcessed.status && actionProcessed.status === 'failed') {
+                // Show processed action error and stop further polling for config changes
+                const errMsg = actionProcessed.error || (actionProcessed.details && actionProcessed.details.error) || 'Action failed';
+                showError(`❌ Cog reported a failed action: ${errMsg}`);
+              }
+            }
+          }
           // Poll the server to get the updated config once the cog has applied it
           let attempts = 0;
           const maxAttempts = 12;
