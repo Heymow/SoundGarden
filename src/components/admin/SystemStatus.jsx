@@ -17,6 +17,7 @@ export default function SystemStatus() {
   const [latestBackup, setLatestBackup] = useState(null);
   const [backups, setBackups] = useState([]);
   const [currentIssue, setCurrentIssue] = useState(null);
+  const [serverInfo, setServerInfo] = useState(null);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
   const [logsData, setLogsData] = useState([]);
   const overlay = useAdminOverlay();
@@ -252,6 +253,15 @@ export default function SystemStatus() {
       }
     };
     fetchStatus();
+    const loadSystemInfo = async () => {
+      try {
+        const sys = await botApi.getAdminSystem();
+        if (sys && sys.diagnostics) setServerInfo(sys.diagnostics);
+      } catch (e) {
+        console.warn('Failed to get admin system diagnostics:', e);
+      }
+    };
+    loadSystemInfo();
     const loadBackups = async () => {
       try {
         const list = await botApi.getBackups();
@@ -278,6 +288,16 @@ export default function SystemStatus() {
     };
     loadLogs();
   }, []);
+
+  const refreshSystemInfo = async () => {
+    try {
+      const sys = await botApi.getAdminSystem();
+      if (sys && sys.diagnostics) {
+        setServerInfo(sys.diagnostics);
+        showSuccess('✅ Server info refreshed');
+      }
+    } catch (e) { showError('❌ Failed to refresh server info'); }
+  };
 
   const handleRunDiagnostics = async () => {
     setLoading(true);
@@ -516,20 +536,27 @@ export default function SystemStatus() {
           <div className="server-info-grid">
             <div className="info-item">
               <span className="info-label">Bot Version:</span>
-              <span className="info-value">2.5.0</span>
+              <span className="info-value">{serverInfo?.cogVersion || serverInfo?.cog_version || 'Unknown'}</span>
             </div>
             <div className="info-item">
               <span className="info-label">Uptime:</span>
-              <span className="info-value">5 days, 12 hours</span>
+              <span className="info-value">{serverInfo?.serverUptimeReadable || 'Unknown'}</span>
             </div>
             <div className="info-item">
               <span className="info-label">Server Members:</span>
-              <span className="info-value">247 members</span>
+              <span className="info-value">{serverInfo?.guildInfo?.member_count ? `${serverInfo.guildInfo.member_count} members` : (serverInfo?.guildInfo?.id ? 'Unknown' : 'Not configured')}</span>
+            </div>
+            <div className="info-item">
+              <span className="info-label">Guild:</span>
+              <span className="info-value">{serverInfo?.guildInfo?.name || serverInfo?.guildInfo?.id || 'Not configured'}</span>
             </div>
             <div className="info-item">
               <span className="info-label">Command Prefix:</span>
-              <span className="info-value">[p]cw</span>
+              <span className="info-value">{serverInfo?.commandPrefix || serverInfo?.command_prefix || '!cw'}</span>
             </div>
+          </div>
+          <div style={{ marginTop: '10px' }}>
+            <button className="admin-btn btn-secondary" onClick={refreshSystemInfo}>🔄 Refresh Server Info</button>
           </div>
         </div>
       </div>

@@ -10,6 +10,8 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+// Track server start time for uptime
+const SERVER_START_TS = Date.now();
 
 // Discord OAuth credentials
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -42,6 +44,19 @@ console.log(`Webhook URL configured: ${DISCORD_WEBHOOK_URL ? "Yes" : "No"}`);
 console.log(`Command Prefix: ${COMMAND_PREFIX}`);
 console.log(`Redis URL: ${REDIS_URL}`);
 console.log(`CollabWarz Token configured: ${COLLABWARZ_TOKEN ? "Yes" : "No"}`);
+
+// Helper to format duration in a human readable way
+function formatDuration(seconds) {
+  const days = Math.floor(seconds / (60 * 60 * 24));
+  const hours = Math.floor((seconds % (60 * 60 * 24)) / (60 * 60));
+  const minutes = Math.floor((seconds % (60 * 60)) / 60);
+  const parts = [];
+  if (days) parts.push(`${days} day${days !== 1 ? 's' : ''}`);
+  if (hours) parts.push(`${hours} hour${hours !== 1 ? 's' : ''}`);
+  if (minutes) parts.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`);
+  if (parts.length === 0) return '0 minutes';
+  return parts.join(', ');
+}
 
 // Redis client and initialization
 let redisClient;
@@ -1036,6 +1051,36 @@ app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
       backendMode = !!inMemoryStatus; // if we have in-memory status, likely backend mode
     }
 
+    // Optionally gather a couple of dynamic values: cog version from status and guild info
+    let cogVersion = null;
+    try {
+      const st = await getCompetitionStatusFromRedis();
+      if (st && st.cog_version) cogVersion = st.cog_version;
+    } catch (e) {}
+
+    // Attempt to query Discord for guild info (member count) if the bot token is configured
+    let guildInfo = null;
+    try {
+      if (DISCORD_BOT_TOKEN && DISCORD_GUILD_ID) {
+        const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}?with_counts=true`;
+        const resGuild = await axios.get(url, {
+          headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
+          timeout: 3000,
+        });
+        if (resGuild && resGuild.data) {
+          guildInfo = {
+            id: resGuild.data.id,
+            name: resGuild.data.name,
+            member_count: resGuild.data.approximate_member_count || resGuild.data.member_count || null,
+          };
+        }
+      }
+    } catch (e) {
+      // ignore; do not fail the diagnostics for Discord API failures
+      guildInfo = null;
+    }
+
+    const uptimeSeconds = Math.floor((Date.now() - SERVER_START_TS) / 1000);
     const diagnostics = {
       redisConnected,
       redisUrl: REDIS_URL || null,
@@ -1054,6 +1099,12 @@ app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
             "$1*****"
           )
         : null,
+      commandPrefix: COMMAND_PREFIX,
+      serverStart: new Date(SERVER_START_TS).toISOString(),
+      serverUptimeSeconds: uptimeSeconds,
+      serverUptimeReadable: formatDuration(uptimeSeconds),
+      cogVersion: cogVersion,
+      guildInfo: guildInfo,
       cliTimestamp: new Date().toISOString(),
     };
 
