@@ -546,7 +546,12 @@ export default function SystemStatus() {
         <h3 className="admin-card-title">🔧 System Actions</h3>
         <div className="admin-card-content">
           <div className="system-actions">
-            <button className="admin-btn btn-info" onClick={handleSyncData}>🔄 Sync Data</button>
+            <button
+              className="admin-btn btn-info"
+              onClick={handleSyncData}
+              disabled={!safeModeEnabled}
+              title={!safeModeEnabled ? 'Enable Safe Mode in System Settings to run Sync Data' : ''}
+            >🔄 Sync Data</button>
             <button className="admin-btn btn-warning" onClick={handleRestartBot}>♻️ Restart Bot</button>
             <button className="admin-btn btn-secondary" onClick={handleGenerateReport}>📊 Generate Report</button>
             <button className="admin-btn btn-primary" onClick={handleBackupData}>💾 Backup Data</button>

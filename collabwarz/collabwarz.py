@@ -1028,6 +1028,23 @@ class CollabWarz(commands.Cog):
                         except Exception as e:
                             action_data['result'] = {'success': False, 'message': f'Restore failed: {e}'}
                     
+            elif action == 'set_safe_mode':
+                # Expect param `enable` boolean
+                enable = params.get('enable')
+                if isinstance(enable, str):
+                    v = enable.lower()
+                    if v in ('true', '1'): enable = True
+                    elif v in ('false', '0'): enable = False
+                if not isinstance(enable, bool):
+                    action_data['result'] = { 'success': False, 'message': 'Invalid enable parameter; expected boolean' }
+                else:
+                    try:
+                        await self.config.guild(guild).safe_mode_enabled.set(bool(enable))
+                        action_data['result'] = { 'success': True, 'safe_mode_enabled': bool(enable) }
+                        print(f"✅ Safe mode {'enabled' if enable else 'disabled'} for guild {getattr(guild,'name',None)}")
+                    except Exception as e:
+                        action_data['result'] = { 'success': False, 'message': str(e) }
+
             else:
                 await self._maybe_noisy_log(f"❓ Unknown action: {repr(action)} (norm: {repr(norm_action)})", guild=guild)
                 print(f"❓ Unknown action: {repr(action)} (norm: {repr(norm_action)}) - full action_data: {action_data}")
@@ -7213,9 +7230,19 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         await ctx.send(embed=embed)
     
     @collabwarz.command(name="syncdata")
+    @checks.is_owner()
     async def sync_existing_data(self, ctx):
         """🔄 Sync existing competition data into comprehensive tracking system"""
         
+        # Require safe mode to be enabled before allowing a potentially destructive or heavy migration
+        try:
+            safe_mode_cfg = await self.config.guild(ctx.guild).safe_mode_enabled()
+        except Exception:
+            safe_mode_cfg = getattr(self, 'safe_mode_enabled', False)
+        if not safe_mode_cfg:
+            await ctx.send("⚠️ Sync Data is available only when Safe Mode is enabled. Enable safe mode and retry.")
+            return
+
         embed = discord.Embed(
             title="🔄 Sync Existing Data",
             description="This will migrate existing competition data into the new comprehensive tracking system.",

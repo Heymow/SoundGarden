@@ -551,7 +551,24 @@ export const testAI = async () => {
  * Note: Data is typically synced automatically
  */
 export const syncData = async () => {
-  return { success: true, message: "Data sync completed" };
+  const aliases = ["syncdata", "sync_data", "syncData"];
+  for (const a of aliases) {
+    try {
+      const res = await executeAdminAction(a);
+      if (
+        res &&
+        res.success === false &&
+        res.message &&
+        res.message.toLowerCase().includes("unknown action")
+      ) {
+        continue;
+      }
+      return res;
+    } catch (err) {
+      continue;
+    }
+  }
+  return { success: false, message: "Sync action not implemented on server" };
 };
 
 /**

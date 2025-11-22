@@ -557,7 +557,15 @@ async function getCompetitionStatusFromRedis() {
     const statusData = await redisClient.get("collabwarz:status");
 
     if (statusData) {
-      return JSON.parse(statusData);
+      const st = JSON.parse(statusData);
+      // Expose common settings as top-level for UI convenience (backwards-compat)
+      st.safe_mode_enabled =
+        st.safe_mode_enabled ||
+        (st.settings && st.settings.safe_mode_enabled) ||
+        false;
+      // In the past, some UIs read `guild_id` and `guild_name` from top-level - ensure availability
+      if (!st.guild_id && st.guildId) st.guild_id = st.guildId;
+      return st;
     }
 
     // Return fallback data if no status available
@@ -1208,12 +1216,10 @@ app.get("/api/admin/backups", verifyAdminAuth, async (req, res) => {
           );
         }
       }
-      return res
-        .status(404)
-        .json({
-          success: false,
-          message: "Backups not available on this server",
-        });
+      return res.status(404).json({
+        success: false,
+        message: "Backups not available on this server",
+      });
     }
     const guildId = req.query.guildId || process.env.DISCORD_GUILD_ID || null;
     if (!guildId) {
@@ -1252,12 +1258,10 @@ app.get("/api/admin/backups", verifyAdminAuth, async (req, res) => {
 app.post("/api/admin/backups/scan", verifyAdminAuth, async (req, res) => {
   try {
     if (!pgPool || !redisClient) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Requires Postgres and Redis configured",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Requires Postgres and Redis configured",
+      });
     }
     const guildId = req.query.guildId || process.env.DISCORD_GUILD_ID || null;
     if (!guildId)
@@ -1379,6 +1383,40 @@ app.post("/api/admin/actions", verifyAdminAuth, async (req, res) => {
         successMessage = `Phase change queued: ${actionParams.phase}`;
         break;
 
+      case "set_safe_mode":
+      case "setSafeMode":
+      case "setsafemode":
+        if (typeof actionParams.enable === "undefined") {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: "enable parameter required (true/false)",
+            });
+        }
+        if (typeof actionParams.enable !== "boolean") {
+          // Accept numeric 0/1 as boolean
+          if (actionParams.enable === 0 || actionParams.enable === 1) {
+            actionParams.enable = Boolean(actionParams.enable);
+          } else if (typeof actionParams.enable === "string") {
+            const v = actionParams.enable.toLowerCase();
+            if (v === "true" || v === "1") actionParams.enable = true;
+            else if (v === "false" || v === "0") actionParams.enable = false;
+          }
+        }
+        if (typeof actionParams.enable !== "boolean") {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message: "enable must be boolean (true/false)",
+            });
+        }
+        successMessage = `Safe mode ${
+          actionParams.enable ? "enabled" : "disabled"
+        } queued`;
+        break;
+
       case "next_phase":
         successMessage = "Phase advance queued";
         break;
@@ -1393,6 +1431,12 @@ app.post("/api/admin/actions", verifyAdminAuth, async (req, res) => {
             .json({ success: false, message: "Theme parameter required" });
         }
         successMessage = `Start new week: ${actionParams.theme}`;
+        break;
+
+      case "syncdata":
+      case "sync_data":
+      case "syncData":
+        successMessage = "Data sync queued";
         break;
 
       case "clear_submissions":
