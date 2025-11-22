@@ -57,19 +57,8 @@ export default function SystemStatus() {
     }
   };
 
-  const handleRestartBot = async () => {
-    if (!(await overlay.confirm("⚠️ Are you sure you want to restart the bot? This may cause brief downtime."))) return;
-    await overlay.blockingRun('Restarting bot...', async () => {
-      overlay.startAction('restart_bot');
-      await botApi.restartBot();
-      setSystemHealth(prev => ({ ...prev, botOnline: false }));
-      showSuccess("♻️ Bot restart initiated...");
-      setTimeout(() => {
-        setSystemHealth(prev => ({ ...prev, botOnline: true }));
-      }, 3000);
-      overlay.endAction('restart_bot');
-    });
-  };
+  // Note: The previous 'Restart Bot' action was removed because it requires platform-level access.
+  // Keep a placeholder function for future platform integration if needed.
 
   const handleGenerateReport = () => {
     const report = {
@@ -609,15 +598,19 @@ export default function SystemStatus() {
                 <strong>🚨 Current Issue:</strong> {currentIssue}
               </div>
             )}
-            <p><strong>Fix this by running these Discord commands:</strong></p>
-            <ol>
-              <li><code>!cw help</code> - Verify the bot is loaded and responding</li>
-              <li><code>!cw apiserver start</code> - Start the API server</li>
-              <li><code>!cw apiserver status</code> - Confirm it's running</li>
-              <li><code>!cw admintoken debug</code> - Check configuration</li>
-              <li>If still failing, try <code>!cw apiconfig cors *</code> to allow all origins</li>
-            </ol>
-            <p><strong>Expected result:</strong> API server should start on a port (usually 8080)</p>
+            {currentIssue && (
+              <>
+                <p><strong>Fix this by running these Discord commands:</strong></p>
+                <ol>
+                  <li><code>!cw help</code> - Verify the bot is loaded and responding</li>
+                  <li><code>!cw apiserver start</code> - Start the API server</li>
+                  <li><code>!cw apiserver status</code> - Confirm it's running</li>
+                  <li><code>!cw admintoken debug</code> - Check configuration</li>
+                  <li>If still failing, try <code>!cw apiconfig cors *</code> to allow all origins</li>
+                </ol>
+                <p><strong>Expected result:</strong> API server should start on a port (usually 8080)</p>
+              </>
+            )}
           </div>
           <button
             className="admin-btn btn-info"
@@ -640,7 +633,7 @@ export default function SystemStatus() {
               disabled={!safeModeEnabled}
               title={!safeModeEnabled ? 'Enable Safe Mode in System Settings to run Sync Data' : ''}
             >🔄 Sync Data</button>
-            <button className="admin-btn btn-warning" onClick={handleRestartBot}>♻️ Restart Bot</button>
+            {/* Restart Bot removed: controlled at platform level */}
             <button className="admin-btn btn-secondary" onClick={handleGenerateReport}>📊 Generate Report</button>
             <button className="admin-btn btn-primary" onClick={handleBackupData}>💾 Backup Data</button>
             <button className="admin-btn btn-info" disabled={!latestBackup} onClick={async () => {

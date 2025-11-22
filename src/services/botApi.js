@@ -571,17 +571,7 @@ export const syncData = async () => {
   return { success: false, message: "Sync action not implemented on server" };
 };
 
-/**
- * Restart the Discord bot
- * Note: Bot restart is typically done via the hosting platform
- */
-export const restartBot = async () => {
-  console.warn("restartBot: This action requires platform-level access");
-  return {
-    success: true,
-    message: "Bot restart request received (requires hosting platform access)",
-  };
-};
+// Restart is handled by hosting platform; function removed from API surface
 
 /**
  * Create a backup of current bot data/configuration
