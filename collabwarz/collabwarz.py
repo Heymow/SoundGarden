@@ -652,6 +652,32 @@ class CollabWarz(commands.Cog):
                 cfg_all = await self.config.guild(guild).all()
             except Exception:
                 cfg_all = {}
+            # If channel keys are missing from cfg_all, attempt a few re-fetches to allow persistence to settle
+            try:
+                retry_attempts = 3
+                need_retry = False
+                for k in ('announcement_channel', 'submission_channel', 'test_channel'):
+                    if cfg_all.get(k) is None:
+                        # If a direct getattr shows the key is present, we'll retry
+                        try:
+                            val = await getattr(self.config.guild(guild), k)()
+                        except Exception:
+                            val = None
+                        if val is not None:
+                            need_retry = True
+                            break
+                if need_retry:
+                    for i in range(retry_attempts):
+                        try:
+                            await asyncio.sleep(0.05)
+                            cfg_all = await self.config.guild(guild).all()
+                            # If keys are now present, stop retrying
+                            if any(cfg_all.get(k) is not None for k in ('announcement_channel', 'submission_channel', 'test_channel')):
+                                break
+                        except Exception:
+                            continue
+            except Exception:
+                pass
             try:
                 # Debug snapshot: print out channel-related keys and types
                 print(f"🔁 _update_redis_status: cfg_all snapshot announcement={cfg_all.get('announcement_channel')}, submission={cfg_all.get('submission_channel')}, test={cfg_all.get('test_channel')}")
@@ -701,9 +727,13 @@ class CollabWarz(commands.Cog):
                 pass
             # Export a small subset of explicit config values for the admin UI
             try:
-                status_data['announcement_channel'] = cfg_all.get('announcement_channel')
-                status_data['submission_channel'] = cfg_all.get('submission_channel')
-                status_data['test_channel'] = cfg_all.get('test_channel')
+                # Use string representation for channel ids to avoid precision loss when processed by other platforms
+                ac = cfg_all.get('announcement_channel')
+                sc = cfg_all.get('submission_channel')
+                tc = cfg_all.get('test_channel')
+                status_data['announcement_channel'] = str(ac) if ac is not None else None
+                status_data['submission_channel'] = str(sc) if sc is not None else None
+                status_data['test_channel'] = str(tc) if tc is not None else None
                 status_data['require_confirmation'] = cfg_all.get('require_confirmation')
                 status_data['use_everyone_ping'] = cfg_all.get('use_everyone_ping')
                 status_data['min_teams_required'] = cfg_all.get('min_teams_required')
@@ -1024,14 +1054,57 @@ class CollabWarz(commands.Cog):
                                     print(f"⚠️ Skipping update for {k}: value is None (no change)")
                                 else:
                                     try:
+                                        # For channel IDs, coerce to string to avoid any platform-specific numeric precision issues
+                                        if cfgkey in ('announcement_channel', 'submission_channel', 'test_channel'):
+                                            try:
+                                                if isinstance(v_parsed, int):
+                                                    v_parsed = str(v_parsed)
+                                                elif isinstance(v_parsed, str) and v_parsed.isdigit():
+                                                    # Keep as string
+                                                    pass
+                                                else:
+                                                    # Leave as-is
+                                                    pass
+                                            except Exception:
+                                                pass
                                         print(f"🔁 update_config: setting {k} = {v_parsed} (type {type(v_parsed).__name__})")
-                                        await cfg_obj.set(v_parsed)
-                                        # Read back to validate persistence immediately
-                                        try:
-                                            new_val = await getattr(self.config.guild(guild), cfgkey)()
-                                            print(f"🔍 Readback after set: {k} -> {new_val} (type {type(new_val).__name__})")
-                                        except Exception as inner_read_e:
-                                            print(f"⚠️ Readback failed for {cfgkey}: {inner_read_e}")
+
+                                        # Attempt to set and then validate persistence in a small retry loop
+                                        max_attempts = 4
+                                        attempt = 0
+                                        set_ok = False
+                                        while attempt < max_attempts:
+                                            attempt += 1
+                                            try:
+                                                await cfg_obj.set(v_parsed)
+                                                # Small delay for the persistence to settle
+                                                await asyncio.sleep(0.05)
+                                            except Exception as inner_e:
+                                                print(f"⚠️ Failed to set {cfgkey} on attempt {attempt}: {inner_e}")
+                                                continue
+                                            # Read back
+                                            try:
+                                                new_val = await getattr(self.config.guild(guild), cfgkey)()
+                                            except Exception as inner_read_e:
+                                                print(f"⚠️ Readback failed for {cfgkey} on attempt {attempt}: {inner_read_e}")
+                                                new_val = None
+                                            # Compare as string for channels to handle int/string mismatch
+                                            try:
+                                                compare_new = new_val
+                                                compare_expected = v_parsed
+                                                if cfgkey in ('announcement_channel', 'submission_channel', 'test_channel'):
+                                                    if compare_new is not None:
+                                                        compare_new = str(compare_new)
+                                                    compare_expected = str(compare_expected) if compare_expected is not None else None
+                                            except Exception:
+                                                compare_new = new_val
+                                                compare_expected = v_parsed
+                                            print(f"🔍 Readback after set attempt {attempt}: {k} -> {new_val} (expected {v_parsed})")
+                                            if compare_new == compare_expected:
+                                                set_ok = True
+                                                break
+                                        if not set_ok:
+                                            print(f"⚠️ update_config: Could not confirm persistence for {k} after {max_attempts} attempts (last read: {new_val})")
                                     except Exception as inner_e:
                                         print(f"⚠️ Failed to set {cfgkey}: {inner_e}")
                             except Exception:

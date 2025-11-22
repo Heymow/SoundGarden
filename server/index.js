@@ -717,6 +717,7 @@ app.post("/api/collabwarz/status", async (req, res) => {
     }
 
     const payload = req.body || {};
+    console.log("/api/collabwarz/status payload:", payload);
     if (!payload || !payload.phase) {
       return res
         .status(400)
@@ -1229,7 +1230,8 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
                 updates[chanKey]
               )}' -> ${resolved}`
             );
-            clean[chanKey] = resolved;
+            // Keep as string to avoid JS numeric precision loss for Discord snowflakes
+            clean[chanKey] = String(resolved);
           } else {
             // If the value looks like a numeric id, keep it, otherwise record unresolved for admins
             if (!String(clean[chanKey]).match(/^[0-9]+$/)) {
@@ -1277,6 +1279,15 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
       "/api/admin/config: unresolved channel name resolutions:",
       failedResolutions
     );
+    // Ensure channel ids are strings to avoid numeric precision loss in JS
+    for (const ck of [
+      "announcement_channel",
+      "submission_channel",
+      "test_channel",
+    ]) {
+      if (typeof clean[ck] !== "undefined" && clean[ck] !== null)
+        clean[ck] = String(clean[ck]);
+    }
     let actionData;
     try {
       actionData = await queueCollabWarzAction("update_config", {
