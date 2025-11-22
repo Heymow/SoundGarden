@@ -41,6 +41,7 @@ console.log(`Bot Token configured: ${DISCORD_BOT_TOKEN ? "Yes" : "No"}`);
 console.log(`Webhook URL configured: ${DISCORD_WEBHOOK_URL ? "Yes" : "No"}`);
 console.log(`Command Prefix: ${COMMAND_PREFIX}`);
 console.log(`Redis URL: ${REDIS_URL}`);
+console.log(`CollabWarz Token configured: ${COLLABWARZ_TOKEN ? "Yes" : "No"}`);
 
 // Redis client and initialization
 let redisClient;
@@ -689,14 +690,44 @@ app.post("/api/admin/log", verifyAdminAuth, (req, res) => {
 app.post("/api/collabwarz/log", (req, res) => {
   try {
     const auth = validateCogAuth(req, res);
-    if (!auth.ok)
+    // For better diagnostics: record header presence and masked token values if auth fails
+    if (!auth.ok) {
+      const tokenHeader =
+        req.header("x-cw-token") || req.header("X-CW-Token") || null;
+      const authHeader =
+        req.header("Authorization") || req.header("authorization") || null;
+      // Mask token values for logs (do not print full tokens)
+      const mask = (t) => {
+        if (!t) return null;
+        try {
+          if (t.length <= 8) return "****";
+          return `${t.substring(0, 6)}...${t.substring(t.length - 4)}`;
+        } catch (e) {
+          return "****";
+        }
+      };
+      pushStatusLog({
+        result: "auth_failed",
+        headerPresent: !!tokenHeader,
+        authHeaderPresent: !!authHeader,
+        tokenMask: mask(tokenHeader),
+        authMask: mask(authHeader ? authHeader.replace(/Bearer /i, "") : null),
+        ip: req.ip || req.headers["x-forwarded-for"] || null,
+        reason: auth.message,
+      });
+      console.warn(
+        `/api/collabwarz/log auth failed: headerPresent=${!!tokenHeader} authHeaderPresent=${!!authHeader} reason=${
+          auth.message
+        }`
+      );
       return res.status(401).json({ success: false, message: auth.message });
-    // Push to in-memory competition logs and print a small audit message
+    }
+    // Push to in-memory competition logs and print an audit message
     pushCompetitionLog(req.body);
     console.log(
       `🔔 Competition log received from cog: ${
         req.body.message || "(no message)"
-      }`
+      } (guild=${req.body.guild_name || req.body.guild_id || "N/A"})`
     );
     return res.json({ success: true });
   } catch (err) {
@@ -1037,7 +1068,21 @@ app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
 // The cog posts logs and action results using a header 'X-CW-Token' with a shared secret
 // The server validates the header against the `COLLABWARZ_TOKEN` env var to avoid unauthorized postings.
 function validateCogAuth(req, res) {
+  // Accept either 'X-CW-Token' header (preferred) OR an Authorization: Bearer token.
   const header = req.header("x-cw-token") || req.header("X-CW-Token");
+  const authHeader = req.header("Authorization") || req.header("authorization");
+  let bearer = null;
+  if (authHeader) {
+    try {
+      const parts = authHeader.split(" ");
+      if (parts.length === 2 && parts[0].toLowerCase() === "bearer") {
+        bearer = parts[1];
+      }
+    } catch (e) {
+      bearer = null;
+    }
+  }
+
   if (!COLLABWARZ_TOKEN) {
     // If not configured, reject to avoid accidental exposure
     return {
@@ -1045,10 +1090,15 @@ function validateCogAuth(req, res) {
       message: "Server not configured with COLLABWARZ_TOKEN",
     };
   }
-  if (!header || header !== COLLABWARZ_TOKEN) {
-    return { ok: false, message: "Invalid or missing X-CW-Token header" };
-  }
-  return { ok: true };
+
+  // If the token matches either header or bearer token, accept
+  if (header && header === COLLABWARZ_TOKEN) return { ok: true };
+  if (bearer && bearer === COLLABWARZ_TOKEN) return { ok: true };
+
+  return {
+    ok: false,
+    message: "Invalid or missing X-CW-Token / Authorization bearer token",
+  };
 }
 
 // Admin auth validation: uses Discord OAuth access token in Authorization header
