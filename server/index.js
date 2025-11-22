@@ -1226,6 +1226,31 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
   }
 });
 
+// Admin: return list of guild channels (for dropdowns)
+app.get("/api/admin/channels", verifyAdminAuth, async (req, res) => {
+  try {
+    if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID) {
+      return res.json({ success: true, channels: [] });
+    }
+    const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/channels`;
+    const resp = await axios.get(url, {
+      headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
+      timeout: 5000,
+    });
+    if (!resp || !Array.isArray(resp.data))
+      return res.json({ success: true, channels: [] });
+    // Filter to text channels (type === 0)
+    const channels = resp.data
+      .filter((c) => c.type === 0)
+      .map((c) => ({ id: c.id, name: c.name, display: `#${c.name}` }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return res.json({ success: true, channels });
+  } catch (err) {
+    console.error("/api/admin/channels error:", err.message || err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // Admin system diagnostics endpoint
 app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
   try {

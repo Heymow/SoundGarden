@@ -21,6 +21,7 @@ export default function SystemStatus() {
   const [adminConfig, setAdminConfig] = useState(null);
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [configDraft, setConfigDraft] = useState(null);
+  const [channels, setChannels] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
@@ -32,16 +33,69 @@ export default function SystemStatus() {
 
   const handleEditConfig = async () => {
     try {
+      // Fetch channels first so we can try to resolve existing configured channels into the dropdown
+      try {
+        const chRes = await botApi.getAdminChannels();
+        if (chRes && Array.isArray(chRes.channels)) setChannels(chRes.channels);
+      } catch (e) {
+        console.warn("Failed to load channels", e);
+      }
+
       const cfg = await botApi.getAdminConfig();
       if (cfg && cfg.config) {
         setAdminConfig(cfg.config);
-        setConfigDraft({ ...cfg.config });
+        // Normalize channel fields for the dropdowns - prefer the channel id as string
+        const normalizeChannelForDraft = (val) => {
+          if (!val && val !== 0) return "";
+          if (typeof val === "number") return String(val);
+          if (typeof val === "string") {
+            const m = val.match(/^<#(\d+)>$/);
+            if (m) return m[1];
+            if (/^\d+$/.test(val)) return val;
+            // unknown format - keep as raw in "__other"
+            return "__other";
+          }
+          return "";
+        };
+
+        const draft = { ...cfg.config };
+        // Convert numeric ids / mentions to plain id strings for selects
+        for (const c of ["announcement_channel", "submission_channel", "test_channel"]) {
+          const raw = cfg.config?.[c];
+          const parsed = normalizeChannelForDraft(raw);
+          if (parsed === "__other") {
+            draft[c] = "__other";
+            draft[`${c}_raw`] = raw;
+          } else {
+            // If channels exist, ensure parsed id matches a known channel, otherwise treat as __other
+            if (channels && channels.length > 0) {
+              const found = channels.find(ch => ch.id === String(parsed));
+              if (found) {
+                draft[c] = parsed || "";
+                if (draft[`${c}_raw`]) delete draft[`${c}_raw`];
+              } else if (parsed) {
+                draft[c] = "__other";
+                draft[`${c}_raw`] = raw;
+              } else {
+                draft[c] = "";
+                if (draft[`${c}_raw`]) delete draft[`${c}_raw`];
+              }
+            } else {
+              draft[c] = parsed || "";
+              if (draft[`${c}_raw`]) delete draft[`${c}_raw`];
+            }
+          }
+        }
+
+        setConfigDraft(draft);
         setSaveSuccess(false);
         setConfigModalOpen(true);
       } else {
-        showError('❌ Failed to load bot configuration');
+        showError("❌ Failed to load bot configuration");
       }
-    } catch (err) { showError(`❌ Failed to load config: ${err.message}`); }
+    } catch (err) {
+      showError(`❌ Failed to load config: ${err.message}`);
+    }
   };
 
   const handleViewLogs = async () => {
@@ -146,9 +200,24 @@ export default function SystemStatus() {
   const handleConfigSave = async () => {
     if (!configDraft) return;
     // Build updates: compare with adminConfig
+    const normalizedDraft = { ...configDraft };
+    // Normalize channel fields for sending: use raw if __other
+    for (const c of ["announcement_channel", "submission_channel", "test_channel"]) {
+      if (normalizedDraft[c] === '__other') {
+        normalizedDraft[c] = normalizedDraft[`${c}_raw`] || '';
+      }
+      // convert plain numeric string to number
+      if (typeof normalizedDraft[c] === 'string' && /^\d+$/.test(normalizedDraft[c])) {
+        normalizedDraft[c] = Number(normalizedDraft[c]);
+      }
+    }
     const updates = {};
-    Object.keys(configDraft).forEach(k => {
-      if (String(configDraft[k]) !== String(adminConfig?.[k] || '')) updates[k] = configDraft[k];
+    Object.keys(normalizedDraft).forEach((k) => {
+      // skip raw helper fields
+      if (k.endsWith('_raw')) return;
+      const draftVal = normalizedDraft[k];
+      const existingVal = adminConfig?.[k];
+      if (String(draftVal) !== String(existingVal || '')) updates[k] = draftVal;
     });
     if (Object.keys(updates).length === 0) { showError('No changes to save'); return; }
     setIsSaving(true);
@@ -156,9 +225,9 @@ export default function SystemStatus() {
     await overlay.blockingRun('Applying configuration...', async () => {
       overlay.startAction('update_config');
       try {
-        // Pre-parse channel mentions: <#123> or numeric strings
+        // Pre-parse channel mentions: <#123> or numeric strings - these may still be strings
         for (const c of ['announcement_channel', 'submission_channel', 'test_channel']) {
-          if (updates[c] && typeof updates[c] === 'string') {
+          if (typeof updates[c] === 'string') {
             const m = updates[c].match(/^<#(\d+)>$/);
             if (m) updates[c] = Number(m[1]);
             else if (/^\d+$/.test(updates[c])) updates[c] = Number(updates[c]);
@@ -790,13 +859,46 @@ export default function SystemStatus() {
               <p style={{ color: 'var(--admin-text-muted)', marginBottom: '8px' }}>Changes are queued and will be applied by the cog shortly.</p>
               <div className="config-edit-grid">
                 <label>Announcement Channel (id or mention)</label>
-                <input type="text" placeholder="#announcements or 1234567890" value={configDraft?.announcement_channel || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: e.target.value }))} />
+                <select value={configDraft?.announcement_channel ?? ''} onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: '__other', announcement_channel_raw: '' }));
+                  else setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: v, announcement_channel_raw: undefined }));
+                }}>
+                  <option value="">Not configured</option>
+                  {channels.map(c => <option key={c.id} value={c.id}>{`#${c.name}`}</option>)}
+                  <option value="__other">Other...</option>
+                </select>
+                {configDraft?.announcement_channel === '__other' && (
+                  <input type="text" placeholder="id or <#id>" value={configDraft?.announcement_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), announcement_channel_raw: e.target.value }))} />
+                )}
 
                 <label>Submission Channel</label>
-                <input type="text" placeholder="#submissions or 1234567890" value={configDraft?.submission_channel || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), submission_channel: e.target.value }))} />
+                <select value={configDraft?.submission_channel ?? ''} onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), submission_channel: '__other', submission_channel_raw: '' }));
+                  else setConfigDraft(prev => ({ ...(prev || {}), submission_channel: v, submission_channel_raw: undefined }));
+                }}>
+                  <option value="">Not configured</option>
+                  {channels.map(c => <option key={c.id} value={c.id}>{`#${c.name}`}</option>)}
+                  <option value="__other">Other...</option>
+                </select>
+                {configDraft?.submission_channel === '__other' && (
+                  <input type="text" placeholder="id or <#id>" value={configDraft?.submission_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), submission_channel_raw: e.target.value }))} />
+                )}
 
                 <label>Test Channel</label>
-                <input type="text" placeholder="#bot-testing" value={configDraft?.test_channel || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), test_channel: e.target.value }))} />
+                <select value={configDraft?.test_channel ?? ''} onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), test_channel: '__other', test_channel_raw: '' }));
+                  else setConfigDraft(prev => ({ ...(prev || {}), test_channel: v, test_channel_raw: undefined }));
+                }}>
+                  <option value="">Not configured</option>
+                  {channels.map(c => <option key={c.id} value={c.id}>{`#${c.name}`}</option>)}
+                  <option value="__other">Other...</option>
+                </select>
+                {configDraft?.test_channel === '__other' && (
+                  <input type="text" placeholder="id or <#id>" value={configDraft?.test_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), test_channel_raw: e.target.value }))} />
+                )}
 
                 <label className="checkbox-row">Auto-Announce</label>
                 <div className="checkbox-row">
