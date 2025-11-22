@@ -1976,6 +1976,10 @@
   background: var(--admin-card);
   color: var(--admin-text);
 }
+/* Ensure labels appear just above the controls for better readability */
+.config-edit-grid .form-row { display: block; margin-bottom: 10px; }
+.config-edit-grid .form-row label { display: block; margin-bottom: 6px; color: var(--admin-text); font-weight: 600; }
+.config-edit-grid .form-row select, .config-edit-grid .form-row input[type="text"], .config-edit-grid .form-row input[type="number"] { width: 100%; }
 
 /* Style dropdowns within admin sections to ensure legible contrast */
 .admin-card select,

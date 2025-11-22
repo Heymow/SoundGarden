@@ -111,6 +111,23 @@ export default function SystemStatus() {
           addMissing('submission_channel');
           addMissing('test_channel');
         } catch (e) { console.warn('Failed to add missing channels to dropdown', e); }
+        // Ensure the channels list contains any configured ids so dropdown can select them
+        try {
+          const currentChannels = (chRes && chRes.channels && chRes.channels.length > 0) ? chRes.channels.slice(0) : ((channels && channels.length > 0) ? channels.slice(0) : []);
+          const ensurePresent = (field) => {
+            const rawVal = draft[field];
+            if (!rawVal || rawVal === '__other') return;
+            const idStr = String(rawVal);
+            const found = currentChannels.some(ch => String(ch.id) === idStr);
+            if (!found) {
+              currentChannels.unshift({ id: idStr, name: idStr, display: `#${idStr}` });
+            }
+          };
+          ensurePresent('announcement_channel');
+          ensurePresent('submission_channel');
+          ensurePresent('test_channel');
+          setChannels(currentChannels);
+        } catch (e) { console.warn('Failed to ensure configured channels present in dropdown', e); }
         setConfigDraft(draft);
         setSaveSuccess(false);
         setConfigModalOpen(true);
@@ -980,83 +997,103 @@ export default function SystemStatus() {
                     {channelsError ? `⚠️ ${channelsError}` : '⚠️ Channel list not available. Ensure the server is configured with the bot token or enter channels via "Other..." as an ID or mention.'}
                   </div>
                 )}
-                <label>Announcement Channel (id or mention)</label>
-                <select value={configDraft?.announcement_channel ?? ''} onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: '__other', announcement_channel_raw: '' }));
-                  else setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: v, announcement_channel_raw: undefined }));
-                }}>
-                  <option value="">Not configured</option>
-                  {channels.map(c => <option key={c.id} value={c.id}>{`#${c.name}`}</option>)}
-                  <option value="__other">Other...</option>
-                </select>
-                {configDraft?.announcement_channel === '__other' && (
-                  <input type="text" placeholder="id or <#id>" value={configDraft?.announcement_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), announcement_channel_raw: e.target.value }))} />
-                )}
-
-                <label>Submission Channel</label>
-                <select value={configDraft?.submission_channel ?? ''} onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), submission_channel: '__other', submission_channel_raw: '' }));
-                  else setConfigDraft(prev => ({ ...(prev || {}), submission_channel: v, submission_channel_raw: undefined }));
-                }}>
-                  <option value="">Not configured</option>
-                  {channels.map(c => <option key={c.id} value={c.id}>{`#${c.name}`}</option>)}
-                  <option value="__other">Other...</option>
-                </select>
-                {configDraft?.submission_channel === '__other' && (
-                  <input type="text" placeholder="id or <#id>" value={configDraft?.submission_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), submission_channel_raw: e.target.value }))} />
-                )}
-
-                <label>Test Channel</label>
-                <select value={configDraft?.test_channel ?? ''} onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), test_channel: '__other', test_channel_raw: '' }));
-                  else setConfigDraft(prev => ({ ...(prev || {}), test_channel: v, test_channel_raw: undefined }));
-                }}>
-                  <option value="">Not configured</option>
-                  {channels.map(c => <option key={c.id} value={c.id}>{`#${c.name}`}</option>)}
-                  <option value="__other">Other...</option>
-                </select>
-                {configDraft?.test_channel === '__other' && (
-                  <input type="text" placeholder="id or <#id>" value={configDraft?.test_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), test_channel_raw: e.target.value }))} />
-                )}
-
-                <label className="checkbox-row">Auto-Announce</label>
-                <div className="checkbox-row">
-                  <input type="checkbox" checked={!!configDraft?.auto_announce} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), auto_announce: e.target.checked }))} />
-                  <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.auto_announce ? 'Enabled' : 'Disabled'}</span>
+                <div className="form-row">
+                  <label>Announcement Channel (id or mention)</label>
+                  <select value={configDraft?.announcement_channel ?? ''} onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: '__other', announcement_channel_raw: '' }));
+                    else setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: v, announcement_channel_raw: undefined }));
+                  }}>
+                    <option value="">Not configured</option>
+                    {channels.map(c => <option key={c.id} value={c.id}>{`#${c.name}`}</option>)}
+                    <option value="__other">Other...</option>
+                  </select>
+                  {configDraft?.announcement_channel === '__other' && (
+                    <input type="text" placeholder="id or <#id>" value={configDraft?.announcement_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), announcement_channel_raw: e.target.value }))} />
+                  )}
                 </div>
 
-                <label className="checkbox-row">Require Confirmation</label>
-                <div className="checkbox-row">
-                  <input type="checkbox" checked={!!configDraft?.require_confirmation} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), require_confirmation: e.target.checked }))} />
-                  <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.require_confirmation ? 'Enabled' : 'Disabled'}</span>
+                <div className="form-row">
+                  <label>Submission Channel</label>
+                  <select value={configDraft?.submission_channel ?? ''} onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), submission_channel: '__other', submission_channel_raw: '' }));
+                    else setConfigDraft(prev => ({ ...(prev || {}), submission_channel: v, submission_channel_raw: undefined }));
+                  }}>
+                    <option value="">Not configured</option>
+                    {channels.map(c => <option key={c.id} value={c.id}>{`#${c.name}`}</option>)}
+                    <option value="__other">Other...</option>
+                  </select>
+                  {configDraft?.submission_channel === '__other' && (
+                    <input type="text" placeholder="id or <#id>" value={configDraft?.submission_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), submission_channel_raw: e.target.value }))} />
+                  )}
                 </div>
 
-                <label className="checkbox-row">Safe Mode</label>
-                <div className="checkbox-row">
-                  <input type="checkbox" checked={!!configDraft?.safe_mode_enabled} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), safe_mode_enabled: e.target.checked }))} />
-                  <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.safe_mode_enabled ? 'Enabled' : 'Disabled'}</span>
+                <div className="form-row">
+                  <label>Test Channel</label>
+                  <select value={configDraft?.test_channel ?? ''} onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), test_channel: '__other', test_channel_raw: '' }));
+                    else setConfigDraft(prev => ({ ...(prev || {}), test_channel: v, test_channel_raw: undefined }));
+                  }}>
+                    <option value="">Not configured</option>
+                    {channels.map(c => <option key={c.id} value={c.id}>{`#${c.name}`}</option>)}
+                    <option value="__other">Other...</option>
+                  </select>
+                  {configDraft?.test_channel === '__other' && (
+                    <input type="text" placeholder="id or <#id>" value={configDraft?.test_channel_raw || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), test_channel_raw: e.target.value }))} />
+                  )}
                 </div>
 
-                <label className="checkbox-row">Use Everyone Ping</label>
-                <div className="checkbox-row">
-                  <input type="checkbox" checked={!!configDraft?.use_everyone_ping} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), use_everyone_ping: e.target.checked }))} />
-                  <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.use_everyone_ping ? 'Enabled' : 'Disabled'}</span>
+                <div className="form-row">
+                  <label className="checkbox-row">Auto-Announce</label>
+                  <div className="checkbox-row">
+                    <input type="checkbox" checked={!!configDraft?.auto_announce} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), auto_announce: e.target.checked }))} />
+                    <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.auto_announce ? 'Enabled' : 'Disabled'}</span>
+                  </div>
                 </div>
 
-                <label>Min Teams Required</label>
-                <input type="number" min={0} placeholder="Minimum teams" value={configDraft?.min_teams_required || 0} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), min_teams_required: Number(e.target.value) }))} />
-
-                <label className="checkbox-row">API Server Enabled</label>
-                <div className="checkbox-row">
-                  <input type="checkbox" checked={!!configDraft?.api_server_enabled} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), api_server_enabled: e.target.checked }))} />
-                  <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.api_server_enabled ? 'Enabled' : 'Disabled'}</span>
+                <div className="form-row">
+                  <label className="checkbox-row">Require Confirmation</label>
+                  <div className="checkbox-row">
+                    <input type="checkbox" checked={!!configDraft?.require_confirmation} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), require_confirmation: e.target.checked }))} />
+                    <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.require_confirmation ? 'Enabled' : 'Disabled'}</span>
+                  </div>
                 </div>
 
-                <label>API Server Port</label>
-                <input type="number" min={1} max={65535} value={configDraft?.api_server_port || 8080} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), api_server_port: Number(e.target.value) }))} />
+                <div className="form-row">
+                  <label className="checkbox-row">Safe Mode</label>
+                  <div className="checkbox-row">
+                    <input type="checkbox" checked={!!configDraft?.safe_mode_enabled} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), safe_mode_enabled: e.target.checked }))} />
+                    <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.safe_mode_enabled ? 'Enabled' : 'Disabled'}</span>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <label className="checkbox-row">Use Everyone Ping</label>
+                  <div className="checkbox-row">
+                    <input type="checkbox" checked={!!configDraft?.use_everyone_ping} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), use_everyone_ping: e.target.checked }))} />
+                    <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.use_everyone_ping ? 'Enabled' : 'Disabled'}</span>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <label>Min Teams Required</label>
+                  <input type="number" min={0} placeholder="Minimum teams" value={configDraft?.min_teams_required || 0} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), min_teams_required: Number(e.target.value) }))} />
+                </div>
+
+                <div className="form-row">
+                  <label className="checkbox-row">API Server Enabled</label>
+                  <div className="checkbox-row">
+                    <input type="checkbox" checked={!!configDraft?.api_server_enabled} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), api_server_enabled: e.target.checked }))} />
+                    <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.api_server_enabled ? 'Enabled' : 'Disabled'}</span>
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <label>API Server Port</label>
+                  <input type="number" min={1} max={65535} value={configDraft?.api_server_port || 8080} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), api_server_port: Number(e.target.value) }))} />
+                </div>
               </div>
               <div style={{ marginTop: 10, color: 'var(--admin-text-muted)' }}>
                 <small>Note: After saving, the cog will apply updates. Use the Refresh button to confirm the changes.</small>
