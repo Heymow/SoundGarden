@@ -793,22 +793,34 @@ class CollabWarz(commands.Cog):
             elif action == 'set_phase':
                 phase = params.get('phase')
                 if phase in ['submission', 'voting', 'paused', 'cancelled', 'ended', 'inactive']:
-                    await self.config.guild(guild).current_phase.set(phase)
-                    print(f"✅ Phase set to: {phase}")
+                    try:
+                        old_phase = await self.config.guild(guild).current_phase()
+                        await self.config.guild(guild).current_phase.set(phase)
+                        print(f"✅ Phase set to: {phase}")
+                        await self._send_competition_log(f"Phase changed: {old_phase} -> {phase}", guild=guild)
+                    except Exception as e:
+                        await self._maybe_noisy_log(f"❌ Failed to set phase to {phase}: {e}", guild=guild)
                 else:
                     print(f"❌ Invalid phase: {phase}")
 
             elif action == 'next_phase':
-                current_phase = await self.config.guild(guild).current_phase()
-                if current_phase == 'submission':
-                    await self.config.guild(guild).current_phase.set('voting')
-                    print("✅ Advanced to voting")
-                elif current_phase == 'voting':
-                    await self.config.guild(guild).current_phase.set('ended')
-                    print("✅ Advanced to ended")
-                else:
-                    await self.config.guild(guild).current_phase.set('submission')
-                    print("✅ Reset to submission")
+                try:
+                    current_phase = await self.config.guild(guild).current_phase()
+                    if current_phase == 'submission':
+                        new_phase = 'voting'
+                        await self.config.guild(guild).current_phase.set(new_phase)
+                        print("✅ Advanced to voting")
+                    elif current_phase == 'voting':
+                        new_phase = 'ended'
+                        await self.config.guild(guild).current_phase.set(new_phase)
+                        print("✅ Advanced to ended")
+                    else:
+                        new_phase = 'submission'
+                        await self.config.guild(guild).current_phase.set(new_phase)
+                        print("✅ Reset to submission")
+                    await self._send_competition_log(f"Phase advanced: {current_phase} -> {new_phase}", guild=guild)
+                except Exception as e:
+                    await self._maybe_noisy_log(f"❌ Failed to advance phase: {e}", guild=guild)
 
             elif action == 'start_new_week':
                 theme = params.get('theme')
@@ -867,17 +879,27 @@ class CollabWarz(commands.Cog):
                 if safe_mode:
                     print(f"⚠️ Reset week blocked by Safe Mode in guild {guild.name}")
                 else:
-                    await self.config.guild(guild).current_phase.set('submission')
-                    await self.config.guild(guild).week_cancelled.set(False)
-                    await self._clear_submissions_safe(guild)
-                    await self.config.guild(guild).voting_results.clear()
-                    await self.config.guild(guild).weekly_winners.clear()
-                    print("✅ Week reset")
+                    try:
+                        old_phase = await self.config.guild(guild).current_phase()
+                        await self.config.guild(guild).current_phase.set('submission')
+                        await self.config.guild(guild).week_cancelled.set(False)
+                        await self._clear_submissions_safe(guild)
+                        await self.config.guild(guild).voting_results.clear()
+                        await self.config.guild(guild).weekly_winners.clear()
+                        print("✅ Week reset")
+                        await self._send_competition_log(f"Week reset: {old_phase} -> submission", guild=guild)
+                    except Exception as e:
+                        await self._maybe_noisy_log(f"❌ Failed to reset week: {e}", guild=guild)
 
             elif action == 'force_voting':
-                await self.config.guild(guild).current_phase.set('voting')
-                await self.config.guild(guild).week_cancelled.set(False)
-                print("✅ Force set to voting phase")
+                try:
+                    old_phase = await self.config.guild(guild).current_phase()
+                    await self.config.guild(guild).current_phase.set('voting')
+                    await self.config.guild(guild).week_cancelled.set(False)
+                    print("✅ Force set to voting phase")
+                    await self._send_competition_log(f"Phase forced: {old_phase} -> voting", guild=guild)
+                except Exception as e:
+                    await self._maybe_noisy_log(f"❌ Failed to force voting: {e}", guild=guild)
 
             elif action == 'announce_winners':
                 try:
@@ -3390,7 +3412,17 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             if action == "set_phase":
                 phase = params.get('phase')
                 if phase in ['submission', 'voting', 'paused', 'cancelled', 'ended', 'inactive']:
-                    await self.config.guild(guild).current_phase.set(phase)
+                    try:
+                        old_phase = await self.config.guild(guild).current_phase()
+                        await self.config.guild(guild).current_phase.set(phase)
+                        # Emit a competition log for admins
+                        try:
+                            await self._send_competition_log(f"Phase changed: {old_phase} -> {phase}", guild=guild)
+                        except Exception:
+                            pass
+                    except Exception as e:
+                        result = {"success": False, "message": f"Failed to set phase: {e}"}
+                        return web.json_response(result)
                     result = {"success": True, "message": f"Phase set to {phase}"}
                 else:
                     result = {"success": False, "message": "Invalid phase"}
@@ -3413,6 +3445,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                         await self.config.guild(guild).current_phase.set('submission')
                         await self.config.guild(guild).week_cancelled.set(False)
                         await self._clear_submissions_safe(guild)
+                        try:
+                            await self._send_competition_log(f"New week started: theme='{theme}'", guild=guild)
+                        except Exception:
+                            pass
                         result = {"success": True, "message": f"New week started with theme: {theme}"}
                     else:
                         result = {"success": False, "message": "Theme required for new week"}
@@ -3421,6 +3457,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 reason = params.get('reason', 'Admin cancelled')
                 await self.config.guild(guild).current_phase.set('cancelled')
                 await self.config.guild(guild).week_cancelled.set(True)
+                try:
+                    await self._send_competition_log(f"Week cancelled: {reason}", guild=guild)
+                except Exception:
+                    pass
                 result = {"success": True, "message": f"Week cancelled: {reason}"}
             
             elif action == "clear_submissions":
@@ -3428,6 +3468,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     result = {"success": False, "message": "Action blocked: Safe mode is enabled"}
                 else:
                     await self._clear_submissions_safe(guild)
+                    try:
+                        await self._send_competition_log("All submissions cleared by admin", guild=guild)
+                    except Exception:
+                        pass
                     result = {"success": True, "message": "All submissions cleared"}
             
             elif action == "toggle_automation":
@@ -6678,7 +6722,18 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             await ctx.send(embed=embed)
             return
         
-        await self.config.guild(ctx.guild).current_phase.set(phase)
+        try:
+            old_phase = await self.config.guild(ctx.guild).current_phase()
+            await self.config.guild(ctx.guild).current_phase.set(phase)
+            # Send a competition log for audit
+            try:
+                await self._send_competition_log(f"Phase changed: {old_phase} -> {phase}", guild=ctx.guild)
+            except Exception:
+                # Avoid breaking command if logging fails
+                pass
+        except Exception as e:
+            await ctx.send(f"❌ Failed to set phase: {e}")
+            return
         
         # Create status embed with phase-specific information
         phase_info = {
