@@ -21,6 +21,8 @@ export default function SystemStatus() {
   const [adminConfig, setAdminConfig] = useState(null);
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [configDraft, setConfigDraft] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
   const [logsData, setLogsData] = useState([]);
   const overlay = useAdminOverlay();
@@ -34,6 +36,7 @@ export default function SystemStatus() {
       if (cfg && cfg.config) {
         setAdminConfig(cfg.config);
         setConfigDraft({ ...cfg.config });
+        setSaveSuccess(false);
         setConfigModalOpen(true);
       } else {
         showError('❌ Failed to load bot configuration');
@@ -148,16 +151,42 @@ export default function SystemStatus() {
       if (String(configDraft[k]) !== String(adminConfig?.[k] || '')) updates[k] = configDraft[k];
     });
     if (Object.keys(updates).length === 0) { showError('No changes to save'); return; }
+    setIsSaving(true);
+    setSaveSuccess(false);
     await overlay.blockingRun('Applying configuration...', async () => {
       overlay.startAction('update_config');
       try {
+        // Pre-parse channel mentions: <#123> or numeric strings
+        for (const c of ['announcement_channel', 'submission_channel', 'test_channel']) {
+          if (updates[c] && typeof updates[c] === 'string') {
+            const m = updates[c].match(/^<#(\d+)>$/);
+            if (m) updates[c] = Number(m[1]);
+            else if (/^\d+$/.test(updates[c])) updates[c] = Number(updates[c]);
+          }
+        }
         const res = await botApi.updateAdminConfig(updates);
         if (res && res.success) {
           showSuccess('✅ Configuration update queued');
           setConfigModalOpen(false);
-          // Refresh config
-          const newcfg = await botApi.getAdminConfig();
-          if (newcfg && newcfg.config) setAdminConfig(newcfg.config);
+          // Poll the server to get the updated config once the cog has applied it
+          let attempts = 0;
+          const maxAttempts = 6;
+          while (attempts < maxAttempts) {
+            try {
+              const newcfg = await botApi.getAdminConfig();
+              if (newcfg && newcfg.config) {
+                setAdminConfig(newcfg.config);
+                const changed = Object.keys(updates).some(k => String(newcfg.config[k]) !== String(adminConfig?.[k] || ''));
+                // If new config contains the latest values, stop polling
+                const allMatch = Object.keys(updates).every(k => String(newcfg.config[k]) === String(updates[k]));
+                if (allMatch) break;
+              }
+            } catch (e) { /* ignore and continue polling */ }
+            attempts++;
+            await new Promise(r => setTimeout(r, 1000));
+          }
+          setSaveSuccess(true);
+          setTimeout(() => setSaveSuccess(false), 4000);
         } else {
           showError(`❌ Failed to update config: ${res?.message || 'unknown'}`);
         }
@@ -167,6 +196,7 @@ export default function SystemStatus() {
         overlay.endAction('update_config');
       }
     });
+    setIsSaving(false);
   };
 
   const handleRestoreClick = () => {
@@ -751,59 +781,65 @@ export default function SystemStatus() {
         <div className="admin-modal-overlay" onClick={() => setConfigModalOpen(false)}>
           <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
             <div className="admin-modal-header">
-              <h3>⚙️ Edit Bot Configuration</h3>
-              <button className="admin-modal-close" onClick={() => setConfigModalOpen(false)}>×</button>
+              <h3>⚙️ Edit Bot Configuration {isSaving ? ' - Saving…' : (saveSuccess ? ' - Saved ✓' : '')}</h3>
+              <button className="admin-modal-close" onClick={() => { setIsSaving(false); setSaveSuccess(false); setConfigModalOpen(false); }}>×</button>
             </div>
             <div className="admin-modal-content">
+              <p style={{ color: 'var(--admin-text-muted)', marginBottom: '8px' }}>Changes are queued and will be applied by the cog shortly.</p>
               <div className="config-edit-grid">
                 <label>Announcement Channel (id or mention)</label>
-                <input type="text" value={configDraft?.announcement_channel || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: e.target.value }))} />
+                <input type="text" placeholder="#announcements or 1234567890" value={configDraft?.announcement_channel || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: e.target.value }))} />
 
                 <label>Submission Channel</label>
-                <input type="text" value={configDraft?.submission_channel || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), submission_channel: e.target.value }))} />
+                <input type="text" placeholder="#submissions or 1234567890" value={configDraft?.submission_channel || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), submission_channel: e.target.value }))} />
 
                 <label>Test Channel</label>
-                <input type="text" value={configDraft?.test_channel || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), test_channel: e.target.value }))} />
+                <input type="text" placeholder="#bot-testing" value={configDraft?.test_channel || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), test_channel: e.target.value }))} />
 
-                <label>Auto-Announce</label>
-                <select value={configDraft?.auto_announce ? 'true' : 'false'} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), auto_announce: e.target.value === 'true' }))}>
-                  <option value="true">Enabled</option>
-                  <option value="false">Disabled</option>
-                </select>
+                <label className="checkbox-row">Auto-Announce</label>
+                <div className="checkbox-row">
+                  <input type="checkbox" checked={!!configDraft?.auto_announce} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), auto_announce: e.target.checked }))} />
+                  <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.auto_announce ? 'Enabled' : 'Disabled'}</span>
+                </div>
 
-                <label>Require Confirmation</label>
-                <select value={configDraft?.require_confirmation ? 'true' : 'false'} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), require_confirmation: e.target.value === 'true' }))}>
-                  <option value="true">Enabled</option>
-                  <option value="false">Disabled</option>
-                </select>
+                <label className="checkbox-row">Require Confirmation</label>
+                <div className="checkbox-row">
+                  <input type="checkbox" checked={!!configDraft?.require_confirmation} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), require_confirmation: e.target.checked }))} />
+                  <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.require_confirmation ? 'Enabled' : 'Disabled'}</span>
+                </div>
 
-                <label>Safe Mode</label>
-                <select value={configDraft?.safe_mode_enabled ? 'true' : 'false'} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), safe_mode_enabled: e.target.value === 'true' }))}>
-                  <option value="true">Enabled</option>
-                  <option value="false">Disabled</option>
-                </select>
+                <label className="checkbox-row">Safe Mode</label>
+                <div className="checkbox-row">
+                  <input type="checkbox" checked={!!configDraft?.safe_mode_enabled} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), safe_mode_enabled: e.target.checked }))} />
+                  <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.safe_mode_enabled ? 'Enabled' : 'Disabled'}</span>
+                </div>
 
-                <label>Use Everyone Ping</label>
-                <select value={configDraft?.use_everyone_ping ? 'true' : 'false'} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), use_everyone_ping: e.target.value === 'true' }))}>
-                  <option value="true">Enabled</option>
-                  <option value="false">Disabled</option>
-                </select>
+                <label className="checkbox-row">Use Everyone Ping</label>
+                <div className="checkbox-row">
+                  <input type="checkbox" checked={!!configDraft?.use_everyone_ping} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), use_everyone_ping: e.target.checked }))} />
+                  <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.use_everyone_ping ? 'Enabled' : 'Disabled'}</span>
+                </div>
 
                 <label>Min Teams Required</label>
-                <input type="number" value={configDraft?.min_teams_required || 0} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), min_teams_required: Number(e.target.value) }))} />
+                <input type="number" min={0} placeholder="Minimum teams" value={configDraft?.min_teams_required || 0} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), min_teams_required: Number(e.target.value) }))} />
 
-                <label>API Server Enabled</label>
-                <select value={configDraft?.api_server_enabled ? 'true' : 'false'} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), api_server_enabled: e.target.value === 'true' }))}>
-                  <option value="true">Enabled</option>
-                  <option value="false">Disabled</option>
-                </select>
+                <label className="checkbox-row">API Server Enabled</label>
+                <div className="checkbox-row">
+                  <input type="checkbox" checked={!!configDraft?.api_server_enabled} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), api_server_enabled: e.target.checked }))} />
+                  <span style={{ color: 'var(--admin-text-muted)' }}>{configDraft?.api_server_enabled ? 'Enabled' : 'Disabled'}</span>
+                </div>
 
                 <label>API Server Port</label>
-                <input type="number" value={configDraft?.api_server_port || 8080} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), api_server_port: Number(e.target.value) }))} />
+                <input type="number" min={1} max={65535} value={configDraft?.api_server_port || 8080} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), api_server_port: Number(e.target.value) }))} />
+              </div>
+              <div style={{ marginTop: 10, color: 'var(--admin-text-muted)' }}>
+                <small>Note: After saving, the cog will apply updates. Use the Refresh button to confirm the changes.</small>
               </div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                <button className="admin-btn btn-primary" onClick={handleConfigSave}>Save</button>
-                <button className="admin-btn btn-secondary" onClick={() => setConfigModalOpen(false)}>Cancel</button>
+                <button className="admin-btn btn-primary" onClick={handleConfigSave} disabled={!configDraft || JSON.stringify(configDraft) === JSON.stringify(adminConfig) || isSaving}>
+                  {isSaving ? 'Saving…' : 'Save'} {saveSuccess && <span style={{ color: '#4CAF50', marginLeft: '8px' }}>✓</span>}
+                </button>
+                <button className="admin-btn btn-secondary" onClick={() => { setIsSaving(false); setSaveSuccess(false); setConfigModalOpen(false); }}>Cancel</button>
               </div>
             </div>
           </div>

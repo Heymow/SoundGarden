@@ -1946,3 +1946,30 @@
   overflow-y: auto;
   flex: 1;
 }
+
+/* Config edit form inside modal */
+.config-edit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 20px;
+  align-items: center;
+}
+.config-edit-grid label {
+  color: var(--admin-text-muted);
+  font-weight: 500;
+}
+.config-edit-grid input[type="text"], .config-edit-grid input[type="number"], .config-edit-grid select {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--admin-border);
+  background: rgba(255,255,255,0.02);
+  color: var(--admin-text);
+}
+.config-edit-grid .full-row {
+  grid-column: 1 / -1;
+}
+.config-edit-grid .checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

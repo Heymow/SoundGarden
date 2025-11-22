@@ -983,6 +983,11 @@ class CollabWarz(commands.Cog):
                             changes.append(f"{k} -> {v_parsed}")
                         if changes:
                             await self._send_competition_log(f"Config updated: {', '.join(changes)}", guild=guild)
+                            try:
+                                # Push updated status immediately so admin UI reflects changes
+                                await self._update_redis_status(guild)
+                            except Exception:
+                                pass
                             print("✅ update_config applied:", ", ".join(changes))
                     except Exception as e:
                         await self._maybe_noisy_log(f"❌ Failed to apply update_config: {e}", guild=guild)

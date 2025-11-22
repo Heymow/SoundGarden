@@ -434,6 +434,38 @@ app.use(
 );
 app.use(express.json());
 
+// Helper: Resolve a channel name (e.g., 'general' or '#general') to a Discord channel ID if possible
+async function resolveChannelNameToId(raw) {
+  try {
+    if (!raw) return null;
+    // Support <#12345> or numeric IDs directly
+    const idMatch = String(raw)
+      .trim()
+      .match(/^<#!?(\d+)>$|^(\d+)$/);
+    if (idMatch) {
+      return Number(idMatch[1] || idMatch[2]);
+    }
+    // Strip leading # if present, then resolve by name using Discord API
+    const name = String(raw).trim().replace(/^#/, "");
+    if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID) return null;
+    const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/channels`;
+    const resp = await axios.get(url, {
+      headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
+      timeout: 5000,
+    });
+    if (resp && Array.isArray(resp.data)) {
+      const found = resp.data.find(
+        (c) => String(c.name).toLowerCase() === String(name).toLowerCase()
+      );
+      if (found) return Number(found.id);
+    }
+  } catch (e) {
+    console.warn("⚠️ resolveChannelNameToId failed:", e.message || e);
+    return null;
+  }
+  return null;
+}
+
 // Health check
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
@@ -1108,6 +1140,45 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
       return res
         .status(400)
         .json({ success: false, message: "No allowed keys to update" });
+
+    // Normalize channel refs (#name, <#id>, id) if server has permissions
+    try {
+      for (const chanKey of [
+        "announcement_channel",
+        "submission_channel",
+        "test_channel",
+      ]) {
+        if (clean[chanKey]) {
+          const resolved = await resolveChannelNameToId(clean[chanKey]);
+          if (resolved) {
+            console.log(
+              `🔁 /api/admin/config: Resolved ${chanKey} '${String(
+                updates[chanKey]
+              )}' -> ${resolved}`
+            );
+            clean[chanKey] = resolved;
+          }
+        }
+      }
+      // Convert numeric strings/boolean strings to correct types
+      if (clean.api_server_port)
+        clean.api_server_port =
+          parseInt(clean.api_server_port, 10) || clean.api_server_port;
+      for (const boolKey of [
+        "auto_announce",
+        "require_confirmation",
+        "safe_mode_enabled",
+        "api_server_enabled",
+        "use_everyone_ping",
+      ]) {
+        if (typeof clean[boolKey] === "string") {
+          const v = clean[boolKey].toLowerCase();
+          clean[boolKey] = v === "true" || v === "1" || v === "yes";
+        }
+      }
+    } catch (e) {
+      console.warn("⚠️ Normalization for config values failed", e.message || e);
+    }
 
     const actionData = await queueCollabWarzAction("update_config", {
       updates: clean,

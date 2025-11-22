@@ -261,9 +261,23 @@ export const getAdminConfig = async () => {
  * @param {Object} updates - Configuration updates to apply
  */
 export const updateAdminConfig = async (updates) => {
+  // Client-side parsing helper for channel mentions and numeric values
+  const parseUpdates = { ...updates };
+  for (const k of [
+    "announcement_channel",
+    "submission_channel",
+    "test_channel",
+  ]) {
+    if (parseUpdates[k] && typeof parseUpdates[k] === "string") {
+      const m = parseUpdates[k].match(/^<#(\d+)>$/);
+      if (m) parseUpdates[k] = Number(m[1]);
+      else if (/^\d+$/.test(parseUpdates[k]))
+        parseUpdates[k] = Number(parseUpdates[k]);
+    }
+  }
   return await fetchWithAuth("/api/admin/config", {
     method: "POST",
-    body: JSON.stringify({ updates }),
+    body: JSON.stringify({ updates: parseUpdates }),
   });
 };
 
