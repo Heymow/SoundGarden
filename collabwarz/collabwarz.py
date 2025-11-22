@@ -1038,11 +1038,21 @@ class CollabWarz(commands.Cog):
                                     try:
                                         # POST status to backend so the admin server has the latest
                                         await self._post_with_temp_session(backend_url.rstrip('/') + '/api/collabwarz/status', json_payload=status_after, headers={"X-CW-Token": backend_token, "Authorization": f"Bearer {backend_token}"}, guild=guild)
-                                    except Exception:
+                                    except Exception as e:
+                                        await self._maybe_noisy_log(f"⚠️ CollabWarz: Failed to post status to backend: {e}", guild=guild)
                                         pass
                             except Exception:
                                 pass
-                            print("✅ update_config applied:", ", ".join(changes))
+                            try:
+                                print("✅ update_config applied:", ", ".join(changes))
+                                # Log the updated status after applying changes for traceability
+                                try:
+                                    import json as _json
+                                    print("⚙️ status_after:", _json.dumps(status_after))
+                                except Exception:
+                                    print(f"⚙️ status_after (raw): {status_after}")
+                            except Exception:
+                                pass
                         else:
                             print("⚠️ update_config: no recognized changes applied")
                     except Exception as e:

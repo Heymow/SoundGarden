@@ -261,6 +261,10 @@ export default function SystemStatus() {
         if (res && res.success) {
           showSuccess('✅ Configuration update queued');
           setConfigModalOpen(false);
+          if (res.unresolved && Array.isArray(res.unresolved) && res.unresolved.length) {
+            const list = res.unresolved.map(r => `${r.key}: ${r.value}`).join(', ');
+            showError(`⚠️ Some channels couldn't be resolved: ${list}`);
+          }
           // If we have an action id from the server, poll the queue's processed items for a result
           const actionId = res.actionId || res.id || null;
           let actionProcessed = null;
@@ -283,6 +287,8 @@ export default function SystemStatus() {
                 // Show processed action error and stop further polling for config changes
                 const errMsg = actionProcessed.error || (actionProcessed.details && actionProcessed.details.error) || 'Action failed';
                 showError(`❌ Cog reported a failed action: ${errMsg}`);
+                // Also open a modal with details if available
+                if (actionProcessed.details) overlay.showAlert('info', `Action details: ${JSON.stringify(actionProcessed.details)}`);
               }
             }
           }

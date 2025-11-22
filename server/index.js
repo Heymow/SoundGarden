@@ -1122,6 +1122,7 @@ app.get("/api/admin/config", verifyAdminAuth, async (req, res) => {
       if (statusRaw) {
         const st = JSON.parse(statusRaw);
         // Provide a useful subset of config to the admin UI
+        console.log("/api/admin/config: raw status from redis:", st);
         cfg = {
           announcement_channel:
             st.announcement_channel || st.announcementChannel || null,
@@ -1214,6 +1215,7 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
 
     // Normalize channel refs (#name, <#id>, id) if server has permissions
     try {
+      const failedResolutions = [];
       for (const chanKey of [
         "announcement_channel",
         "submission_channel",
@@ -1228,6 +1230,11 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
               )}' -> ${resolved}`
             );
             clean[chanKey] = resolved;
+          } else {
+            // If the value looks like a numeric id, keep it, otherwise record unresolved for admins
+            if (!String(clean[chanKey]).match(/^[0-9]+$/)) {
+              failedResolutions.push({ key: chanKey, value: updates[chanKey] });
+            }
           }
         }
       }
@@ -1268,7 +1275,11 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
     const actionData = await queueCollabWarzAction("update_config", {
       updates: clean,
     });
-    return res.json({ success: true, actionId: actionData.id });
+    return res.json({
+      success: true,
+      actionId: actionData.id,
+      unresolved: failedResolutions,
+    });
   } catch (err) {
     console.error("/api/admin/config POST error:", err.message || err);
     return res.status(500).json({ success: false, message: err.message });
