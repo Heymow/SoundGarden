@@ -265,6 +265,18 @@ export default function SystemStatus() {
       }
     };
     loadBackups();
+    // Fetch recent competition logs at mount
+    const loadLogs = async () => {
+      try {
+        const logResponse = await botApi.getCompetitionLogs();
+        if (logResponse && Array.isArray(logResponse.logs)) {
+          setLogsData(logResponse.logs || []);
+        }
+      } catch (e) {
+        console.warn('Failed to load competition logs:', e);
+      }
+    };
+    loadLogs();
   }, []);
 
   const handleRunDiagnostics = async () => {
@@ -527,28 +539,31 @@ export default function SystemStatus() {
         <h3 className="admin-card-title">📜 System Logs</h3>
         <div className="admin-card-content">
           <div className="log-viewer">
-            <div className="log-entry log-info">
-              <span className="log-time">2024-01-15 14:32:15</span>
-              <span className="log-level">INFO</span>
-              <span className="log-message">Announcement posted successfully</span>
-            </div>
-            <div className="log-entry log-success">
-              <span className="log-time">2024-01-15 14:30:00</span>
-              <span className="log-level">SUCCESS</span>
-              <span className="log-message">Phase changed to: voting</span>
-            </div>
-            <div className="log-entry log-info">
-              <span className="log-time">2024-01-15 14:28:45</span>
-              <span className="log-level">INFO</span>
-              <span className="log-message">New submission received from Team Alpha</span>
-            </div>
-            <div className="log-entry log-warning">
-              <span className="log-time">2024-01-15 14:15:20</span>
-              <span className="log-level">WARNING</span>
-              <span className="log-message">Rate limit approaching for API calls</span>
-            </div>
+            {logsData && logsData.length > 0 ? (
+              // show up to 4 latest logs
+              logsData.slice(-4).map((log, index) => (
+                <div key={index} className={`log-entry log-${log.level?.toLowerCase() || 'info'}`}>
+                  <span className="log-time">{log.timestamp ? new Date(log.timestamp).toLocaleString() : 'Unknown'}</span>
+                  <span className="log-level">{log.level || 'INFO'}</span>
+                  <span className="log-message">{log.message || JSON.stringify(log)}</span>
+                </div>
+              ))
+            ) : (
+              <div className="log-entry log-empty">
+                <span className="log-message">No logs available</span>
+              </div>
+            )}
           </div>
-          <button className="admin-btn btn-secondary" onClick={handleViewLogs}>View Full Logs</button>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+            <button className="admin-btn btn-secondary" onClick={handleViewLogs}>View Full Logs</button>
+            <button className="admin-btn btn-info" onClick={async () => {
+              try {
+                const logResponse = await botApi.getCompetitionLogs();
+                if (logResponse && Array.isArray(logResponse.logs)) setLogsData(logResponse.logs || []);
+                showSuccess('✅ Logs refreshed');
+              } catch (e) { showError('❌ Failed to refresh logs'); }
+            }}>Refresh Logs</button>
+          </div>
         </div>
       </div>
 
