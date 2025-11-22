@@ -90,7 +90,9 @@ export default function SystemStatus() {
       }
       showSuccess("💾 Backup created successfully!");
       try {
-        const list = await botApi.getBackups();
+        const status = await botApi.getAdminStatus().catch(() => ({}));
+        const guildId = status && (status.guild_id || status.guildId) ? (status.guild_id || status.guildId) : null;
+        const list = await botApi.getBackups(guildId);
         if (list && Array.isArray(list.backups)) {
           setBackups(list.backups);
           if (list.backups.length > 0) setLatestBackup(list.backups[0]);
@@ -125,7 +127,8 @@ export default function SystemStatus() {
             const updatedStatus = await botApi.getAdminStatus().catch(() => ({}));
             if (updatedStatus && typeof updatedStatus.safe_mode_enabled !== 'undefined') setSafeModeEnabled(!!updatedStatus.safe_mode_enabled);
             try {
-              const list = await botApi.getBackups();
+              const guildId = updatedStatus && (updatedStatus.guild_id || updatedStatus.guildId) ? (updatedStatus.guild_id || updatedStatus.guildId) : null;
+              const list = await botApi.getBackups(guildId);
               if (list && Array.isArray(list.backups)) {
                 setBackups(list.backups);
                 if (list.backups.length > 0) setLatestBackup(list.backups[0]);
@@ -185,7 +188,8 @@ export default function SystemStatus() {
         if (res && res.success) {
           showSuccess('✅ Last backup restored successfully');
           try {
-            const list = await botApi.getBackups();
+            const guildId = currentStatus && (currentStatus.guild_id || currentStatus.guildId) ? (currentStatus.guild_id || currentStatus.guildId) : null;
+            const list = await botApi.getBackups(guildId);
             if (list && Array.isArray(list.backups)) {
               setBackups(list.backups);
               if (list.backups.length > 0) setLatestBackup(list.backups[0]);
@@ -214,7 +218,9 @@ export default function SystemStatus() {
     fetchStatus();
     const loadBackups = async () => {
       try {
-        const list = await botApi.getBackups();
+        const status = await botApi.getAdminStatus().catch(() => ({}));
+        const guildId = status && (status.guild_id || status.guildId) ? (status.guild_id || status.guildId) : null;
+        const list = await botApi.getBackups(guildId);
         if (list && Array.isArray(list.backups)) {
           setBackups(list.backups);
           if (list.backups.length > 0) setLatestBackup(list.backups[0]);
@@ -362,7 +368,8 @@ export default function SystemStatus() {
                                 const updatedStatus = await botApi.getAdminStatus().catch(() => ({}));
                                 if (updatedStatus && typeof updatedStatus.safe_mode_enabled !== 'undefined') setSafeModeEnabled(!!updatedStatus.safe_mode_enabled);
                                 try {
-                                  const list = await botApi.getBackups();
+                                  const guildId = updatedStatus && (updatedStatus.guild_id || updatedStatus.guildId) ? (updatedStatus.guild_id || updatedStatus.guildId) : null;
+                                  const list = await botApi.getBackups(guildId);
                                   if (list && Array.isArray(list.backups)) {
                                     setBackups(list.backups);
                                     if (list.backups.length > 0) setLatestBackup(list.backups[0]);

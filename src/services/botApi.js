@@ -624,9 +624,11 @@ export const backupData = async () => {
 /**
  * Get list of backups available for this guild
  */
-export const getBackups = async () => {
+export const getBackups = async (guildId = null) => {
   try {
-    return await fetchWithAuth("/api/admin/backups");
+    let url = "/api/admin/backups";
+    if (guildId) url = `${url}?guildId=${encodeURIComponent(guildId)}`;
+    return await fetchWithAuth(url);
   } catch (err) {
     // Fallback: try admin actions that might return backups list
     const aliases = [
@@ -680,8 +682,8 @@ export const downloadBackup = async (filename) => {
 /**
  * Get latest backup if any (helper)
  */
-export const getLatestBackup = async () => {
-  const res = await getBackups();
+export const getLatestBackup = async (guildId) => {
+  const res = await getBackups(guildId);
   if (res && Array.isArray(res.backups) && res.backups.length > 0) {
     return res.backups[0];
   }
