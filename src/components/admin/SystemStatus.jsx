@@ -87,6 +87,26 @@ export default function SystemStatus() {
           }
         }
 
+        // If there are configured channel ids missing from the channel list, add placeholders
+        try {
+          const addMissing = (field) => {
+            const val = draft[field];
+            if (!val || val === '__other') return;
+            const idStr = String(val);
+            const found = (channels || []).some(ch => ch.id === idStr);
+            if (!found) {
+              setChannels(prev => {
+                const exists = (prev || []).some(ch => ch.id === idStr);
+                if (exists) return prev;
+                const appended = [{ id: idStr, name: `${idStr}`, display: `${idStr}` }, ...(prev || [])];
+                return appended;
+              });
+            }
+          };
+          addMissing('announcement_channel');
+          addMissing('submission_channel');
+          addMissing('test_channel');
+        } catch (e) { console.warn('Failed to add missing channels to dropdown', e); }
         setConfigDraft(draft);
         setSaveSuccess(false);
         setConfigModalOpen(true);
@@ -367,6 +387,15 @@ export default function SystemStatus() {
     } catch (err) { showError(`❌ Restore failed: ${err.message}`); }
   };
 
+  const fetchChannels = async () => {
+    try {
+      const ch = await botApi.getAdminChannels();
+      if (ch && Array.isArray(ch.channels)) setChannels(ch.channels);
+    } catch (e) {
+      console.warn('Failed to load admin channels:', e);
+    }
+  };
+
   useEffect(() => {
     // Fetch the current admin status to initialize safe mode toggle
     const fetchStatus = async () => {
@@ -413,8 +442,10 @@ export default function SystemStatus() {
       }
     };
     loadConfig();
+    fetchChannels();
     // Also refresh serverInfo that includes cog status when opening the screen
-    refreshSystemInfo();
+    // Do not show toast when automatically refreshing on mount
+    refreshSystemInfo(false);
     // Fetch recent competition logs at mount
     const loadLogs = async () => {
       try {
@@ -429,13 +460,15 @@ export default function SystemStatus() {
     loadLogs();
   }, []);
 
-  const refreshSystemInfo = async () => {
+  const refreshSystemInfo = async (showToast = false) => {
     try {
       const sys = await botApi.getAdminSystem();
       if (sys && sys.diagnostics) {
         setServerInfo(sys.diagnostics);
-        showSuccess('✅ Server info refreshed');
+        if (showToast) showSuccess('✅ Server info refreshed');
       }
+      // Also attempt to refresh channel list if any change may occur
+      await fetchChannels();
     } catch (e) { showError('❌ Failed to refresh server info'); }
   };
 
@@ -703,7 +736,7 @@ export default function SystemStatus() {
             </div>
           </div>
           <div style={{ marginTop: '10px' }}>
-            <button className="admin-btn btn-secondary" onClick={refreshSystemInfo}>🔄 Refresh Server Info</button>
+            <button className="admin-btn btn-secondary" onClick={() => refreshSystemInfo(true)}>🔄 Refresh Server Info</button>
           </div>
         </div>
       </div>
@@ -858,6 +891,11 @@ export default function SystemStatus() {
             <div className="admin-modal-content">
               <p style={{ color: 'var(--admin-text-muted)', marginBottom: '8px' }}>Changes are queued and will be applied by the cog shortly.</p>
               <div className="config-edit-grid">
+                {channels.length === 0 && (
+                  <div style={{ marginBottom: 8, color: 'var(--admin-text-muted)' }}>
+                    ⚠️ Channel list not available. Ensure the server is configured with the bot token or enter channels via "Other..." as an ID or mention.
+                  </div>
+                )}
                 <label>Announcement Channel (id or mention)</label>
                 <select value={configDraft?.announcement_channel ?? ''} onChange={(e) => {
                   const v = e.target.value;
