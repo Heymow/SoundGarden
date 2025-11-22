@@ -489,6 +489,7 @@
 .btn-primary {
   background: linear-gradient(90deg, var(--admin-accent), var(--admin-accent-2));
   color: var(--admin-bg);
+  font-weight: 500;
 }
 
 .btn-primary:hover {
@@ -548,6 +549,7 @@
 .btn-warning {
   background: var(--admin-warning);
   color: white;
+  font-weight: 500;
 }
 
 .btn-warning:hover {
@@ -558,6 +560,7 @@
 .btn-info {
   background: var(--admin-info);
   color: white;
+  font-weight: 500;
 }
 
 .btn-info:hover {
