@@ -466,6 +466,27 @@ async function resolveChannelNameToId(raw) {
   return null;
 }
 
+// Helper: Resolve a channel ID to a display name if possible (e.g., '#general')
+async function resolveChannelIdToName(id) {
+  try {
+    if (!id) return null;
+    if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID) return null;
+    const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/channels`;
+    const resp = await axios.get(url, {
+      headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
+      timeout: 5000,
+    });
+    if (resp && Array.isArray(resp.data)) {
+      const found = resp.data.find((c) => String(c.id) === String(id));
+      if (found) return `#${found.name}`;
+    }
+  } catch (e) {
+    console.warn("⚠️ resolveChannelIdToName failed:", e.message || e);
+    return null;
+  }
+  return null;
+}
+
 // Health check
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
@@ -1099,6 +1120,21 @@ app.get("/api/admin/config", verifyAdminAuth, async (req, res) => {
           min_teams_required:
             st.min_teams_required || st.min_teams_required || null,
         };
+        // If we have numeric channel IDs, resolve them to friendly names where possible
+        try {
+          for (const ck of [
+            "announcement_channel",
+            "submission_channel",
+            "test_channel",
+          ]) {
+            if (cfg[ck] && String(cfg[ck]).match(/^\d+$/)) {
+              const name = await resolveChannelIdToName(cfg[ck]);
+              if (name) cfg[`${ck}_display`] = `${name} (${cfg[ck]})`;
+            }
+          }
+        } catch (e) {
+          // ignore resolution failures
+        }
       }
     } catch (e) {
       // ignore

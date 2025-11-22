@@ -979,13 +979,42 @@ class CollabWarz(commands.Cog):
                                     v_parsed = v
                             except Exception:
                                 v_parsed = v
-                            await self.config.guild(guild).__getattribute__(cfgkey).set(v_parsed)
+                            # Use getattr to access the config key dynamically
+                            try:
+                                # Log previous value for easier debugging
+                                try:
+                                    prev = await getattr(self.config.guild(guild), cfgkey)()
+                                except Exception:
+                                    prev = None
+                                print(f"🔁 update_config: {k}: {prev} -> {v_parsed}")
+                                cfg_obj = getattr(self.config.guild(guild), cfgkey)
+                                await cfg_obj.set(v_parsed)
+                            except Exception:
+                                # Fallback to direct attribute access if needed
+                                try:
+                                    await self.config.guild(guild).__getattribute__(cfgkey).set(v_parsed)
+                                except Exception as inner_e:
+                                    print(f"⚠️ Failed to set config key {cfgkey} = {v_parsed}: {inner_e}")
                             changes.append(f"{k} -> {v_parsed}")
                         if changes:
                             await self._send_competition_log(f"Config updated: {', '.join(changes)}", guild=guild)
                             try:
                                 # Push updated status immediately so admin UI reflects changes
-                                await self._update_redis_status(guild)
+                                status_after = await self._update_redis_status(guild)
+                                # If Redis is not configured, or we're running in backend mode,
+                                # try to POST the updated status to the backend so /api/admin/config can see it
+                                try:
+                                    backend_url = await self.config.guild(guild).backend_url() if guild else None
+                                    backend_token = await self.config.guild(guild).backend_token() if guild else None
+                                except Exception:
+                                    backend_url = None
+                                    backend_token = None
+                                if backend_url and backend_token and status_after:
+                                    try:
+                                        # POST status to backend so the admin server has the latest
+                                        await self._post_with_temp_session(backend_url.rstrip('/') + '/api/collabwarz/status', json_payload=status_after, headers={"X-CW-Token": backend_token, "Authorization": f"Bearer {backend_token}"}, guild=guild)
+                                    except Exception:
+                                        pass
                             except Exception:
                                 pass
                             print("✅ update_config applied:", ", ".join(changes))

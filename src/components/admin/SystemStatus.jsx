@@ -170,7 +170,7 @@ export default function SystemStatus() {
           setConfigModalOpen(false);
           // Poll the server to get the updated config once the cog has applied it
           let attempts = 0;
-          const maxAttempts = 6;
+          const maxAttempts = 12;
           while (attempts < maxAttempts) {
             try {
               const newcfg = await botApi.getAdminConfig();
@@ -344,6 +344,8 @@ export default function SystemStatus() {
       }
     };
     loadConfig();
+    // Also refresh serverInfo that includes cog status when opening the screen
+    refreshSystemInfo();
     // Fetch recent competition logs at mount
     const loadLogs = async () => {
       try {
@@ -571,15 +573,15 @@ export default function SystemStatus() {
           <div className="config-list">
             <div className="config-item">
               <span className="config-label">Announcement Channel:</span>
-              <span className="config-value">{adminConfig?.announcement_channel || serverInfo?.announcement_channel || 'Not configured'}</span>
+              <span className="config-value">{adminConfig?.announcement_channel_display || adminConfig?.announcement_channel || serverInfo?.announcement_channel || 'Not configured'}</span>
             </div>
             <div className="config-item">
               <span className="config-label">Submission Channel:</span>
-              <span className="config-value">{adminConfig?.submission_channel || serverInfo?.submission_channel || 'Not configured'}</span>
+              <span className="config-value">{adminConfig?.submission_channel_display || adminConfig?.submission_channel || serverInfo?.submission_channel || 'Not configured'}</span>
             </div>
             <div className="config-item">
               <span className="config-label">Test Channel:</span>
-              <span className="config-value">{adminConfig?.test_channel || serverInfo?.test_channel || 'Not configured'}</span>
+              <span className="config-value">{adminConfig?.test_channel_display || adminConfig?.test_channel || serverInfo?.test_channel || 'Not configured'}</span>
             </div>
             <div className="config-item">
               <span className="config-label">Auto-Announce:</span>
