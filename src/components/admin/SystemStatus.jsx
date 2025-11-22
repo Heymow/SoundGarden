@@ -18,6 +18,9 @@ export default function SystemStatus() {
   const [backups, setBackups] = useState([]);
   const [currentIssue, setCurrentIssue] = useState(null);
   const [serverInfo, setServerInfo] = useState(null);
+  const [adminConfig, setAdminConfig] = useState(null);
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [configDraft, setConfigDraft] = useState(null);
   const [logsModalOpen, setLogsModalOpen] = useState(false);
   const [logsData, setLogsData] = useState([]);
   const overlay = useAdminOverlay();
@@ -25,8 +28,17 @@ export default function SystemStatus() {
   const showSuccess = (message) => overlay.showAlert('success', message);
   const showError = (message) => overlay.showAlert('error', message);
 
-  const handleEditConfig = () => {
-    showSuccess("⚙️ Opening bot configuration editor...");
+  const handleEditConfig = async () => {
+    try {
+      const cfg = await botApi.getAdminConfig();
+      if (cfg && cfg.config) {
+        setAdminConfig(cfg.config);
+        setConfigDraft({ ...cfg.config });
+        setConfigModalOpen(true);
+      } else {
+        showError('❌ Failed to load bot configuration');
+      }
+    } catch (err) { showError(`❌ Failed to load config: ${err.message}`); }
   };
 
   const handleViewLogs = async () => {
@@ -125,6 +137,35 @@ export default function SystemStatus() {
         }
       } catch (e) { }
       overlay.endAction('backup_data');
+    });
+  };
+
+  const handleConfigSave = async () => {
+    if (!configDraft) return;
+    // Build updates: compare with adminConfig
+    const updates = {};
+    Object.keys(configDraft).forEach(k => {
+      if (String(configDraft[k]) !== String(adminConfig?.[k] || '')) updates[k] = configDraft[k];
+    });
+    if (Object.keys(updates).length === 0) { showError('No changes to save'); return; }
+    await overlay.blockingRun('Applying configuration...', async () => {
+      overlay.startAction('update_config');
+      try {
+        const res = await botApi.updateAdminConfig(updates);
+        if (res && res.success) {
+          showSuccess('✅ Configuration update queued');
+          setConfigModalOpen(false);
+          // Refresh config
+          const newcfg = await botApi.getAdminConfig();
+          if (newcfg && newcfg.config) setAdminConfig(newcfg.config);
+        } else {
+          showError(`❌ Failed to update config: ${res?.message || 'unknown'}`);
+        }
+      } catch (err) {
+        showError(`❌ Failed to update config: ${err.message}`);
+      } finally {
+        overlay.endAction('update_config');
+      }
     });
   };
 
@@ -264,6 +305,15 @@ export default function SystemStatus() {
       }
     };
     loadBackups();
+    const loadConfig = async () => {
+      try {
+        const cfg = await botApi.getAdminConfig();
+        if (cfg && cfg.config) setAdminConfig(cfg.config);
+      } catch (e) {
+        console.warn('Failed to load admin config:', e);
+      }
+    };
+    loadConfig();
     // Fetch recent competition logs at mount
     const loadLogs = async () => {
       try {
@@ -491,30 +541,33 @@ export default function SystemStatus() {
           <div className="config-list">
             <div className="config-item">
               <span className="config-label">Announcement Channel:</span>
-              <span className="config-value">#collab-warz</span>
+              <span className="config-value">{adminConfig?.announcement_channel || serverInfo?.announcement_channel || 'Not configured'}</span>
             </div>
             <div className="config-item">
               <span className="config-label">Submission Channel:</span>
-              <span className="config-value">#submissions</span>
+              <span className="config-value">{adminConfig?.submission_channel || serverInfo?.submission_channel || 'Not configured'}</span>
             </div>
             <div className="config-item">
               <span className="config-label">Test Channel:</span>
-              <span className="config-value">#bot-testing</span>
+              <span className="config-value">{adminConfig?.test_channel || serverInfo?.test_channel || 'Not configured'}</span>
             </div>
             <div className="config-item">
               <span className="config-label">Auto-Announce:</span>
-              <span className="config-value">Enabled</span>
+              <span className="config-value">{(adminConfig && adminConfig.auto_announce) || serverInfo?.automation_enabled ? 'Enabled' : 'Disabled'}</span>
             </div>
             <div className="config-item">
               <span className="config-label">Require Confirmation:</span>
-              <span className="config-value">Disabled</span>
+              <span className="config-value">{(adminConfig && adminConfig.require_confirmation) || serverInfo?.require_confirmation ? 'Enabled' : 'Disabled'}</span>
             </div>
             <div className="config-item">
               <span className="config-label">Safe Mode:</span>
               <span className="config-value">{safeModeEnabled ? 'Enabled' : 'Disabled'}</span>
             </div>
           </div>
-          <button className="admin-btn btn-secondary" onClick={handleEditConfig}>Edit Configuration</button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="admin-btn btn-secondary" onClick={handleEditConfig}>Edit Configuration</button>
+            <button className="admin-btn btn-info" onClick={async () => { try { const cfg = await botApi.getAdminConfig(); if (cfg && cfg.config) setAdminConfig(cfg.config); showSuccess('✅ Config refreshed'); } catch (e) { showError('❌ Failed to refresh config'); } }}>Refresh Configuration</button>
+          </div>
         </div>
       </div>
 
@@ -687,6 +740,70 @@ export default function SystemStatus() {
                 )) : (
                   <p>No logs available</p>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Config Modal */}
+      {configModalOpen && (
+        <div className="admin-modal-overlay" onClick={() => setConfigModalOpen(false)}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>⚙️ Edit Bot Configuration</h3>
+              <button className="admin-modal-close" onClick={() => setConfigModalOpen(false)}>×</button>
+            </div>
+            <div className="admin-modal-content">
+              <div className="config-edit-grid">
+                <label>Announcement Channel (id or mention)</label>
+                <input type="text" value={configDraft?.announcement_channel || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: e.target.value }))} />
+
+                <label>Submission Channel</label>
+                <input type="text" value={configDraft?.submission_channel || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), submission_channel: e.target.value }))} />
+
+                <label>Test Channel</label>
+                <input type="text" value={configDraft?.test_channel || ''} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), test_channel: e.target.value }))} />
+
+                <label>Auto-Announce</label>
+                <select value={configDraft?.auto_announce ? 'true' : 'false'} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), auto_announce: e.target.value === 'true' }))}>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+
+                <label>Require Confirmation</label>
+                <select value={configDraft?.require_confirmation ? 'true' : 'false'} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), require_confirmation: e.target.value === 'true' }))}>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+
+                <label>Safe Mode</label>
+                <select value={configDraft?.safe_mode_enabled ? 'true' : 'false'} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), safe_mode_enabled: e.target.value === 'true' }))}>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+
+                <label>Use Everyone Ping</label>
+                <select value={configDraft?.use_everyone_ping ? 'true' : 'false'} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), use_everyone_ping: e.target.value === 'true' }))}>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+
+                <label>Min Teams Required</label>
+                <input type="number" value={configDraft?.min_teams_required || 0} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), min_teams_required: Number(e.target.value) }))} />
+
+                <label>API Server Enabled</label>
+                <select value={configDraft?.api_server_enabled ? 'true' : 'false'} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), api_server_enabled: e.target.value === 'true' }))}>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+
+                <label>API Server Port</label>
+                <input type="number" value={configDraft?.api_server_port || 8080} onChange={(e) => setConfigDraft(prev => ({ ...(prev || {}), api_server_port: Number(e.target.value) }))} />
+              </div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                <button className="admin-btn btn-primary" onClick={handleConfigSave}>Save</button>
+                <button className="admin-btn btn-secondary" onClick={() => setConfigModalOpen(false)}>Cancel</button>
               </div>
             </div>
           </div>

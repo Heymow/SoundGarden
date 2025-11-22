@@ -1027,6 +1027,98 @@ app.get("/api/admin/status", verifyAdminAuth, async (req, res) => {
   }
 });
 
+// Admin: Get current guild config (read from Redis status)
+app.get("/api/admin/config", verifyAdminAuth, async (req, res) => {
+  try {
+    let cfg = {};
+    try {
+      const statusRaw = redisClient
+        ? await redisClient.get("collabwarz:status")
+        : inMemoryStatus
+        ? JSON.stringify(inMemoryStatus)
+        : null;
+      if (statusRaw) {
+        const st = JSON.parse(statusRaw);
+        // Provide a useful subset of config to the admin UI
+        cfg = {
+          announcement_channel:
+            st.announcement_channel || st.announcementChannel || null,
+          submission_channel:
+            st.submission_channel || st.submissionChannel || null,
+          test_channel: st.test_channel || st.testChannel || null,
+          auto_announce:
+            typeof st.automation_enabled !== "undefined"
+              ? st.automation_enabled
+              : st.auto_announce || false,
+          require_confirmation:
+            typeof st.require_confirmation !== "undefined"
+              ? st.require_confirmation
+              : st.settings &&
+                typeof st.settings.require_confirmation !== "undefined"
+              ? st.settings.require_confirmation
+              : st.requireConfirmation || false,
+          safe_mode_enabled:
+            typeof st.safe_mode_enabled !== "undefined"
+              ? st.safe_mode_enabled
+              : st.safeModeEnabled || false,
+          api_server_enabled: !!st.api_server_enabled,
+          api_server_port: st.api_server_port || st.api_server_port || null,
+          use_everyone_ping: !!st.use_everyone_ping,
+          min_teams_required:
+            st.min_teams_required || st.min_teams_required || null,
+        };
+      }
+    } catch (e) {
+      // ignore
+    }
+    return res.json({ success: true, config: cfg });
+  } catch (err) {
+    console.error("/api/admin/config error:", err.message || err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Admin: Update guild config (queued action for cog)
+app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
+  try {
+    const updates = (req.body && req.body.updates) || req.body || {};
+    if (!updates || Object.keys(updates).length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "No updates provided" });
+    }
+    // Sanitize: allow only a safe subset of keys
+    const allowed = new Set([
+      "announcement_channel",
+      "submission_channel",
+      "test_channel",
+      "auto_announce",
+      "require_confirmation",
+      "safe_mode_enabled",
+      "api_server_enabled",
+      "api_server_port",
+      "use_everyone_ping",
+      "min_teams_required",
+    ]);
+    const clean = {};
+    Object.keys(updates).forEach((k) => {
+      if (allowed.has(k)) clean[k] = updates[k];
+    });
+    if (Object.keys(clean).length === 0)
+      return res
+        .status(400)
+        .json({ success: false, message: "No allowed keys to update" });
+
+    const actionData = await queueCollabWarzAction("update_config", {
+      updates: clean,
+    });
+    return res.json({ success: true, actionId: actionData.id });
+  } catch (err) {
+    console.error("/api/admin/config POST error:", err.message || err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // Admin system diagnostics endpoint
 app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
   try {

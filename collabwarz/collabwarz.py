@@ -686,6 +686,18 @@ class CollabWarz(commands.Cog):
                     status_data['guild_member_count'] = getattr(guild, 'member_count', None)
             except Exception:
                 pass
+            # Export a small subset of explicit config values for the admin UI
+            try:
+                status_data['announcement_channel'] = cfg_all.get('announcement_channel')
+                status_data['submission_channel'] = cfg_all.get('submission_channel')
+                status_data['test_channel'] = cfg_all.get('test_channel')
+                status_data['require_confirmation'] = cfg_all.get('require_confirmation')
+                status_data['use_everyone_ping'] = cfg_all.get('use_everyone_ping')
+                status_data['min_teams_required'] = cfg_all.get('min_teams_required')
+                status_data['api_server_enabled'] = cfg_all.get('api_server_enabled')
+                status_data['api_server_port'] = cfg_all.get('api_server_port')
+            except Exception:
+                pass
             # Attach detailed snapshots
             try:
                 status_data['submissions'] = submissions or {}
@@ -936,6 +948,44 @@ class CollabWarz(commands.Cog):
                     await self._send_competition_log("Winners announced", guild=guild)
                 except Exception as e:
                     await self._maybe_noisy_log(f"❌ Failed to announce winners: {e}", guild=guild)
+            elif action == 'update_config':
+                # updates param is expected to be a dict of keys to set in guild config
+                updates = params.get('updates') if isinstance(params, dict) else None
+                if not updates or not isinstance(updates, dict):
+                    print("⚠️ update_config: no updates provided")
+                else:
+                    allowed = {
+                        'announcement_channel': 'announcement_channel',
+                        'submission_channel': 'submission_channel',
+                        'test_channel': 'test_channel',
+                        'auto_announce': 'auto_announce',
+                        'require_confirmation': 'require_confirmation',
+                        'safe_mode_enabled': 'safe_mode_enabled',
+                        'api_server_enabled': 'api_server_enabled',
+                        'api_server_port': 'api_server_port',
+                        'use_everyone_ping': 'use_everyone_ping',
+                        'min_teams_required': 'min_teams_required'
+                    }
+                    try:
+                        changes = []
+                        for k,v in updates.items():
+                            if k not in allowed: continue
+                            cfgkey = allowed[k]
+                            # Some keys may expect bool or numeric conversion
+                            try:
+                                if isinstance(v, str) and v.lower() in ('true','false','1','0','yes','no'):
+                                    v_parsed = v.lower() in ('true','1','yes')
+                                else:
+                                    v_parsed = v
+                            except Exception:
+                                v_parsed = v
+                            await self.config.guild(guild).__getattribute__(cfgkey).set(v_parsed)
+                            changes.append(f"{k} -> {v_parsed}")
+                        if changes:
+                            await self._send_competition_log(f"Config updated: {', '.join(changes)}", guild=guild)
+                            print("✅ update_config applied:", ", ".join(changes))
+                    except Exception as e:
+                        await self._maybe_noisy_log(f"❌ Failed to apply update_config: {e}", guild=guild)
             # Backup actions (support via Redis queue)
             elif norm_action in ("backup_data", "backupdata", "export_backup", "exportbackup"):
                 try:
