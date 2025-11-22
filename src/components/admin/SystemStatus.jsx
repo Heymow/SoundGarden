@@ -35,8 +35,9 @@ export default function SystemStatus() {
   const handleEditConfig = async () => {
     try {
       // Fetch channels first so we can try to resolve existing configured channels into the dropdown
+      let chRes;
       try {
-        const chRes = await botApi.getAdminChannels();
+        chRes = await botApi.getAdminChannels(true);
         if (chRes && Array.isArray(chRes.channels) && chRes.channels.length > 0) setChannels(chRes.channels);
         else if (chRes && chRes.success === false && chRes.message) showError(`⚠️ Failed to load channels: ${chRes.message}`);
         else if (chRes && Array.isArray(chRes.channels) && chRes.channels.length === 0) showError('⚠️ Channel list empty - check that the bot is in the guild and has permission to list channels.');
@@ -47,7 +48,10 @@ export default function SystemStatus() {
 
       const cfg = await botApi.getAdminConfig();
       if (cfg && cfg.config) {
-        setAdminConfig(cfg.config);
+        const draft = { ...cfg.config };
+        setAdminConfig(draft);
+        // Prefer freshly fetched channels when available during normalization
+        const availableChannels = (chRes && chRes.channels && chRes.channels.length > 0) ? chRes.channels : channels;
         // Normalize channel fields for the dropdowns - prefer the channel id as string
         const normalizeChannelForDraft = (val) => {
           if (!val && val !== 0) return "";
@@ -62,18 +66,18 @@ export default function SystemStatus() {
           return "";
         };
 
-        const draft = { ...cfg.config };
+        // draft already defined above
         // Convert numeric ids / mentions to plain id strings for selects
         for (const c of ["announcement_channel", "submission_channel", "test_channel"]) {
-          const raw = cfg.config?.[c];
+          const raw = draft[c];
           const parsed = normalizeChannelForDraft(raw);
           if (parsed === "__other") {
             draft[c] = "__other";
             draft[`${c}_raw`] = raw;
           } else {
             // If channels exist, ensure parsed id matches a known channel, otherwise treat as __other
-            if (channels && channels.length > 0) {
-              const found = channels.find(ch => ch.id === String(parsed));
+            if (availableChannels && availableChannels.length > 0) {
+              const found = availableChannels.find(ch => String(ch.id) === String(parsed));
               if (found) {
                 draft[c] = parsed || "";
                 if (draft[`${c}_raw`]) delete draft[`${c}_raw`];
@@ -127,8 +131,10 @@ export default function SystemStatus() {
           ensurePresent('submission_channel');
           ensurePresent('test_channel');
           setChannels(currentChannels);
+          console.log('🧭 Admin modal: availableChannels used', availableChannels ? availableChannels.map(ch => ch.id) : [], 'currentChannels', currentChannels.map(ch => ch.id));
         } catch (e) { console.warn('Failed to ensure configured channels present in dropdown', e); }
         setConfigDraft(draft);
+        console.log('🧭 Admin modal: draft built', draft);
         setSaveSuccess(false);
         setConfigModalOpen(true);
       } else {
@@ -1005,7 +1011,7 @@ export default function SystemStatus() {
                     else setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: v, announcement_channel_raw: undefined }));
                   }}>
                     <option value="">Not configured</option>
-                    {channels.map(c => <option key={c.id} value={c.id}>{`#${c.name}`}</option>)}
+                    {channels.map(c => <option key={c.id} value={String(c.id)}>{`#${c.name}`}</option>)}
                     <option value="__other">Other...</option>
                   </select>
                   {configDraft?.announcement_channel === '__other' && (
@@ -1021,7 +1027,7 @@ export default function SystemStatus() {
                     else setConfigDraft(prev => ({ ...(prev || {}), submission_channel: v, submission_channel_raw: undefined }));
                   }}>
                     <option value="">Not configured</option>
-                    {channels.map(c => <option key={c.id} value={c.id}>{`#${c.name}`}</option>)}
+                    {channels.map(c => <option key={c.id} value={String(c.id)}>{`#${c.name}`}</option>)}
                     <option value="__other">Other...</option>
                   </select>
                   {configDraft?.submission_channel === '__other' && (
@@ -1037,7 +1043,7 @@ export default function SystemStatus() {
                     else setConfigDraft(prev => ({ ...(prev || {}), test_channel: v, test_channel_raw: undefined }));
                   }}>
                     <option value="">Not configured</option>
-                    {channels.map(c => <option key={c.id} value={c.id}>{`#${c.name}`}</option>)}
+                    {channels.map(c => <option key={c.id} value={String(c.id)}>{`#${c.name}`}</option>)}
                     <option value="__other">Other...</option>
                   </select>
                   {configDraft?.test_channel === '__other' && (
