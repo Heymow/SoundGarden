@@ -427,6 +427,19 @@ export default function SystemStatus() {
     else showError('⚠️ No channels available after refresh');
   };
 
+  const handleTestBotToken = async () => {
+    try {
+      const res = await botApi.testBotToken();
+      if (res && res.success) {
+        showSuccess(`✅ Bot token valid: ${res.data && res.data.username ? res.data.username : 'bot user'}`);
+      } else {
+        showError(`❌ Bot token test failed: ${res?.message || 'Unknown'}`);
+      }
+    } catch (err) {
+      showError(`❌ Bot token test failed: ${err?.message || err}`);
+    }
+  };
+
   useEffect(() => {
     // Fetch the current admin status to initialize safe mode toggle
     const fetchStatus = async () => {
@@ -737,6 +750,7 @@ export default function SystemStatus() {
           <div style={{ display: 'flex', gap: '8px' }}>
             <button className="admin-btn btn-secondary" onClick={handleEditConfig}>Edit Configuration</button>
             <button className="admin-btn btn-info" onClick={async () => { try { const cfg = await botApi.getAdminConfig(); if (cfg && cfg.config) setAdminConfig(cfg.config); showSuccess('✅ Config refreshed'); } catch (e) { showError('❌ Failed to refresh config'); } }}>Refresh Configuration</button>
+            <button className="admin-btn btn-secondary" onClick={handleTestBotToken}>🔐 Test Bot Token</button>
           </div>
         </div>
       </div>

@@ -40,10 +40,33 @@ const COLLABWARZ_TOKEN = process.env.COLLABWARZ_TOKEN || null;
 console.log(`Discord Guild ID: ${DISCORD_GUILD_ID}`);
 console.log(`Admin Channel ID: ${DISCORD_ADMIN_CHANNEL_ID}`);
 console.log(`Bot Token configured: ${DISCORD_BOT_TOKEN ? "Yes" : "No"}`);
+if (DISCORD_BOT_TOKEN && /^Bot\s+/i.test(DISCORD_BOT_TOKEN)) {
+  console.warn(
+    '⚠️ DISCORD_BOT_TOKEN contains a leading "Bot " prefix; this will be normalized by the server. Consider removing it from the environment variable.'
+  );
+}
+if (DISCORD_BOT_TOKEN && /\s/.test(DISCORD_BOT_TOKEN.trim())) {
+  console.warn(
+    "⚠️ DISCORD_BOT_TOKEN contains whitespace characters. Trim your token or check your environment configuration."
+  );
+}
 console.log(`Webhook URL configured: ${DISCORD_WEBHOOK_URL ? "Yes" : "No"}`);
 console.log(`Command Prefix: ${COMMAND_PREFIX}`);
 console.log(`Redis URL: ${REDIS_URL}`);
 console.log(`CollabWarz Token configured: ${COLLABWARZ_TOKEN ? "Yes" : "No"}`);
+
+// Normalize bot token usage - strip leading 'Bot ' or 'Bearer ' if present
+function getBotAuthToken() {
+  if (!DISCORD_BOT_TOKEN) return null;
+  return DISCORD_BOT_TOKEN.trim()
+    .replace(/^Bot\s+/i, "")
+    .replace(/^Bearer\s+/i, "");
+}
+function getBotAuthHeader() {
+  const t = getBotAuthToken();
+  if (!t) return null;
+  return `Bot ${t}`;
+}
 
 // Helper to format duration in a human readable way
 function formatDuration(seconds) {
@@ -450,9 +473,15 @@ async function resolveChannelNameToId(raw) {
     if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID) return null;
     const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/channels`;
     const resp = await axios.get(url, {
-      headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
+      headers: { Authorization: getBotAuthHeader() },
       timeout: 5000,
     });
+    if (resp && Array.isArray(resp.data)) {
+      const found = resp.data.find(
+        (c) => String(c.name).toLowerCase() === String(name).toLowerCase()
+      );
+      if (found) return Number(found.id);
+    }
     if (resp && Array.isArray(resp.data)) {
       const found = resp.data.find(
         (c) => String(c.name).toLowerCase() === String(name).toLowerCase()
@@ -473,9 +502,13 @@ async function resolveChannelIdToName(id) {
     if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID) return null;
     const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/channels`;
     const resp = await axios.get(url, {
-      headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
+      headers: { Authorization: getBotAuthHeader() },
       timeout: 5000,
     });
+    if (resp && Array.isArray(resp.data)) {
+      const found = resp.data.find((c) => String(c.id) === String(id));
+      if (found) return `#${found.name}`;
+    }
     if (resp && Array.isArray(resp.data)) {
       const found = resp.data.find((c) => String(c.id) === String(id));
       if (found) return `#${found.name}`;
@@ -860,7 +893,11 @@ async function sendViaBot(command, waitForResponse) {
 
   const url = `https://discord.com/api/v10/channels/${DISCORD_ADMIN_CHANNEL_ID}/messages`;
   console.log(`📡 Using bot API: ${url}`);
-  console.log(`🔑 Using bot token: ${DISCORD_BOT_TOKEN.substring(0, 20)}...`);
+  console.log(
+    `🔑 Using bot token: ${
+      getBotAuthToken() ? getBotAuthToken().substring(0, 20) : "<none>"
+    }...`
+  );
 
   try {
     const response = await axios.post(
@@ -870,7 +907,7 @@ async function sendViaBot(command, waitForResponse) {
       },
       {
         headers: {
-          Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+          Authorization: getBotAuthHeader(),
           "Content-Type": "application/json",
         },
         timeout: 10000,
@@ -932,7 +969,7 @@ async function getLastBotResponse() {
   try {
     const response = await axios.get(url, {
       headers: {
-        Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+        Authorization: getBotAuthHeader(),
       },
       timeout: 10000,
     });
@@ -1229,7 +1266,7 @@ app.get("/api/admin/channels", verifyAdminAuth, async (req, res) => {
     }
     const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/channels`;
     const resp = await axios.get(url, {
-      headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
+      headers: { Authorization: getBotAuthHeader() },
       timeout: 5000,
     });
     if (!resp || !Array.isArray(resp.data))
@@ -1314,7 +1351,7 @@ app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
       if (DISCORD_BOT_TOKEN && DISCORD_GUILD_ID) {
         const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}?with_counts=true`;
         const resGuild = await axios.get(url, {
-          headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
+          headers: { Authorization: getBotAuthHeader() },
           timeout: 3000,
         });
         if (resGuild && resGuild.data) {
@@ -1387,6 +1424,50 @@ app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
   } catch (error) {
     console.error("❌ /api/admin/system error:", error.message || error);
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Admin debug: test the configured bot token by querying Discord's users/@me
+app.get("/api/admin/debug/token", verifyAdminAuth, async (req, res) => {
+  try {
+    if (!DISCORD_BOT_TOKEN)
+      return res
+        .status(400)
+        .json({ success: false, message: "DISCORD_BOT_TOKEN not configured" });
+    const url = "https://discord.com/api/v10/users/@me";
+    const response = await axios.get(url, {
+      headers: { Authorization: getBotAuthHeader() },
+      timeout: 5000,
+    });
+    return res.json({
+      success: true,
+      status: response.status,
+      data: response.data,
+    });
+  } catch (err) {
+    console.error(
+      "/api/admin/debug/token error:",
+      err.response
+        ? { status: err.response.status, data: err.response.data }
+        : err.message || err
+    );
+    let msg = err.message || "Failed to validate token";
+    if (err.response && err.response.status) {
+      if (err.response.status === 401) msg = "Invalid token (401)";
+      else if (err.response.status === 403)
+        msg = "Forbidden (403) - bot may lack permissions";
+      else if (err.response.status === 404)
+        msg = "Not found (404) - possibly wrong token or API route";
+      else if (err.response.data && err.response.data.message)
+        msg = `${err.response.status}: ${err.response.data.message}`;
+    }
+    return res
+      .status(err.response?.status || 500)
+      .json({
+        success: false,
+        message: msg,
+        details: err.response?.data || null,
+      });
   }
 });
 

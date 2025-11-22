@@ -329,6 +329,13 @@ export const getCompetitionLogs = async () => {
   return await fetchWithAuth("/api/admin/competition-logs");
 };
 
+/**
+ * Test the server-configured bot token by calling Discord's users/@me
+ */
+export const testBotToken = async () => {
+  return await fetchWithAuth("/api/admin/debug/token");
+};
+
 // ============= Action Endpoints =============
 
 /**
