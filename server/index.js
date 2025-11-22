@@ -1226,9 +1226,22 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
         }
       }
       // Convert numeric strings/boolean strings to correct types
-      if (clean.api_server_port)
-        clean.api_server_port =
-          parseInt(clean.api_server_port, 10) || clean.api_server_port;
+      if (
+        typeof clean.api_server_port !== "undefined" &&
+        clean.api_server_port !== null &&
+        clean.api_server_port !== ""
+      ) {
+        const v = parseInt(clean.api_server_port, 10);
+        if (!isNaN(v)) clean.api_server_port = v;
+      }
+      if (
+        typeof clean.min_teams_required !== "undefined" &&
+        clean.min_teams_required !== null &&
+        clean.min_teams_required !== ""
+      ) {
+        const v = parseInt(clean.min_teams_required, 10);
+        if (!isNaN(v)) clean.min_teams_required = v;
+      }
       for (const boolKey of [
         "auto_announce",
         "require_confirmation",
@@ -1245,6 +1258,7 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
       console.warn("⚠️ Normalization for config values failed", e.message || e);
     }
 
+    console.log("/api/admin/config: queueing updates", clean);
     const actionData = await queueCollabWarzAction("update_config", {
       updates: clean,
     });
@@ -1461,13 +1475,11 @@ app.get("/api/admin/debug/token", verifyAdminAuth, async (req, res) => {
       else if (err.response.data && err.response.data.message)
         msg = `${err.response.status}: ${err.response.data.message}`;
     }
-    return res
-      .status(err.response?.status || 500)
-      .json({
-        success: false,
-        message: msg,
-        details: err.response?.data || null,
-      });
+    return res.status(err.response?.status || 500).json({
+      success: false,
+      message: msg,
+      details: err.response?.data || null,
+    });
   }
 });
 

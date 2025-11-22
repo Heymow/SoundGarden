@@ -973,9 +973,23 @@ class CollabWarz(commands.Cog):
                             cfgkey = allowed[k]
                             # Some keys may expect bool or numeric conversion
                             try:
-                                if isinstance(v, str) and v.lower() in ('true','false','1','0','yes','no'):
-                                    v_parsed = v.lower() in ('true','1','yes')
-                                else:
+                                # Normalize booleans and numeric fields explicitly
+                                v_parsed = v
+                                try:
+                                    if isinstance(v, str) and v.lower() in ('true','false','1','0','yes','no'):
+                                        v_parsed = v.lower() in ('true','1','yes')
+                                    # numeric keys: ensure int where expected
+                                    if cfgkey in ('min_teams_required', 'api_server_port'):
+                                        if isinstance(v_parsed, str) and v_parsed.strip() == '':
+                                            v_parsed = None
+                                        else:
+                                            try:
+                                                v_int = int(v_parsed)
+                                                v_parsed = v_int
+                                            except Exception:
+                                                # leave as-is (might log later)
+                                                pass
+                                except Exception:
                                     v_parsed = v
                             except Exception:
                                 v_parsed = v
@@ -986,6 +1000,10 @@ class CollabWarz(commands.Cog):
                                     prev = await getattr(self.config.guild(guild), cfgkey)()
                                 except Exception:
                                     prev = None
+                                # If prev is None and cfgkey is a numeric setting, log and set default
+                                if prev is None and cfgkey == 'min_teams_required':
+                                    # Maintain a default to avoid TypeError when comparing
+                                    prev = 2
                                 print(f"🔁 update_config: {k}: {prev} -> {v_parsed}")
                                 cfg_obj = getattr(self.config.guild(guild), cfgkey)
                                 await cfg_obj.set(v_parsed)
@@ -1018,6 +1036,8 @@ class CollabWarz(commands.Cog):
                             except Exception:
                                 pass
                             print("✅ update_config applied:", ", ".join(changes))
+                        else:
+                            print("⚠️ update_config: no recognized changes applied")
                     except Exception as e:
                         await self._maybe_noisy_log(f"❌ Failed to apply update_config: {e}", guild=guild)
             # Backup actions (support via Redis queue)
@@ -6241,6 +6261,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 # Check if we have enough teams to proceed with voting
                 team_count = await self._count_participating_teams(guild)
                 min_teams = await self.config.guild(guild).min_teams_required()
+                try:
+                    min_teams = int(min_teams) if min_teams is not None else 2
+                except Exception:
+                    min_teams = 2
                 
                 if team_count < min_teams:
                     # Cancel the competition due to insufficient participation
@@ -7937,6 +7961,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         # Team participation info
         team_count = await self._count_participating_teams(ctx.guild)
         min_teams = await self.config.guild(ctx.guild).min_teams_required()
+        try:
+            min_teams = int(min_teams) if min_teams is not None else 2
+        except Exception:
+            min_teams = 2
         week_cancelled = await self.config.guild(ctx.guild).week_cancelled()
         submission_channel_id = await self.config.guild(ctx.guild).submission_channel()
         
@@ -8602,6 +8630,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         team_count = max(len(all_teams), raw_count) if not validate_enabled else len(all_teams)
         
         min_teams = await self.config.guild(ctx.guild).min_teams_required()
+        try:
+            min_teams = int(min_teams) if min_teams is not None else 2
+        except Exception:
+            min_teams = 2
         
         submission_channel_id = await self.config.guild(ctx.guild).submission_channel()
         if submission_channel_id:
