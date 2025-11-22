@@ -422,9 +422,9 @@ export default function SystemStatus() {
     } catch (err) { showError(`❌ Restore failed: ${err.message}`); }
   };
 
-  const fetchChannels = async () => {
+  const fetchChannels = async (force = false) => {
     try {
-      const ch = await botApi.getAdminChannels();
+      const ch = await botApi.getAdminChannels(force);
       if (ch && Array.isArray(ch.channels) && ch.channels.length > 0) {
         setChannels(ch.channels);
         setChannelsError(null);
@@ -453,7 +453,7 @@ export default function SystemStatus() {
   };
 
   const handleRefreshChannels = async () => {
-    const res = await fetchChannels();
+    const res = await fetchChannels(true);
     if (res && res.length > 0) showSuccess(`✅ Channels refreshed (${res.length})`);
     else showError('⚠️ No channels available after refresh');
   };

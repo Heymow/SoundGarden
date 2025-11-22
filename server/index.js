@@ -86,6 +86,80 @@ function formatDuration(seconds) {
 
 // Redis client and initialization
 let redisClient;
+// Channels cache to avoid hitting Discord API too often and to reduce rate limit errors
+let _channelsCache = { ts: 0, data: null, ttl: 30000 }; // 30s TTL
+let _channelsFetching = null; // in-flight promise
+
+async function getGuildChannels(force = false) {
+  const now = Date.now();
+  if (
+    !force &&
+    _channelsCache.data &&
+    now - _channelsCache.ts < _channelsCache.ttl
+  ) {
+    return _channelsCache.data;
+  }
+  if (_channelsFetching) return _channelsFetching;
+  _channelsFetching = (async () => {
+    try {
+      if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID) return null;
+      const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/channels`;
+      try {
+        const resp = await axios.get(url, {
+          headers: { Authorization: getBotAuthHeader() },
+          timeout: 5000,
+        });
+        if (resp && Array.isArray(resp.data)) {
+          _channelsCache = {
+            ts: Date.now(),
+            data: resp.data,
+            ttl: _channelsCache.ttl,
+          };
+          return resp.data;
+        }
+        return null;
+      } catch (e) {
+        // If Discord returns a 429, attempt to parse Retry-After header and wait
+        const status = e.response && e.response.status;
+        const retryAfter =
+          e.response &&
+          (e.response.headers["retry-after"] ||
+            e.response.headers["Retry-After"]);
+        if (status === 429) {
+          try {
+            const backoff = retryAfter
+              ? Math.max(1000, Number(retryAfter) * 1000)
+              : 2000;
+            console.warn(
+              `⚠️ Discord rate limited (429). Waiting ${backoff}ms before retrying channel fetch.`
+            );
+            await new Promise((r) => setTimeout(r, backoff));
+            // Try once more
+            const resp2 = await axios.get(url, {
+              headers: { Authorization: getBotAuthHeader() },
+              timeout: 5000,
+            });
+            if (resp2 && Array.isArray(resp2.data)) {
+              _channelsCache = {
+                ts: Date.now(),
+                data: resp2.data,
+                ttl: _channelsCache.ttl,
+              };
+              return resp2.data;
+            }
+          } catch (e2) {
+            console.warn("⚠️ getGuildChannels retry failed:", e2.message || e2);
+          }
+        }
+        console.warn("⚠️ getGuildChannels failed:", e.message || e);
+        return null;
+      }
+    } finally {
+      _channelsFetching = null;
+    }
+  })();
+  return _channelsFetching;
+}
 let pgPool = null;
 
 async function initPostgres() {
@@ -470,14 +544,9 @@ async function resolveChannelNameToId(raw) {
     }
     // Strip leading # if present, then resolve by name using Discord API
     const name = String(raw).trim().replace(/^#/, "");
-    if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID) return null;
-    const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/channels`;
-    const resp = await axios.get(url, {
-      headers: { Authorization: getBotAuthHeader() },
-      timeout: 5000,
-    });
-    if (resp && Array.isArray(resp.data)) {
-      const found = resp.data.find(
+    const data = await getGuildChannels();
+    if (data && Array.isArray(data)) {
+      const found = data.find(
         (c) => String(c.name).toLowerCase() === String(name).toLowerCase()
       );
       if (found) return Number(found.id);
@@ -499,14 +568,9 @@ async function resolveChannelNameToId(raw) {
 async function resolveChannelIdToName(id) {
   try {
     if (!id) return null;
-    if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID) return null;
-    const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/channels`;
-    const resp = await axios.get(url, {
-      headers: { Authorization: getBotAuthHeader() },
-      timeout: 5000,
-    });
-    if (resp && Array.isArray(resp.data)) {
-      const found = resp.data.find((c) => String(c.id) === String(id));
+    const data = await getGuildChannels();
+    if (data && Array.isArray(data)) {
+      const found = data.find((c) => String(c.id) === String(id));
       if (found) return `#${found.name}`;
     }
     if (resp && Array.isArray(resp.data)) {
@@ -1331,11 +1395,9 @@ app.get("/api/admin/channels", verifyAdminAuth, async (req, res) => {
       console.warn("/api/admin/channels: " + msg);
       return res.status(400).json({ success: false, message: msg });
     }
-    const url = `https://discord.com/api/v10/guilds/${DISCORD_GUILD_ID}/channels`;
-    const resp = await axios.get(url, {
-      headers: { Authorization: getBotAuthHeader() },
-      timeout: 5000,
-    });
+    const force = req.query && req.query.force === "true";
+    const respData = await getGuildChannels(force);
+    const resp = { data: respData };
     if (!resp || !Array.isArray(resp.data))
       return res.json({ success: true, channels: [] });
     // Filter to text channels (type === 0)

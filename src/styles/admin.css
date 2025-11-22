@@ -1913,7 +1913,7 @@
   background: var(--admin-card);
   border: 1px solid var(--admin-border);
   border-radius: 8px;
-  max-width: 800px;
+  max-width: 720px;
   width: 90%;
   max-height: 80vh;
   display: flex;
@@ -1956,9 +1956,14 @@
 /* Config edit form inside modal */
 .config-edit-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr; /* Single column by default for clarity */
   gap: 12px 20px;
   align-items: center;
+}
+@media (min-width: 900px) {
+  .config-edit-grid {
+    grid-template-columns: 1fr 1fr; /* two columns on wider screens */
+  }
 }
 .config-edit-grid label {
   color: var(--admin-text-muted);

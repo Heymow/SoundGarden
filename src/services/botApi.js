@@ -259,8 +259,9 @@ export const getAdminConfig = async () => {
 /**
  * Get list of guild channels for dropdowns
  */
-export const getAdminChannels = async () => {
-  return await fetchWithAuth("/api/admin/channels");
+export const getAdminChannels = async (force = false) => {
+  const qs = force ? "?force=true" : "";
+  return await fetchWithAuth(`/api/admin/channels${qs}`);
 };
 
 /**
