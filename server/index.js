@@ -51,11 +51,11 @@ function formatDuration(seconds) {
   const hours = Math.floor((seconds % (60 * 60 * 24)) / (60 * 60));
   const minutes = Math.floor((seconds % (60 * 60)) / 60);
   const parts = [];
-  if (days) parts.push(`${days} day${days !== 1 ? 's' : ''}`);
-  if (hours) parts.push(`${hours} hour${hours !== 1 ? 's' : ''}`);
-  if (minutes) parts.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`);
-  if (parts.length === 0) return '0 minutes';
-  return parts.join(', ');
+  if (days) parts.push(`${days} day${days !== 1 ? "s" : ""}`);
+  if (hours) parts.push(`${hours} hour${hours !== 1 ? "s" : ""}`);
+  if (minutes) parts.push(`${minutes} minute${minutes !== 1 ? "s" : ""}`);
+  if (parts.length === 0) return "0 minutes";
+  return parts.join(", ");
 }
 
 // Redis client and initialization
@@ -1071,7 +1071,10 @@ app.get("/api/admin/system", verifyAdminAuth, async (req, res) => {
           guildInfo = {
             id: resGuild.data.id,
             name: resGuild.data.name,
-            member_count: resGuild.data.approximate_member_count || resGuild.data.member_count || null,
+            member_count:
+              resGuild.data.approximate_member_count ||
+              resGuild.data.member_count ||
+              null,
           };
         }
       }
