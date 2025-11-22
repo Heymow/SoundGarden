@@ -101,10 +101,11 @@ export default function SystemStatus() {
             const val = draft[field];
             if (!val || val === '__other') return;
             const idStr = String(val);
-            const found = (channels || []).some(ch => ch.id === idStr);
+            const base = (availableChannels && availableChannels.length) ? availableChannels : channels;
+            const found = (base || []).some(ch => String(ch.id) === idStr);
             if (!found) {
               setChannels(prev => {
-                const exists = (prev || []).some(ch => ch.id === idStr);
+                const exists = (prev || []).some(ch => String(ch.id) === idStr);
                 if (exists) return prev;
                 const appended = [{ id: idStr, name: `${idStr}`, display: `${idStr}` }, ...(prev || [])];
                 return appended;
@@ -130,7 +131,14 @@ export default function SystemStatus() {
           ensurePresent('announcement_channel');
           ensurePresent('submission_channel');
           ensurePresent('test_channel');
-          setChannels(currentChannels);
+          // Deduplicate currentChannels by id (keep first occurrence)
+          const dedup = [];
+          const seen = new Set();
+          for (const ch of currentChannels) {
+            const idStr = String(ch.id);
+            if (!seen.has(idStr)) { seen.add(idStr); dedup.push(ch); }
+          }
+          setChannels(dedup);
           // debug logging removed
         } catch (e) { console.warn('Failed to ensure configured channels present in dropdown', e); }
         setConfigDraft(draft);
@@ -541,6 +549,12 @@ export default function SystemStatus() {
     };
     loadConfig();
     fetchChannels();
+    // Debug: log configDraft changes
+    useEffect(() => {
+      try {
+        if (configDraft) console.log('📋 configDraft change:', configDraft);
+      } catch (e) { }
+    }, [configDraft]);
     // Also refresh serverInfo that includes cog status when opening the screen
     // Do not show toast when automatically refreshing on mount
     refreshSystemInfo(false);
@@ -1008,7 +1022,10 @@ export default function SystemStatus() {
                   <select value={configDraft?.announcement_channel ?? ''} onChange={(e) => {
                     const v = e.target.value;
                     if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: '__other', announcement_channel_raw: '' }));
-                    else setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: v, announcement_channel_raw: undefined }));
+                    else {
+                      setConfigDraft(prev => ({ ...(prev || {}), announcement_channel: v, announcement_channel_raw: undefined }));
+                      console.log(`📡 Config draft update: announcement_channel set to ${v}`, { prev: configDraft });
+                    }
                   }}>
                     <option value="">Not configured</option>
                     {channels.map(c => <option key={c.id} value={String(c.id)}>{`#${c.name}`}</option>)}
@@ -1024,7 +1041,10 @@ export default function SystemStatus() {
                   <select value={configDraft?.submission_channel ?? ''} onChange={(e) => {
                     const v = e.target.value;
                     if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), submission_channel: '__other', submission_channel_raw: '' }));
-                    else setConfigDraft(prev => ({ ...(prev || {}), submission_channel: v, submission_channel_raw: undefined }));
+                    else {
+                      setConfigDraft(prev => ({ ...(prev || {}), submission_channel: v, submission_channel_raw: undefined }));
+                      console.log(`📡 Config draft update: submission_channel set to ${v}`, { prev: configDraft });
+                    }
                   }}>
                     <option value="">Not configured</option>
                     {channels.map(c => <option key={c.id} value={String(c.id)}>{`#${c.name}`}</option>)}
@@ -1040,7 +1060,10 @@ export default function SystemStatus() {
                   <select value={configDraft?.test_channel ?? ''} onChange={(e) => {
                     const v = e.target.value;
                     if (v === '__other') setConfigDraft(prev => ({ ...(prev || {}), test_channel: '__other', test_channel_raw: '' }));
-                    else setConfigDraft(prev => ({ ...(prev || {}), test_channel: v, test_channel_raw: undefined }));
+                    else {
+                      setConfigDraft(prev => ({ ...(prev || {}), test_channel: v, test_channel_raw: undefined }));
+                      console.log(`📡 Config draft update: test_channel set to ${v}`, { prev: configDraft });
+                    }
                   }}>
                     <option value="">Not configured</option>
                     {channels.map(c => <option key={c.id} value={String(c.id)}>{`#${c.name}`}</option>)}

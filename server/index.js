@@ -573,10 +573,6 @@ async function resolveChannelIdToName(id) {
       const found = data.find((c) => String(c.id) === String(id));
       if (found) return `#${found.name}`;
     }
-    if (resp && Array.isArray(resp.data)) {
-      const found = resp.data.find((c) => String(c.id) === String(id));
-      if (found) return `#${found.name}`;
-    }
   } catch (e) {
     console.warn("⚠️ resolveChannelIdToName failed:", e.message || e);
     return null;
@@ -1431,6 +1427,33 @@ app.get("/api/admin/channels", verifyAdminAuth, async (req, res) => {
     return res
       .status(err.response?.status || 500)
       .json({ success: false, message: msg });
+  }
+});
+
+// Admin: Force clear channel cache and fetch fresh list
+app.post("/api/admin/channels/clear", verifyAdminAuth, async (req, res) => {
+  try {
+    // Reset cache
+    _channelsCache = { ts: 0, data: null, ttl: _channelsCache.ttl };
+    const data = await getGuildChannels(true);
+    const channels =
+      data && Array.isArray(data)
+        ? data
+            .filter((c) => c.type === 0)
+            .map((c) => ({ id: c.id, name: c.name, display: `#${c.name}` }))
+        : [];
+    console.log(
+      `/api/admin/channels/clear: fetched ${channels.length} text channels`
+    );
+    return res.json({ success: true, channels });
+  } catch (err) {
+    console.error(
+      "/api/admin/channels/clear error:",
+      err.stack || err.message || err
+    );
+    return res
+      .status(500)
+      .json({ success: false, message: err.message || String(err) });
   }
 });
 
