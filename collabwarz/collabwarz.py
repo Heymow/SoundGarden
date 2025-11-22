@@ -1475,6 +1475,12 @@ class CollabWarz(commands.Cog):
                     INSERT INTO backups (guild_id, file_name, backup_content, size, created_by_user_id, created_by_display, created_at)
                     VALUES ($1,$2,$3,$4,$5,$6,$7)
                 ''', gid, file_name, json.dumps(backup_json), size, created_by, created_by_name, datetime.utcnow())
+            # Print explicit success log so operators can see that the backup persisted
+            try:
+                await self._maybe_noisy_log(f"✅ Persisted backup to Postgres: {file_name} (guild={gid}, user={created_by})", guild=guild)
+            except Exception:
+                # Best-effort logging; if this fails, ignore
+                pass
             return True
         except Exception as e:
             await self._maybe_noisy_log(f"⚠️ Failed to persist backup to Postgres: {e}", guild=guild)
