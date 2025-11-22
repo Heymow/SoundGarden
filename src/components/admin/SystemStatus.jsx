@@ -17,6 +17,8 @@ export default function SystemStatus() {
   const [latestBackup, setLatestBackup] = useState(null);
   const [backups, setBackups] = useState([]);
   const [currentIssue, setCurrentIssue] = useState(null);
+  const [logsModalOpen, setLogsModalOpen] = useState(false);
+  const [logsData, setLogsData] = useState([]);
   const overlay = useAdminOverlay();
 
   const showSuccess = (message) => overlay.showAlert('success', message);
@@ -26,8 +28,18 @@ export default function SystemStatus() {
     showSuccess("⚙️ Opening bot configuration editor...");
   };
 
-  const handleViewLogs = () => {
-    showSuccess("📜 Opening full system logs viewer...");
+  const handleViewLogs = async () => {
+    try {
+      const logResponse = await botApi.getCompetitionLogs();
+      if (logResponse && logResponse.logs) {
+        setLogsData(logResponse.logs);
+        setLogsModalOpen(true);
+      } else {
+        showError('❌ Failed to fetch logs');
+      }
+    } catch (err) {
+      showError(`❌ Failed to fetch logs: ${err.message}`);
+    }
   };
 
   const handleSyncData = async () => {
@@ -616,6 +628,31 @@ export default function SystemStatus() {
           </div>
         </div>
       </div>
+
+      {/* Logs Modal */}
+      {logsModalOpen && (
+        <div className="admin-modal-overlay" onClick={() => setLogsModalOpen(false)}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal-header">
+              <h3>📜 System Logs</h3>
+              <button className="admin-modal-close" onClick={() => setLogsModalOpen(false)}>×</button>
+            </div>
+            <div className="admin-modal-content">
+              <div className="log-viewer">
+                {logsData.length > 0 ? logsData.map((log, index) => (
+                  <div key={index} className={`log-entry log-${log.level?.toLowerCase() || 'info'}`}>
+                    <span className="log-time">{log.timestamp || 'Unknown'}</span>
+                    <span className="log-level">{log.level || 'INFO'}</span>
+                    <span className="log-message">{log.message || log}</span>
+                  </div>
+                )) : (
+                  <p>No logs available</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

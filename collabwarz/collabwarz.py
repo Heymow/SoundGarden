@@ -315,7 +315,29 @@ class CollabWarz(commands.Cog):
         if now - last > interval:
             await self._maybe_noisy_log(message, guild=guild)
             self.backend_error_throttle[gid] = now
-    
+
+    async def _send_competition_log(self, message, level="INFO", guild=None):
+        """Send a competition log entry to the backend for admin panel viewing."""
+        try:
+            backend_url = await self.config.guild(guild).backend_url() if guild else None
+            if not backend_url:
+                return
+            token = await self.config.guild(guild).backend_token() if guild else None
+            if not token:
+                return
+            data = {
+                "message": message,
+                "level": level,
+                "timestamp": datetime.utcnow().isoformat(),
+                "guild_id": guild.id if guild else None,
+                "guild_name": guild.name if guild else None
+            }
+            headers = {"Authorization": f"Bearer {token}"} if token else None
+            await self._post_with_temp_session(f"{backend_url}/api/admin/log", json_payload=data, headers=headers, guild=guild)
+        except Exception as e:
+            # Don't log errors in logging to avoid loops
+            pass
+
     def _create_discord_timestamp(self, dt: datetime, style: str = "R") -> str:
         """Create a Discord timestamp from datetime object
         
@@ -707,6 +729,7 @@ class CollabWarz(commands.Cog):
                 await self.config.guild(guild).week_cancelled.set(False)
                 
                 print(f"✅ Phase started: {phase} with theme: {theme}")
+                await self._send_competition_log(f"Phase started: {phase} with theme: {theme}", guild=guild)
                 
             elif action == 'end_phase':
                 current_phase = await self.config.guild(guild).current_phase()
@@ -715,13 +738,16 @@ class CollabWarz(commands.Cog):
                 elif current_phase == 'voting':
                     await self.config.guild(guild).current_phase.set('ended')
                 
-                print(f"✅ Phase ended, new phase: {await self.config.guild(guild).current_phase()}")
+                new_phase = await self.config.guild(guild).current_phase()
+                print(f"✅ Phase ended, new phase: {new_phase}")
+                await self._send_competition_log(f"Phase ended, new phase: {new_phase}", guild=guild)
                 
             elif action == 'cancel_week':
                 await self.config.guild(guild).week_cancelled.set(True)
                 await self.config.guild(guild).current_phase.set('cancelled')
                 
                 print("✅ Week cancelled")
+                await self._send_competition_log("Week cancelled", guild=guild)
                 
             elif action == 'enable_automation':
                 await self.config.guild(guild).auto_announce.set(True)
@@ -836,6 +862,7 @@ class CollabWarz(commands.Cog):
                     # Trigger the process that finalizes the vote and announces winners
                     await self._process_voting_end(guild)
                     print("✅ Announce winners triggered")
+                    await self._send_competition_log("Winners announced", guild=guild)
                 except Exception as e:
                     await self._maybe_noisy_log(f"❌ Failed to announce winners: {e}", guild=guild)
             # Backup actions (support via Redis queue)

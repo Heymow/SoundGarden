@@ -302,10 +302,10 @@ export const getAdminSystem = async () => {
 };
 
 /**
- * Get last status post logs for the backend
+ * Get last competition logs for the admin panel
  */
-export const getAdminStatusLog = async () => {
-  return await fetchWithAuth("/api/admin/status-log");
+export const getCompetitionLogs = async () => {
+  return await fetchWithAuth("/api/admin/competition-logs");
 };
 
 // ============= Action Endpoints =============

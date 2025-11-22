@@ -328,11 +328,22 @@ const inMemoryProcessed = {}; // store processed action results when Redis is no
 let inMemoryStatus = null;
 // Status post logs for debugging: record recent POST attempts
 const statusPostLogs = [];
+// Competition logs for admin panel
+const competitionLogs = [];
 function pushStatusLog(entry) {
   try {
     entry.ts = new Date().toISOString();
     statusPostLogs.push(entry);
     if (statusPostLogs.length > 200) statusPostLogs.shift();
+  } catch (e) {
+    // ignore errors in logging
+  }
+}
+function pushCompetitionLog(entry) {
+  try {
+    entry.ts = new Date().toISOString();
+    competitionLogs.push(entry);
+    if (competitionLogs.length > 200) competitionLogs.shift();
   } catch (e) {
     // ignore errors in logging
   }
@@ -658,6 +669,26 @@ app.get("/api/admin/status-log", verifyAdminAuth, async (req, res) => {
   try {
     // Return the last 100 entries
     return res.json({ success: true, logs: statusPostLogs.slice(-100) });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Admin-only: Receive competition logs from cog
+app.post("/api/admin/log", verifyAdminAuth, (req, res) => {
+  try {
+    pushCompetitionLog(req.body);
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Admin-only: Retrieve recent competition logs
+app.get("/api/admin/competition-logs", verifyAdminAuth, async (req, res) => {
+  try {
+    // Return the last 100 entries
+    return res.json({ success: true, logs: competitionLogs.slice(-100) });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -1387,12 +1418,10 @@ app.post("/api/admin/actions", verifyAdminAuth, async (req, res) => {
       case "setSafeMode":
       case "setsafemode":
         if (typeof actionParams.enable === "undefined") {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              message: "enable parameter required (true/false)",
-            });
+          return res.status(400).json({
+            success: false,
+            message: "enable parameter required (true/false)",
+          });
         }
         if (typeof actionParams.enable !== "boolean") {
           // Accept numeric 0/1 as boolean
@@ -1405,12 +1434,10 @@ app.post("/api/admin/actions", verifyAdminAuth, async (req, res) => {
           }
         }
         if (typeof actionParams.enable !== "boolean") {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              message: "enable must be boolean (true/false)",
-            });
+          return res.status(400).json({
+            success: false,
+            message: "enable must be boolean (true/false)",
+          });
         }
         successMessage = `Safe mode ${
           actionParams.enable ? "enabled" : "disabled"
