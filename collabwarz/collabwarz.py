@@ -618,9 +618,17 @@ class CollabWarz(commands.Cog):
 
         try:
             await rc.set(key, value)
+            try:
+                print(f"🔁 _safe_redis_set: Set key {key} (guild={getattr(guild, 'id', None)})")
+            except Exception:
+                pass
             return True
         except Exception as e:
             await self._maybe_noisy_log(f"⚠️ CollabWarz: Unable to set key {key} in Redis: {e}", guild=guild)
+            try:
+                print(f"⚠️ _safe_redis_set: Failed to set key {key}: {e}")
+            except Exception:
+                pass
             return False
     
     async def _update_redis_status(self, guild):
@@ -644,6 +652,11 @@ class CollabWarz(commands.Cog):
                 cfg_all = await self.config.guild(guild).all()
             except Exception:
                 cfg_all = {}
+            try:
+                # Debug snapshot: print out channel-related keys and types
+                print(f"🔁 _update_redis_status: cfg_all snapshot announcement={cfg_all.get('announcement_channel')}, submission={cfg_all.get('submission_channel')}, test={cfg_all.get('test_channel')}")
+            except Exception:
+                pass
 
             submissions = cfg_all.get('submissions') or {}
             voting_results = cfg_all.get('voting_results') or {}
@@ -1011,7 +1024,14 @@ class CollabWarz(commands.Cog):
                                     print(f"⚠️ Skipping update for {k}: value is None (no change)")
                                 else:
                                     try:
+                                        print(f"🔁 update_config: setting {k} = {v_parsed} (type {type(v_parsed).__name__})")
                                         await cfg_obj.set(v_parsed)
+                                        # Read back to validate persistence immediately
+                                        try:
+                                            new_val = await getattr(self.config.guild(guild), cfgkey)()
+                                            print(f"🔍 Readback after set: {k} -> {new_val} (type {type(new_val).__name__})")
+                                        except Exception as inner_read_e:
+                                            print(f"⚠️ Readback failed for {cfgkey}: {inner_read_e}")
                                     except Exception as inner_e:
                                         print(f"⚠️ Failed to set {cfgkey}: {inner_e}")
                             except Exception:
@@ -1024,6 +1044,12 @@ class CollabWarz(commands.Cog):
                         if changes:
                             await self._send_competition_log(f"Config updated: {', '.join(changes)}", guild=guild)
                             try:
+                                # Small delay to allow config persistence to settle in Red's backend
+                                # This helps avoid situations where .all() might return stale data
+                                try:
+                                    await asyncio.sleep(0.1)
+                                except Exception:
+                                    pass
                                 # Push updated status immediately so admin UI reflects changes
                                 status_after = await self._update_redis_status(guild)
                                 # If Redis is not configured, or we're running in backend mode,
@@ -1051,6 +1077,31 @@ class CollabWarz(commands.Cog):
                                     print("⚙️ status_after:", _json.dumps(status_after))
                                 except Exception:
                                     print(f"⚙️ status_after (raw): {status_after}")
+                                # Read and log the guild config after publishing status so we can
+                                # confirm which values are persisted in the config store.
+                                try:
+                                    cfg_all = await self.config.guild(guild).all()
+                                    try:
+                                        import json as __json
+                                        print("🔁 cfg_all after update_config:", __json.dumps(cfg_all))
+                                    except Exception:
+                                        print("🔁 cfg_all after update_config (raw):", cfg_all)
+                                except Exception as read_all_e:
+                                    print(f"⚠️ Failed to read cfg_all after update_config: {read_all_e}")
+                                try:
+                                    readbacks = {}
+                                    for k in ("announcement_channel", "submission_channel", "test_channel"):
+                                        try:
+                                            readbacks[k] = await getattr(self.config.guild(guild), k)()
+                                        except Exception:
+                                            readbacks[k] = None
+                                    try:
+                                        import json as __json2
+                                        print("🔁 post-status readback keys:", __json2.dumps(readbacks))
+                                    except Exception:
+                                        print("🔁 post-status readback keys (raw):", readbacks)
+                                except Exception as read_e2:
+                                    print(f"⚠️ Failed to read back channel keys after publish: {read_e2}")
                             except Exception:
                                 pass
                         else:

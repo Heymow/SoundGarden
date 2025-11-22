@@ -1271,18 +1271,49 @@ app.post("/api/admin/config", verifyAdminAuth, async (req, res) => {
       console.warn("⚠️ Normalization for config values failed", e.message || e);
     }
 
-    console.log("/api/admin/config: queueing updates", clean);
-    const actionData = await queueCollabWarzAction("update_config", {
-      updates: clean,
-    });
+    console.log("/api/admin/config: original updates:", updates);
+    console.log("/api/admin/config: queueing updates:", clean);
+    console.log(
+      "/api/admin/config: unresolved channel name resolutions:",
+      failedResolutions
+    );
+    let actionData;
+    try {
+      actionData = await queueCollabWarzAction("update_config", {
+        updates: clean,
+      });
+    } catch (queueErr) {
+      console.error(
+        "/api/admin/config: failed to queue action:",
+        queueErr.stack || queueErr.message || queueErr
+      );
+      return res
+        .status(500)
+        .json({
+          success: false,
+          message: "Failed to queue update action",
+          details: queueErr.message || String(queueErr),
+        });
+    }
     return res.json({
       success: true,
       actionId: actionData.id,
       unresolved: failedResolutions,
     });
   } catch (err) {
-    console.error("/api/admin/config POST error:", err.message || err);
-    return res.status(500).json({ success: false, message: err.message });
+    console.error(
+      "/api/admin/config POST error:",
+      err.stack || err.message || err
+    );
+    return res
+      .status(500)
+      .json({
+        success: false,
+        message: err.message,
+        details: err.stack
+          ? err.stack.split("\n").slice(0, 5).join("\n")
+          : null,
+      });
   }
 });
 
