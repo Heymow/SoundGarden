@@ -727,20 +727,62 @@ class CollabWarz(commands.Cog):
                 pass
             # Export a small subset of explicit config values for the admin UI
             try:
-                # Use string representation for channel ids to avoid precision loss when processed by other platforms
-                ac = cfg_all.get('announcement_channel')
-                sc = cfg_all.get('submission_channel')
-                tc = cfg_all.get('test_channel')
-                status_data['announcement_channel'] = str(ac) if ac is not None else None
-                status_data['submission_channel'] = str(sc) if sc is not None else None
-                status_data['test_channel'] = str(tc) if tc is not None else None
-                status_data['require_confirmation'] = cfg_all.get('require_confirmation')
-                status_data['use_everyone_ping'] = cfg_all.get('use_everyone_ping')
-                status_data['min_teams_required'] = cfg_all.get('min_teams_required')
-                status_data['api_server_enabled'] = cfg_all.get('api_server_enabled')
-                status_data['api_server_port'] = cfg_all.get('api_server_port')
-            except Exception:
-                pass
+                # Use cfg_all if it's a dict, otherwise fall back to per-key getters
+                if cfg_all and isinstance(cfg_all, dict):
+                    ac = cfg_all.get('announcement_channel')
+                    sc = cfg_all.get('submission_channel')
+                    tc = cfg_all.get('test_channel')
+                    status_data['announcement_channel'] = str(ac) if ac is not None else None
+                    status_data['submission_channel'] = str(sc) if sc is not None else None
+                    status_data['test_channel'] = str(tc) if tc is not None else None
+                    status_data['require_confirmation'] = cfg_all.get('require_confirmation')
+                    status_data['use_everyone_ping'] = cfg_all.get('use_everyone_ping')
+                    status_data['min_teams_required'] = cfg_all.get('min_teams_required')
+                    status_data['api_server_enabled'] = cfg_all.get('api_server_enabled')
+                    status_data['api_server_port'] = cfg_all.get('api_server_port')
+                else:
+                    # Fallback path: call each getter individually to build status
+                    try:
+                        ac = await getattr(self.config.guild(guild), 'announcement_channel')()
+                    except Exception:
+                        ac = None
+                    try:
+                        sc = await getattr(self.config.guild(guild), 'submission_channel')()
+                    except Exception:
+                        sc = None
+                    try:
+                        tc = await getattr(self.config.guild(guild), 'test_channel')()
+                    except Exception:
+                        tc = None
+                    status_data['announcement_channel'] = str(ac) if ac is not None else None
+                    status_data['submission_channel'] = str(sc) if sc is not None else None
+                    status_data['test_channel'] = str(tc) if tc is not None else None
+                    try:
+                        status_data['require_confirmation'] = await getattr(self.config.guild(guild), 'require_confirmation')()
+                    except Exception:
+                        status_data['require_confirmation'] = None
+                    try:
+                        status_data['use_everyone_ping'] = await getattr(self.config.guild(guild), 'use_everyone_ping')()
+                    except Exception:
+                        status_data['use_everyone_ping'] = None
+                    try:
+                        status_data['min_teams_required'] = await getattr(self.config.guild(guild), 'min_teams_required')()
+                    except Exception:
+                        status_data['min_teams_required'] = None
+                    try:
+                        status_data['api_server_enabled'] = await getattr(self.config.guild(guild), 'api_server_enabled')()
+                    except Exception:
+                        status_data['api_server_enabled'] = None
+                    try:
+                        status_data['api_server_port'] = await getattr(self.config.guild(guild), 'api_server_port')()
+                    except Exception:
+                        status_data['api_server_port'] = None
+            except Exception as e:
+                try:
+                    import traceback as _tb
+                    print(f"⚠️ _update_redis_status: Failed while building status_data from cfg_all or getters: {e}\n{_tb.format_exc()}")
+                except Exception:
+                    print(f"⚠️ _update_redis_status: Failed while building status_data from cfg_all or getters: {e}")
             # Attach detailed snapshots
             try:
                 status_data['submissions'] = submissions or {}
@@ -779,6 +821,18 @@ class CollabWarz(commands.Cog):
                 redis_enabled = False
             if redis_enabled:
                 await self._safe_redis_set('collabwarz:status', json.dumps(status_data), guild=guild)
+                # Try to read back the stored Redis status to ensure the publish succeeded and content matches
+                try:
+                    if self.redis_client:
+                        raw = await self.redis_client.get('collabwarz:status')
+                        if raw:
+                            try:
+                                parsed = json.loads(raw)
+                                print(f"🔁 _update_redis_status: verify saved status announcement_channel={parsed.get('announcement_channel')}, submission_channel={parsed.get('submission_channel')}, test_channel={parsed.get('test_channel')}")
+                            except Exception:
+                                print(f"🔁 _update_redis_status: saved status raw: {raw}")
+                except Exception as e:
+                    print(f"⚠️ _update_redis_status: Failed to read back saved Redis status: {e}")
 
             # Return the status data for potential backend export or other handling
             return status_data
@@ -1160,7 +1214,11 @@ class CollabWarz(commands.Cog):
                                     except Exception:
                                         print("🔁 cfg_all after update_config (raw):", cfg_all)
                                 except Exception as read_all_e:
-                                    print(f"⚠️ Failed to read cfg_all after update_config: {read_all_e}")
+                                    try:
+                                        import traceback as _tb
+                                        print(f"⚠️ Failed to read cfg_all after update_config: {read_all_e}\n{_tb.format_exc()}" )
+                                    except Exception:
+                                        print(f"⚠️ Failed to read cfg_all after update_config: {read_all_e}")
                                 try:
                                     readbacks = {}
                                     for k in ("announcement_channel", "submission_channel", "test_channel"):
