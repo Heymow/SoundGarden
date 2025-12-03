@@ -110,7 +110,7 @@ class CollabWarz(commands.Cog):
         self.backend_task = self.bot.loop.create_task(self.redis_manager.backend_communication_loop())
         
         # Run a migration check to ensure older guild configs have `submissions` registered
-        self.bot.loop.create_task(self._ensure_config_defaults())
+        # self.bot.loop.create_task(self._ensure_config_defaults())
         
         # Populate latest_backup mapping by scanning backup directory
         try:
