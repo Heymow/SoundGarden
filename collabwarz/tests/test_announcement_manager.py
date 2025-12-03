@@ -37,6 +37,13 @@ class TestAnnouncementManager(unittest.IsolatedAsyncioTestCase):
         self.mock_guild.id = 12345
         self.mock_guild.name = "Test Guild"
         
+        # Ensure config set methods are AsyncMock
+        self.mock_config.guild.return_value.last_announcement.set = AsyncMock()
+        self.mock_config.guild.return_value.pending_announcement.set = AsyncMock()
+        self.mock_config.guild.return_value.current_theme.set = AsyncMock()
+        self.mock_config.guild.return_value.next_week_theme.set = AsyncMock()
+        self.mock_config.guild.return_value.pending_theme_confirmation.set = AsyncMock()
+        
         # Initialize AnnouncementManager
         self.manager = AnnouncementManager(self.mock_cog)
     
@@ -78,7 +85,12 @@ class TestAnnouncementManager(unittest.IsolatedAsyncioTestCase):
         
         # Mock session
         mock_session = MagicMock()
-        mock_session.post.return_value.__aenter__.return_value = mock_response
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+        
+        # Fix: __aenter__ must be AsyncMock for async with
+        mock_session.post.return_value.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_session.post.return_value.__aexit__ = AsyncMock(return_value=None)
         
         with patch('aiohttp.ClientSession', return_value=mock_session):
             theme = await self.manager._generate_theme_with_ai(
@@ -179,6 +191,7 @@ class TestAnnouncementManager(unittest.IsolatedAsyncioTestCase):
         mock_guild_config = MagicMock()
         mock_guild_config.require_confirmation = AsyncMock(return_value=False)
         mock_guild_config.use_everyone_ping = AsyncMock(return_value=False)
+        mock_guild_config.admin_user_id = AsyncMock(return_value=None)
         mock_guild_config.pending_announcement = MagicMock()
         mock_guild_config.pending_announcement.set = AsyncMock()
         self.mock_config.guild.return_value = mock_guild_config
