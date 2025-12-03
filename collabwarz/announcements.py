@@ -58,7 +58,7 @@ class AnnouncementManager:
         biweekly_mode = await self.config.guild(guild).biweekly_mode()
         
         # Check if this is a competition week (for bi-weekly mode)
-        is_competition_week = await self.cog._is_competition_week(guild)
+        is_competition_week = await self.cog.config_manager.is_competition_week(guild)
         
         # In bi-weekly mode, during off weeks, set phase to inactive
         if biweekly_mode and not is_competition_week:
@@ -79,7 +79,7 @@ class AnnouncementManager:
             expected_phase = "voting"
         
         # Get current competition identifier for tracking
-        competition_key = await self.cog._get_competition_week_key(guild)
+        competition_key = await self.cog.config_manager.get_competition_week_key(guild)
         current_week = iso_week  # Keep for backwards compatibility
         
         # Check for phase transitions

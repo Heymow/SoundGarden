@@ -5765,6 +5765,111 @@ class CollabWarz(commands.Cog):
             )
         
         await ctx.send(embed=embed)
+
+    async def _cancel_week_and_restart(self, guild, channel, theme):
+        """Cancel current week due to lack of participation and restart"""
+        await self.config.guild(guild).week_cancelled.set(True)
+        await self.config.guild(guild).current_phase.set("submission")
+        
+        # Post cancellation announcement
+        embed = discord.Embed(
+            title="⚠️ Competition Update",
+            description=(
+                f"**Theme:** {theme}\n\n"
+                "We didn't receive enough submissions to hold a voting phase this week. "
+                "The competition has been cancelled for this week.\n\n"
+                "**Next Steps:**\n"
+                "• A new theme will be announced on Monday!\n"
+                "• Get ready for the next round!"
+            ),
+            color=discord.Color.orange()
+        )
+        await channel.send(embed=embed)
+        
+        # Log it
+        try:
+            await self._send_competition_log(f"Week cancelled (insufficient teams)", guild=guild)
+        except Exception:
+            pass
+
+    async def _process_voting_end(self, guild):
+        """Process end of voting phase and announce winners"""
+        # Get voting results
+        voting_results = await self.database_manager.get_voting_results(guild)
+        
+        if not voting_results or not voting_results.get('results'):
+            # No votes recorded
+            return
+            
+        # Get winner
+        results = voting_results.get('results', {})
+        if not results:
+            return
+            
+        # Sort by votes
+        sorted_results = sorted(results.items(), key=lambda x: x[1], reverse=True)
+        winner_team = sorted_results[0][0]
+        winner_votes = sorted_results[0][1]
+        
+        # Get team members
+        team_members = await self.config.guild(guild).team_members()
+        week_key = await self.config_manager.get_competition_week_key(guild)
+        members = team_members.get(week_key, {}).get(winner_team, [])
+        
+        # Record winner
+        await self.database_manager.record_weekly_winner(guild, winner_team, members, week_key)
+        
+        # Update config
+        await self.config.guild(guild).winner_announced.set(True)
+        
+        # Log it
+        try:
+            await self._send_competition_log(f"Winner determined: {winner_team} ({winner_votes} votes)", guild=guild)
+        except Exception:
+            pass
+    
+    async def _count_participating_teams(self, guild) -> int:
+        """Count number of teams participating in current competition"""
+        # Count Discord registered teams
+        week_key = await self.config_manager.get_competition_week_key(guild)
+        submitted_teams = await self.config.guild(guild).submitted_teams()
+        discord_teams = set(submitted_teams.get(week_key, []))
+        
+        # Count web submissions
+        submissions = await self.config_manager.get_submissions_safe(guild)
+        web_teams = set(submissions.keys())
+        
+        # Combine unique teams
+        all_teams = discord_teams.union(web_teams)
+        return len(all_teams)
+
+    def _get_next_deadline(self, announcement_type: str) -> datetime:
+        """Calculate the next deadline based on announcement type"""
+        now = datetime.utcnow()
+        
+        if "submission" in announcement_type:
+            # Deadline is Friday 12:00
+            days_until_friday = (4 - now.weekday()) % 7
+            if days_until_friday == 0 and now.hour >= 12:
+                days_until_friday = 7
+            
+            next_deadline = now + timedelta(days=days_until_friday)
+            next_deadline = next_deadline.replace(hour=12, minute=0, second=0, microsecond=0)
+            
+        elif "voting" in announcement_type:
+            # Deadline is Sunday 23:59
+            days_until_sunday = (6 - now.weekday()) % 7
+            if days_until_sunday == 0 and now.hour >= 23:
+                days_until_sunday = 7
+                
+            next_deadline = now + timedelta(days=days_until_sunday)
+            next_deadline = next_deadline.replace(hour=23, minute=59, second=59, microsecond=0)
+            
+        else:
+            # Default to 24 hours from now
+            next_deadline = now + timedelta(hours=24)
+            
+        return next_deadline
     
     @collabwarz.command(name="listteams")
     async def list_current_teams(self, ctx):

@@ -30,7 +30,11 @@ class TestAnnouncementManager(unittest.IsolatedAsyncioTestCase):
         self.mock_config = MagicMock()
         
         self.mock_cog.bot = self.mock_bot
+        self.mock_cog.bot = self.mock_bot
         self.mock_cog.config = self.mock_config
+        self.mock_cog.config_manager = MagicMock()
+        self.mock_cog.config_manager.is_competition_week = AsyncMock(return_value=True)
+        self.mock_cog.config_manager.get_competition_week_key = AsyncMock(return_value="2023-W20")
         
         # Create mock guild
         self.mock_guild = MagicMock()
