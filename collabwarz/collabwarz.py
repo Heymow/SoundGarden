@@ -39,28 +39,15 @@ from redbot.core.bot import Red
 from datetime import datetime, timedelta
 import aiohttp
 import asyncio
-import importlib
-import sys
-import subprocess
-import json
 from typing import Optional
 from aiohttp import web
-import re
 import traceback
 import os
-try:
-    import redis.asyncio as redis
-    REDIS_AVAILABLE = True
-except ImportError:
-    REDIS_AVAILABLE = False
-    redis = None
 
-try:
-    import asyncpg
-    PG_AVAILABLE = True
-except Exception:
-    asyncpg = None
-    PG_AVAILABLE = False
+from .redis_manager import RedisManager
+from .announcements import AnnouncementManager
+from .database import DatabaseManager
+from .config_manager import ConfigManager
 
 class CollabWarz(commands.Cog):
     """
@@ -74,90 +61,15 @@ class CollabWarz(commands.Cog):
         self._cog_start_ts = datetime.utcnow()
         self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
         
-        default_guild = {
-            "announcement_channel": None,
-            "current_theme": "Cosmic Dreams",
-            "current_phase": "voting",  # "submission" or "voting"
-            "submission_deadline": None,
-            "voting_deadline": None,
-            "auto_announce": True,
-            "ai_api_url": "",
-            "ai_api_key": "",
-            "ai_model": "gpt-3.5-turbo",  # Configurable AI model
-            "ai_temperature": 0.8,        # AI creativity setting
-            "ai_max_tokens": 150,         # Maximum response length
-            "last_announcement": None,  # Track last announcement to avoid duplicates
-            "last_phase_check": None,   # Track when we last checked for phase changes
-            "winner_announced": False,  # Track if winner has been announced for current week
-            "require_confirmation": True,  # Require admin confirmation before posting
-            "admin_user_id": None,      # Admin to contact for confirmation
-            "pending_announcement": None, # Store pending announcement data
-            "test_channel": None,       # Channel for test announcements
-            "confirmation_timeout": 1800, # 30 minutes timeout for confirmations (non-submission)
-            "next_week_theme": None,    # AI-generated theme for next week
-            "theme_generation_done": False, # Track if theme was generated this week
-            "pending_theme_confirmation": None, # Store pending theme confirmation
-            "use_everyone_ping": False, # Whether to include @everyone in announcements
-            "min_teams_required": 2,    # Minimum teams required to start voting
-            "submission_channel": None, # Channel where submissions are posted
-            "week_cancelled": False,    # Track if current week was cancelled
-            "validate_discord_submissions": True, # Validate Discord submissions format
-            "submitted_teams": {},      # Track teams that have submitted this week {week: [teams]}
-            # Legacy / older installations used a `submissions` map. Register it by default
-            # to avoid runtime attribute errors when other code expects `submissions`.
-            "submissions": {},          # Legacy mapping for admin-submitted web entries {team: {song, url, ...}}
-            "team_members": {},         # Track team compositions {week: {team_name: [user_ids]}}
-            "admin_channel": None,      # DEPRECATED: No longer used with AutoReputation API
-            "rep_reward_amount": 2,     # Amount of rep points to give winners
-            "weekly_winners": {},       # Track winners by week {week: {team_name, members, rep_given}}
-            "voting_results": {},       # Track voting results {week: {team_name: vote_count}}
-            "face_off_active": False,   # Track if a face-off is currently active
-            "face_off_teams": [],       # Teams in current face-off
-            "face_off_deadline": None,  # When face-off voting ends
-            "face_off_results": {},     # Face-off voting results {team_name: vote_count}
-            "api_server_enabled": False, # Enable built-in API server for member list
-            "api_server_port": 8080,    # Port for the API server
-            "api_server_host": "0.0.0.0", # Host for the API server
-            "api_access_token": None,   # Token for API authentication (deprecated)
-            "api_access_token_data": None,  # Enhanced token data: {token: str, user_id: int, generated_at: str}
-            "jwt_signing_key": None,    # JWT signing key for secure token generation
-            "cors_origins": ["*"],      # CORS allowed origins
-            "auto_delete_messages": True, # Automatically delete invalid messages
-            "admin_user_ids": [],       # List of additional admin user IDs
-            "suno_api_enabled": True,   # Enable Suno API integration for song metadata
-            "suno_api_base_url": "https://api.suno-proxy.click", # Suno API base URL
-            "individual_votes": {},     # Track individual votes {week: {user_id: team_name}}
-            "session_token_required": True,   # Require Discord session tokens for voting
-            "biweekly_mode": False,     # Enable bi-weekly competitions (every 2 weeks)
-            
-            # Comprehensive normalized data structures
-            "artists_db": {},           # {user_id: {name, suno_profile, discord_rank, stats, teams, songs}}
-            "teams_db": {},             # {team_id: {name, members, stats, songs_by_week}}
-            "songs_db": {},             # {song_id: {title, artists, team_id, week, suno_data, vote_stats}}
-            "weeks_db": {},             # {week_key: {theme, date, status, teams, songs, winner, vote_totals}}
-            "next_unique_ids": {        # Track next available IDs for normalization
-                "team_id": 1,
-                "song_id": 1
-            },
-            "unmatched_suno_authors": {},  # Track Suno authors that couldn't be matched to Discord members
-            
-            # Redis Communication Configuration (for admin panel)
-            "redis_enabled": False,     # Enable Redis communication with admin panel
-            "redis_url": None,          # Redis connection URL (auto-detected from environment)
-            "redis_poll_interval": 5,   # How often to check for queued actions (seconds)
-            "redis_status_update_interval": 30  # How often to update status in Redis (seconds)
-            ,
-            # Backend polling configuration (use backend API instead of direct Redis)
-            "backend_url": None,        # Backend base URL for collabwarz API
-            "backend_token": None,      # Shared secret token for cog<->backend auth
-            "backend_poll_interval": 10 # Poll interval in seconds when using backend
-        }
-        # Per-guild toggle to stop potentially destructive operations via admin panel
-        default_guild["safe_mode_enabled"] = True
-        # Persistent per-guild toggle to suppress noisy logs (defaults True - logs suppressed)
-        default_guild["suppress_noisy_logs"] = True
+        # Initialize Managers
+        self.redis_manager = RedisManager(self)
+        self.announcement_manager = AnnouncementManager(self)
+        self.database_manager = DatabaseManager(self)
+        self.config_manager = ConfigManager(self)
         
-        self.config.register_guild(**default_guild)
+        # Register Config
+        self.config_manager.register_config()
+        
         self.announcement_task = None
         self.redis_task = None
         self.backend_task = None
@@ -166,6 +78,7 @@ class CollabWarz(commands.Cog):
         self.backend_session_loop = None
         # Internal shutdown flag to stop background loops gracefully
         self._shutdown = False
+        
         # Switch to short-lived per-request aiohttp.ClientSession for safety by default
         self.backend_use_short_lived_sessions = True
         # Suppress noisy warnings (like repeated 'Session is closed' or missing Redis) by default
@@ -190,15 +103,15 @@ class CollabWarz(commands.Cog):
     def cog_load(self):
         """Start the announcement task and Redis communication when cog loads"""
         self._shutdown = False
-        self.announcement_task = self.bot.loop.create_task(self.announcement_loop())
-        if REDIS_AVAILABLE:
-            self.redis_task = self.bot.loop.create_task(self.redis_communication_loop())
-        # Start backend polling loop (it will early-return if not configured)
-        self.backend_task = self.bot.loop.create_task(self.backend_communication_loop())
+        self.announcement_task = self.bot.loop.create_task(self.announcement_manager.announcement_loop())
+        
+        # Start Redis and Backend communication loops via RedisManager
+        self.redis_task = self.bot.loop.create_task(self.redis_manager.redis_communication_loop())
+        self.backend_task = self.bot.loop.create_task(self.redis_manager.backend_communication_loop())
+        
         # Run a migration check to ensure older guild configs have `submissions` registered
         self.bot.loop.create_task(self._ensure_config_defaults())
-        # Don't create backend session here — create it in the backend loop
-        print("🔁 CollabWarz: Backend session will be created lazily in backend_communication_loop (cog_load)")
+        
         # Populate latest_backup mapping by scanning backup directory
         try:
             for fn in os.listdir(self.backup_dir or ''):
@@ -225,7 +138,7 @@ class CollabWarz(commands.Cog):
             pass
         # Try to initialize Postgres pool lazily (non-blocking)
         try:
-            self.bot.loop.create_task(self._init_postgres_pool())
+            self.bot.loop.create_task(self.database_manager.init_pool())
         except Exception:
             pass
         
@@ -237,8 +150,10 @@ class CollabWarz(commands.Cog):
             self.announcement_task.cancel()
         if self.redis_task:
             self.redis_task.cancel()
-        if self.redis_client:
-            asyncio.create_task(self.redis_client.close())
+        
+        # Close Redis client via manager
+        if self.redis_manager.redis_client:
+            asyncio.create_task(self.redis_manager.redis_client.close())
         # Also ensure backend task is cancelled and session cleaned up
         if self.backend_task:
             try:
@@ -252,6 +167,11 @@ class CollabWarz(commands.Cog):
                 asyncio.create_task(self.backend_session.close())
             except Exception:
                 print("🛑 CollabWarz: Exception during backend session close in cog_unload")
+        
+        # Close database pool
+        if self.database_manager.pg_pool:
+            asyncio.create_task(self.database_manager.close_pool())
+
         # Restore the original builtin print if the module-level print filter was applied
         try:
             global _CW_PRINT_FILTER_ENABLED, _CW_ORIG_PRINT
@@ -261,21 +181,6 @@ class CollabWarz(commands.Cog):
         except Exception:
             pass
 
-    async def _is_noisy_logs_suppressed(self, guild=None) -> bool:
-        """Return True when noisy logs are suppressed for a given guild, otherwise False.
-
-        If guild is provided, read persistent guild configuration. Fallback to in-memory attribute.
-        """
-        # If a guild is provided, prefer persisted config
-        try:
-            if guild:
-                cfg_val = await self.config.guild(guild).suppress_noisy_logs()
-                if isinstance(cfg_val, bool):
-                    return cfg_val
-        except Exception:
-            # Fall back to attribute
-            pass
-        return getattr(self, 'suppress_noisy_logs', True)
 
     async def _maybe_noisy_log(self, *args, guild=None, **kwargs):
         """Print a noisy log only if the suppression flag for the given guild (or global fallback) is False.
@@ -292,7 +197,7 @@ class CollabWarz(commands.Cog):
                 return
         except Exception:
             pass
-        suppressed = await self._is_noisy_logs_suppressed(guild)
+        suppressed = await self.config_manager.is_noisy_logs_suppressed(guild)
         if suppressed:
             return
         print(*args, **kwargs)
@@ -351,7 +256,7 @@ class CollabWarz(commands.Cog):
                 headers = {"X-CW-Token": token, "Authorization": f"Bearer {token}"}
             else:
                 headers = None
-            status, text = await self._post_with_temp_session(f"{backend_url.rstrip('/')}/api/collabwarz/log", json_payload=data, headers=headers, guild=guild)
+            status, text = await self.redis_manager._post_with_temp_session(f"{backend_url.rstrip('/')}/api/collabwarz/log", json_payload=data, headers=headers, guild=guild)
             # If the server returns an error status, log it (throttled) for operators
             try:
                 if status and int(status) >= 400:
@@ -379,2009 +284,7 @@ class CollabWarz(commands.Cog):
         timestamp = int(dt.timestamp())
         return f"<t:{timestamp}:{style}>"
     
-    # ========== REDIS COMMUNICATION METHODS ==========
-    
-    async def _init_redis_connection(self, guild_for_config=None) -> bool:
-        """Initialize Redis connection for admin panel communication.
-
-        Tries in this order:
-        1. Explicit `redis_url` passed in `guild_for_config` (if provided)
-        2. Environment variables `REDIS_URL` or `REDIS_PRIVATE_URL`
-        3. Any guild config that has `redis_enabled` True and a `redis_url` value
-
-        This allows setting the Redis URL at runtime via the cog config (no restart required).
-        """
-        # If redis module not available at import time, try to import dynamically
-        global REDIS_AVAILABLE, redis
-        if not REDIS_AVAILABLE:
-            try:
-                mod = importlib.import_module('redis.asyncio')
-                redis = mod
-                REDIS_AVAILABLE = True
-            except Exception:
-                print("⚠️ CollabWarz: redis.asyncio package not installed; install 'redis' package to enable Redis support")
-                return False
-
-        try:
-            # 1) If a specific guild requested a URL, try it first
-            redis_url = None
-            if guild_for_config:
-                try:
-                    redis_url = await self.config.guild(guild_for_config).redis_url()
-                except Exception:
-                    redis_url = None
-
-            # 2) Environment variables (global, highest priority if present)
-            if not redis_url:
-                redis_url = os.environ.get('REDIS_URL') or os.environ.get('REDIS_PRIVATE_URL')
-
-            # 3) Fallback: look for any guild config that enabled redis and supplied a URL
-            if not redis_url:
-                for g in self.bot.guilds:
-                    try:
-                        enabled = await self.config.guild(g).redis_enabled()
-                        url = await self.config.guild(g).redis_url()
-                        if enabled and url:
-                            redis_url = url
-                            break
-                    except Exception:
-                        continue
-
-            if not redis_url:
-                print("🔍 CollabWarz: No Redis URL detected (config or REDIS_URL/REDIS_PRIVATE_URL). To enable Redis, set `REDIS_URL` env var or guild config redis_enabled + redis_url.")
-                return False
-
-            # Create Redis client
-            self.redis_client = redis.from_url(redis_url, decode_responses=True)
-
-            # Test connection
-            await self.redis_client.ping()
-            print(f"✅ CollabWarz: Redis connected for admin panel communication ({redis_url})")
-            return True
-
-        except Exception as e:
-            await self._maybe_noisy_log(f"❌ CollabWarz: Failed to connect to Redis: {e}")
-            self.redis_client = None
-            return False
-
-    async def _attempt_runtime_install_redis(self, ctx: Optional[commands.Context] = None) -> bool:
-        """Attempt to install redis (asyncio flavour) at runtime via pip then import it.
-
-        Returns True if redis.asyncio becomes importable, False otherwise.
-        If a Context is provided, send informative messages back to that context.
-        """
-        # Avoid trying to install if importlib reports the module
-        try:
-            importlib.import_module('redis.asyncio')
-            return True
-        except Exception:
-            pass
-
-        loop = asyncio.get_running_loop()
-        def _install():
-            try:
-                print("🔁 CollabWarz: Attempting to install redis via pip...")
-                subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'redis>=4.5.0'])
-                return True
-            except Exception as e:
-                print(f"❌ CollabWarz: pip install redis failed: {e}")
-                return False
-
-        ok = await loop.run_in_executor(None, _install)
-        if not ok:
-            if ctx:
-                try:
-                    await ctx.send("❌ Failed to install redis via pip. Please install package in the environment or redeploy.")
-                except Exception:
-                    pass
-            return False
-
-        try:
-            mod = importlib.import_module('redis.asyncio')
-            globals()['redis'] = mod
-            globals()['REDIS_AVAILABLE'] = True
-            return True
-        except Exception as e:
-            if ctx:
-                try:
-                    await ctx.send(f"❌ Unable to import redis even after install: {e}")
-                except Exception:
-                    pass
-            return False
-
-    async def _safe_redis_setex(self, key, ttl, value, guild=None):
-        """Safely set a key in Redis, with minor retries and reconnection attempts.
-
-        Returns True on success, False otherwise.
-        """
-        # Take local reference to avoid race-the-client-set-to-None between check and call
-        rc = self.redis_client
-        if rc is None:
-            # Try re-initializing connection using provided guild or fallback detection
-            try:
-                if guild:
-                    await self._init_redis_connection(guild_for_config=guild)
-                else:
-                    await self._init_redis_connection()
-                rc = self.redis_client
-            except Exception as e:
-                await self._maybe_noisy_log(f"⚠️ CollabWarz: Unable to (re)initialize Redis: {e}")
-                rc = None
-
-        if rc is None:
-            await self._maybe_noisy_log(f"⚠️ CollabWarz: Redis client not available; not saving key {key}", guild=guild)
-            return False
-
-        try:
-            # Defensive: rc might have been set but not be a proper client
-            if not rc or not hasattr(rc, 'setex'):
-                # Try to re-initialize Redis to get a valid client
-                try:
-                    if guild:
-                        await self._init_redis_connection(guild_for_config=guild)
-                    else:
-                        await self._init_redis_connection()
-                    rc = self.redis_client
-                except Exception:
-                    rc = None
-            if not rc:
-                await self._maybe_noisy_log(f"⚠️ CollabWarz: Redis client not usable; not saving key {key}", guild=guild)
-                return False
-            # Final safety: ensure setex exists and call it inside try/except to handle races
-            if not hasattr(rc, 'setex'):
-                await self._maybe_noisy_log(f"⚠️ CollabWarz: Redis client lacks setex; not saving key {key}", guild=guild)
-                return False
-            try:
-                await rc.setex(key, ttl, value)
-                return True
-            except Exception as e:
-                # Log and return False when the underlying call fails (including AttributeError)
-                await self._maybe_noisy_log(f"⚠️ CollabWarz: setex failed for key {key}: {e}", guild=guild)
-                return False
-        except Exception as e:
-            await self._maybe_noisy_log(f"⚠️ CollabWarz: Unexpected error saving key {key} with TTL {ttl} in Redis: {e}", guild=guild)
-            return False
-
-    async def _post_with_temp_session(self, url, json_payload=None, headers=None, timeout=10, guild=None):
-        """Post to backend URL using a short-lived session and return (status, text)."""
-        try:
-            async with aiohttp.ClientSession() as tmp_session:
-                async with tmp_session.post(url, json=json_payload, headers=headers, timeout=timeout) as resp:
-                    try:
-                        text = await resp.text()
-                    except Exception:
-                        text = None
-                    return resp.status, text
-        except Exception as e:
-            msg = f"❌ CollabWarz: _post_with_temp_session error for {url}: {e} (type={type(e)})"
-            # Use the persisted, per-guild suppression config when available
-            # If the underlying error is a session closed condition, do not print or traceback to avoid noisy logs
-            if 'session is closed' in str(e).lower():
-                return None, None
-            suppressed = await self._is_noisy_logs_suppressed(guild)
-            if suppressed:
-                await self._maybe_noisy_log(msg, guild=guild)
-            else:
-                print(msg)
-                traceback.print_exc()
-            return None, None
-
-    async def _get_with_temp_session(self, url, headers=None, timeout=10, guild=None):
-        """GET to backend URL using a short-lived session and return (status, body/json)."""
-        try:
-            async with aiohttp.ClientSession() as tmp_session:
-                async with tmp_session.get(url, headers=headers, timeout=timeout) as resp:
-                    body = None
-                    if resp.status == 200:
-                        try:
-                            body = await resp.json()
-                        except Exception:
-                            try:
-                                body = await resp.text()
-                            except Exception:
-                                body = None
-                    return resp.status, body
-        except Exception as e:
-            msg = f"❌ CollabWarz: _get_with_temp_session error for {url}: {e} (type={type(e)})"
-            # If the underlying error is a session closed condition, do not print or traceback to avoid noisy logs
-            if 'session is closed' in str(e).lower():
-                return None, None
-            suppressed = await self._is_noisy_logs_suppressed(guild)
-            # Otherwise, log depending on suppression
-            if suppressed:
-                await self._maybe_noisy_log(msg, guild=guild)
-            else:
-                print(msg)
-                traceback.print_exc()
-            return None, None
-
-    async def _safe_redis_set(self, key, value, guild=None):
-        """Safely set a value in Redis, with basic reconnect/attempts.
-
-        Returns True on success, False otherwise.
-        """
-        rc = self.redis_client
-        if rc is None:
-            try:
-                if guild:
-                    await self._init_redis_connection(guild_for_config=guild)
-                else:
-                    await self._init_redis_connection()
-                rc = self.redis_client
-            except Exception as e:
-                print(f"⚠️ CollabWarz: Unable to (re)initialize Redis: {e}")
-                rc = None
-
-        if rc is None:
-            await self._maybe_noisy_log(f"⚠️ CollabWarz: Redis client not available; not setting key {key}", guild=guild)
-            return False
-
-        try:
-            await rc.set(key, value)
-            try:
-                print(f"🔁 _safe_redis_set: Set key {key} (guild={getattr(guild, 'id', None)})")
-            except Exception:
-                pass
-            return True
-        except Exception as e:
-            await self._maybe_noisy_log(f"⚠️ CollabWarz: Unable to set key {key} in Redis: {e}", guild=guild)
-            try:
-                print(f"⚠️ _safe_redis_set: Failed to set key {key}: {e}")
-            except Exception:
-                pass
-            return False
-    
-    async def _update_redis_status(self, guild):
-        """Update competition status in Redis for admin panel and return the status dictionary.
-        If Redis isn't configured, return the status dict so it can be exported via backend polling.
-        """
-            
-        try:
-            # Get current status
-            current_phase = await self.config.guild(guild).current_phase()
-            current_theme = await self.config.guild(guild).current_theme()
-            auto_announce = await self.config.guild(guild).auto_announce()
-            week_cancelled = await self.config.guild(guild).week_cancelled()
-            
-            # Count teams (use robust counting logic)
-            team_count = await self._count_participating_teams(guild)
-            
-            # Prepare detailed status including submissions & voting results for admin panel
-            # Use a safe fetch of all guild config keys and guard against unregistered values
-            try:
-                cfg_all = await self.config.guild(guild).all()
-            except Exception:
-                cfg_all = {}
-            # If channel keys are missing from cfg_all, attempt a few re-fetches to allow persistence to settle
-            try:
-                retry_attempts = 3
-                need_retry = False
-                for k in ('announcement_channel', 'submission_channel', 'test_channel'):
-                    if cfg_all.get(k) is None:
-                        # If a direct getattr shows the key is present, we'll retry
-                        try:
-                            val = await getattr(self.config.guild(guild), k)()
-                        except Exception:
-                            val = None
-                        if val is not None:
-                            need_retry = True
-                            break
-                if need_retry:
-                    for i in range(retry_attempts):
-                        try:
-                            await asyncio.sleep(0.05)
-                            cfg_all = await self.config.guild(guild).all()
-                            # If keys are now present, stop retrying
-                            if any(cfg_all.get(k) is not None for k in ('announcement_channel', 'submission_channel', 'test_channel')):
-                                break
-                        except Exception:
-                            continue
-            except Exception:
-                pass
-            try:
-                # Debug snapshot: print out channel-related keys and types
-                print(f"🔁 _update_redis_status: cfg_all snapshot announcement={cfg_all.get('announcement_channel')}, submission={cfg_all.get('submission_channel')}, test={cfg_all.get('test_channel')}")
-            except Exception:
-                pass
-
-            submissions = cfg_all.get('submissions') or {}
-            voting_results = cfg_all.get('voting_results') or {}
-            team_members = cfg_all.get('team_members') or {}
-            weeks_db = cfg_all.get('weeks_db') or {}
-
-            status_data = {
-                "phase": current_phase,
-                "theme": current_theme,
-                "automation_enabled": auto_announce,
-                "week_cancelled": week_cancelled,
-                "team_count": team_count,
-                "guild_id": guild.id,
-                "guild_name": guild.name,
-                "last_updated": datetime.utcnow().isoformat(),
-                "cog_version": "redis-integration-1.0.0"
-            }
-            # Add cog uptime and guild-level member count for diagnostics
-            try:
-                if hasattr(self, '_cog_start_ts') and self._cog_start_ts:
-                    uptime_seconds = int((datetime.utcnow() - self._cog_start_ts).total_seconds())
-                    status_data['cog_uptime_seconds'] = uptime_seconds
-                    # Build a readable uptime string
-                    days = uptime_seconds // (60 * 60 * 24)
-                    hours = (uptime_seconds % (60 * 60 * 24)) // (60 * 60)
-                    minutes = (uptime_seconds % (60 * 60)) // 60
-                    seconds = uptime_seconds % 60
-                    readable = []
-                    if days: readable.append(f"{days} day{'s' if days != 1 else ''}")
-                    if hours: readable.append(f"{hours} hour{'s' if hours != 1 else ''}")
-                    if minutes: readable.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
-                    if not readable:
-                        readable.append(f"{seconds} second{'s' if seconds != 1 else ''}")
-                    status_data['cog_uptime_readable'] = ", ".join(readable)
-            except Exception:
-                pass
-            try:
-                # Guild member count for the guild being updated (if available)
-                if guild and hasattr(guild, 'member_count'):
-                    status_data['guild_member_count'] = getattr(guild, 'member_count', None)
-            except Exception:
-                pass
-            # Export a small subset of explicit config values for the admin UI
-            try:
-                # Use cfg_all if it's a dict, otherwise fall back to per-key getters
-                if cfg_all and isinstance(cfg_all, dict):
-                    ac = cfg_all.get('announcement_channel')
-                    sc = cfg_all.get('submission_channel')
-                    tc = cfg_all.get('test_channel')
-                    status_data['announcement_channel'] = str(ac) if ac is not None else None
-                    status_data['submission_channel'] = str(sc) if sc is not None else None
-                    status_data['test_channel'] = str(tc) if tc is not None else None
-                    status_data['require_confirmation'] = cfg_all.get('require_confirmation')
-                    status_data['use_everyone_ping'] = cfg_all.get('use_everyone_ping')
-                    status_data['min_teams_required'] = cfg_all.get('min_teams_required')
-                    status_data['api_server_enabled'] = cfg_all.get('api_server_enabled')
-                    status_data['api_server_port'] = cfg_all.get('api_server_port')
-                else:
-                    # Fallback path: call each getter individually to build status
-                    try:
-                        ac = await getattr(self.config.guild(guild), 'announcement_channel')()
-                    except Exception:
-                        ac = None
-                    try:
-                        sc = await getattr(self.config.guild(guild), 'submission_channel')()
-                    except Exception:
-                        sc = None
-                    try:
-                        tc = await getattr(self.config.guild(guild), 'test_channel')()
-                    except Exception:
-                        tc = None
-                    status_data['announcement_channel'] = str(ac) if ac is not None else None
-                    status_data['submission_channel'] = str(sc) if sc is not None else None
-                    status_data['test_channel'] = str(tc) if tc is not None else None
-                    try:
-                        status_data['require_confirmation'] = await getattr(self.config.guild(guild), 'require_confirmation')()
-                    except Exception:
-                        status_data['require_confirmation'] = None
-                    try:
-                        status_data['use_everyone_ping'] = await getattr(self.config.guild(guild), 'use_everyone_ping')()
-                    except Exception:
-                        status_data['use_everyone_ping'] = None
-                    try:
-                        status_data['min_teams_required'] = await getattr(self.config.guild(guild), 'min_teams_required')()
-                    except Exception:
-                        status_data['min_teams_required'] = None
-                    try:
-                        status_data['api_server_enabled'] = await getattr(self.config.guild(guild), 'api_server_enabled')()
-                    except Exception:
-                        status_data['api_server_enabled'] = None
-                    try:
-                        status_data['api_server_port'] = await getattr(self.config.guild(guild), 'api_server_port')()
-                    except Exception:
-                        status_data['api_server_port'] = None
-            except Exception as e:
-                try:
-                    import traceback as _tb
-                    print(f"⚠️ _update_redis_status: Failed while building status_data from cfg_all or getters: {e}\n{_tb.format_exc()}")
-                except Exception:
-                    print(f"⚠️ _update_redis_status: Failed while building status_data from cfg_all or getters: {e}")
-            # Attach detailed snapshots
-            try:
-                status_data['submissions'] = submissions or {}
-                # Also include the submitted_teams mapping (week -> [teams]) when configured
-                try:
-                    submitted_teams = cfg_all.get('submitted_teams') or {}
-                    status_data['submitted_teams'] = submitted_teams or {}
-                except Exception:
-                    status_data['submitted_teams'] = {}
-                status_data['voting_results'] = voting_results or {}
-                status_data['team_members'] = team_members or {}
-                # Add a small summary of recent weeks for history UI
-                try:
-                    # Convert weeks_db into a small array of {week, theme, winner}
-                    recent = []
-                    for wk, data in (weeks_db or {}).items():
-                        recent.append({
-                            'week': wk,
-                            'theme': data.get('theme'),
-                            'winner': data.get('winner'),
-                            'date': data.get('date')
-                        })
-                    # Keep last 10 weeks
-                    recent.sort(key=lambda x: x.get('date') or '')
-                    status_data['weeks'] = recent[-10:]
-                except Exception:
-                    status_data['weeks'] = []
-            except Exception:
-                # Avoid failure for large objects
-                pass
-            
-            # Store in Redis if available and feature enabled (use safe helper to avoid race with None client)
-            try:
-                redis_enabled = await self.config.guild(guild).redis_enabled()
-            except Exception:
-                redis_enabled = False
-            if redis_enabled:
-                await self._safe_redis_set('collabwarz:status', json.dumps(status_data), guild=guild)
-                # Try to read back the stored Redis status to ensure the publish succeeded and content matches
-                try:
-                    if self.redis_client:
-                        raw = await self.redis_client.get('collabwarz:status')
-                        if raw:
-                            try:
-                                parsed = json.loads(raw)
-                                print(f"🔁 _update_redis_status: verify saved status announcement_channel={parsed.get('announcement_channel')}, submission_channel={parsed.get('submission_channel')}, test_channel={parsed.get('test_channel')}")
-                            except Exception:
-                                print(f"🔁 _update_redis_status: saved status raw: {raw}")
-                except Exception as e:
-                    print(f"⚠️ _update_redis_status: Failed to read back saved Redis status: {e}")
-
-            # Return the status data for potential backend export or other handling
-            return status_data
-            
-        except Exception as e:
-            await self._maybe_noisy_log(f"❌ CollabWarz: Failed to update Redis status: {e}", guild=guild)
-            return None
-    
-    async def _process_redis_action(self, guild, action_data: dict):
-        """Process an action received from Redis queue"""
-        action = None
-        params = {}
-        action_id = None
-        try:
-            action = action_data.get('action')
-            params = action_data.get('params', {})
-            action_id = action_data.get('id')
-        except Exception:
-            action = None
-            params = {}
-            action_id = None
-        
-        try:
-            print(f"🎯 CollabWarz: Processing Redis action '{action}' (ID: {action_id})")
-        except Exception:
-            print("🎯 CollabWarz: Processing Redis action (unable to format action debug)")
-
-        # Normalize action name for robust matching
-        try:
-            norm_action = (action or '').strip().lower().replace('-', '_').replace(' ', '_')
-        except Exception:
-            norm_action = action
-        # Use normalized action for all matching logic below, but keep original for logging
-        try:
-            orig_action = action
-        except Exception:
-            orig_action = action
-        action = norm_action
-        try:
-            safe_mode = await self.config.guild(guild).safe_mode_enabled()
-        except Exception:
-            safe_mode = getattr(self, 'safe_mode_enabled', False)
-        
-        try:
-            if action == 'start_phase':
-                phase = params.get('phase', 'submission')
-                theme = params.get('theme')
-                
-                if theme:
-                    await self.config.guild(guild).current_theme.set(theme)
-                await self.config.guild(guild).current_phase.set(phase)
-                await self.config.guild(guild).week_cancelled.set(False)
-                
-                print(f"✅ Phase started: {phase} with theme: {theme}")
-                await self._send_competition_log(f"Phase started: {phase} with theme: {theme}", guild=guild)
-                
-            elif action == 'end_phase':
-                current_phase = await self.config.guild(guild).current_phase()
-                if current_phase == 'submission':
-                    await self.config.guild(guild).current_phase.set('voting')
-                elif current_phase == 'voting':
-                    await self.config.guild(guild).current_phase.set('ended')
-                
-                new_phase = await self.config.guild(guild).current_phase()
-                print(f"✅ Phase ended, new phase: {new_phase}")
-                await self._send_competition_log(f"Phase ended, new phase: {new_phase}", guild=guild)
-                
-            elif action == 'cancel_week':
-                await self.config.guild(guild).week_cancelled.set(True)
-                await self.config.guild(guild).current_phase.set('cancelled')
-                
-                print("✅ Week cancelled")
-                await self._send_competition_log("Week cancelled", guild=guild)
-                
-            elif action == 'enable_automation':
-                await self.config.guild(guild).auto_announce.set(True)
-                print("✅ Automation enabled")
-                
-            elif action == 'disable_automation':
-                await self.config.guild(guild).auto_announce.set(False)
-                print("✅ Automation disabled")
-                
-            elif action == 'toggle_automation':
-                current = await self.config.guild(guild).auto_announce()
-                await self.config.guild(guild).auto_announce.set(not current)
-                print(f"✅ Automation toggled: {not current}")
-                
-            elif action == 'set_theme' or action == 'update_theme':
-                theme = params.get('theme')
-                if theme:
-                    await self.config.guild(guild).current_theme.set(theme)
-                    print(f"✅ Theme updated: {theme}")
-
-            elif action == 'set_phase':
-                phase = params.get('phase')
-                if phase in ['submission', 'voting', 'paused', 'cancelled', 'ended', 'inactive']:
-                    try:
-                        old_phase = await self.config.guild(guild).current_phase()
-                        await self.config.guild(guild).current_phase.set(phase)
-                        print(f"✅ Phase set to: {phase}")
-                        await self._send_competition_log(f"Phase changed: {old_phase} -> {phase}", guild=guild)
-                    except Exception as e:
-                        await self._maybe_noisy_log(f"❌ Failed to set phase to {phase}: {e}", guild=guild)
-                else:
-                    print(f"❌ Invalid phase: {phase}")
-
-            elif action == 'next_phase':
-                try:
-                    current_phase = await self.config.guild(guild).current_phase()
-                    if current_phase == 'submission':
-                        new_phase = 'voting'
-                        await self.config.guild(guild).current_phase.set(new_phase)
-                        print("✅ Advanced to voting")
-                    elif current_phase == 'voting':
-                        new_phase = 'ended'
-                        await self.config.guild(guild).current_phase.set(new_phase)
-                        print("✅ Advanced to ended")
-                    else:
-                        new_phase = 'submission'
-                        await self.config.guild(guild).current_phase.set(new_phase)
-                        print("✅ Reset to submission")
-                    await self._send_competition_log(f"Phase advanced: {current_phase} -> {new_phase}", guild=guild)
-                except Exception as e:
-                    await self._maybe_noisy_log(f"❌ Failed to advance phase: {e}", guild=guild)
-
-            elif action == 'start_new_week':
-                theme = params.get('theme')
-                if theme:
-                    await self.config.guild(guild).current_theme.set(theme)
-                    await self.config.guild(guild).current_phase.set('submission')
-                    await self.config.guild(guild).week_cancelled.set(False)
-                    await self._clear_submissions_safe(guild)
-                    print(f"✅ New week started with theme: {theme}")
-                else:
-                    print("❌ start_new_week requires a theme")
-
-            elif action == 'clear_submissions':
-                if safe_mode:
-                    print(f"⚠️ Clear submissions blocked by Safe Mode for guild {guild.name}")
-                else:
-                    await self._clear_submissions_safe(guild)
-                    print("✅ Submissions cleared")
-
-            elif action == 'remove_submission':
-                team_name = params.get('team_name')
-                if team_name:
-                    if safe_mode:
-                        print(f"⚠️ Remove submission blocked by Safe Mode (team: {team_name}) in guild {guild.name}")
-                    else:
-                        submissions = await self._get_submissions_safe(guild)
-                        if team_name in submissions:
-                            del submissions[team_name]
-                            await self._set_submissions_safe(guild, submissions)
-                            print(f"✅ Removed submission for team {team_name}")
-                        else:
-                            print(f"⚠️ No submission found for team {team_name}")
-                else:
-                    print("❌ remove_submission requires team_name")
-
-            elif action == 'remove_vote':
-                week = params.get('week')
-                user_id = params.get('user_id')
-                if week and user_id:
-                    if safe_mode:
-                        print(f"⚠️ Remove vote blocked by Safe Mode (week: {week}, user: {user_id}) in guild {guild.name}")
-                    else:
-                        votes = await self.config.guild(guild).individual_votes()
-                        week_votes = votes.get(week, {})
-                        if str(user_id) in week_votes:
-                            del week_votes[str(user_id)]
-                            votes[week] = week_votes
-                            await self.config.guild(guild).individual_votes.set(votes)
-                            print(f"✅ Removed vote from user {user_id} for week {week}")
-                        else:
-                            print(f"⚠️ No vote from user {user_id} found for week {week}")
-                else:
-                    print("❌ remove_vote requires week and user_id")
-
-            elif action == "reset_week":
-                if safe_mode:
-                    print(f"⚠️ Reset week blocked by Safe Mode in guild {guild.name}")
-                else:
-                    try:
-                        old_phase = await self.config.guild(guild).current_phase()
-                        await self.config.guild(guild).current_phase.set('submission')
-                        await self.config.guild(guild).week_cancelled.set(False)
-                        await self._clear_submissions_safe(guild)
-                        await self.config.guild(guild).voting_results.clear()
-                        await self.config.guild(guild).weekly_winners.clear()
-                        print("✅ Week reset")
-                        await self._send_competition_log(f"Week reset: {old_phase} -> submission", guild=guild)
-                    except Exception as e:
-                        await self._maybe_noisy_log(f"❌ Failed to reset week: {e}", guild=guild)
-
-            elif action == 'force_voting':
-                try:
-                    old_phase = await self.config.guild(guild).current_phase()
-                    await self.config.guild(guild).current_phase.set('voting')
-                    await self.config.guild(guild).week_cancelled.set(False)
-                    print("✅ Force set to voting phase")
-                    await self._send_competition_log(f"Phase forced: {old_phase} -> voting", guild=guild)
-                except Exception as e:
-                    await self._maybe_noisy_log(f"❌ Failed to force voting: {e}", guild=guild)
-
-            elif action == 'announce_winners':
-                try:
-                    # Trigger the process that finalizes the vote and announces winners
-                    await self._process_voting_end(guild)
-                    print("✅ Announce winners triggered")
-                    await self._send_competition_log("Winners announced", guild=guild)
-                except Exception as e:
-                    await self._maybe_noisy_log(f"❌ Failed to announce winners: {e}", guild=guild)
-            elif action == 'update_config':
-                # updates param is expected to be a dict of keys to set in guild config
-                updates = params.get('updates') if isinstance(params, dict) else None
-                print(f"🔁 update_config raw updates: {updates}")
-                if not updates or not isinstance(updates, dict):
-                    print("⚠️ update_config: no updates provided")
-                else:
-                    allowed = {
-                        'announcement_channel': 'announcement_channel',
-                        'submission_channel': 'submission_channel',
-                        'test_channel': 'test_channel',
-                        'auto_announce': 'auto_announce',
-                        'require_confirmation': 'require_confirmation',
-                        'safe_mode_enabled': 'safe_mode_enabled',
-                        'api_server_enabled': 'api_server_enabled',
-                        'api_server_port': 'api_server_port',
-                        'use_everyone_ping': 'use_everyone_ping',
-                        'min_teams_required': 'min_teams_required'
-                    }
-                    try:
-                        changes = []
-                        for k,v in updates.items():
-                            if k not in allowed: continue
-                            cfgkey = allowed[k]
-                            # Some keys may expect bool or numeric conversion
-                            try:
-                                # Normalize booleans and numeric fields explicitly
-                                v_parsed = v
-                                try:
-                                    if isinstance(v, str) and v.lower() in ('true','false','1','0','yes','no'):
-                                        v_parsed = v.lower() in ('true','1','yes')
-                                    # numeric keys: ensure int where expected
-                                    if cfgkey in ('min_teams_required', 'api_server_port'):
-                                        if isinstance(v_parsed, str) and v_parsed.strip() == '':
-                                            v_parsed = None
-                                        else:
-                                            try:
-                                                v_int = int(v_parsed)
-                                                v_parsed = v_int
-                                            except Exception:
-                                                # leave as-is (might log later)
-                                                pass
-                                except Exception:
-                                    v_parsed = v
-                            except Exception:
-                                v_parsed = v
-                            # Use getattr to access the config key dynamically
-                            try:
-                                # Log previous value for easier debugging
-                                try:
-                                    prev = await getattr(self.config.guild(guild), cfgkey)()
-                                except Exception:
-                                    prev = None
-                                # If prev is None and cfgkey is a numeric setting, log and set default
-                                if prev is None and cfgkey == 'min_teams_required':
-                                    # Maintain a default to avoid TypeError when comparing
-                                    prev = 2
-                                print(f"🔁 update_config: {k}: {prev} -> {v_parsed}")
-                                cfg_obj = getattr(self.config.guild(guild), cfgkey)
-                                if v_parsed is None:
-                                    print(f"⚠️ Skipping update for {k}: value is None (no change)")
-                                else:
-                                    try:
-                                        # For channel IDs, coerce to string to avoid any platform-specific numeric precision issues
-                                        if cfgkey in ('announcement_channel', 'submission_channel', 'test_channel'):
-                                            try:
-                                                if isinstance(v_parsed, int):
-                                                    v_parsed = str(v_parsed)
-                                                elif isinstance(v_parsed, str) and v_parsed.isdigit():
-                                                    # Keep as string
-                                                    pass
-                                                else:
-                                                    # Leave as-is
-                                                    pass
-                                            except Exception:
-                                                pass
-                                        print(f"🔁 update_config: setting {k} = {v_parsed} (type {type(v_parsed).__name__})")
-
-                                        # Attempt to set and then validate persistence in a small retry loop
-                                        max_attempts = 4
-                                        attempt = 0
-                                        set_ok = False
-                                        while attempt < max_attempts:
-                                            attempt += 1
-                                            try:
-                                                await cfg_obj.set(v_parsed)
-                                                # Small delay for the persistence to settle
-                                                await asyncio.sleep(0.05)
-                                            except Exception as inner_e:
-                                                print(f"⚠️ Failed to set {cfgkey} on attempt {attempt}: {inner_e}")
-                                                continue
-                                            # Read back
-                                            try:
-                                                new_val = await getattr(self.config.guild(guild), cfgkey)()
-                                            except Exception as inner_read_e:
-                                                print(f"⚠️ Readback failed for {cfgkey} on attempt {attempt}: {inner_read_e}")
-                                                new_val = None
-                                            # Compare as string for channels to handle int/string mismatch
-                                            try:
-                                                compare_new = new_val
-                                                compare_expected = v_parsed
-                                                if cfgkey in ('announcement_channel', 'submission_channel', 'test_channel'):
-                                                    if compare_new is not None:
-                                                        compare_new = str(compare_new)
-                                                    compare_expected = str(compare_expected) if compare_expected is not None else None
-                                            except Exception:
-                                                compare_new = new_val
-                                                compare_expected = v_parsed
-                                            print(f"🔍 Readback after set attempt {attempt}: {k} -> {new_val} (expected {v_parsed})")
-                                            if compare_new == compare_expected:
-                                                set_ok = True
-                                                break
-                                        if not set_ok:
-                                            print(f"⚠️ update_config: Could not confirm persistence for {k} after {max_attempts} attempts (last read: {new_val})")
-                                    except Exception as inner_e:
-                                        print(f"⚠️ Failed to set {cfgkey}: {inner_e}")
-                            except Exception:
-                                # Fallback to direct attribute access if needed
-                                try:
-                                    await self.config.guild(guild).__getattribute__(cfgkey).set(v_parsed)
-                                except Exception as inner_e:
-                                    print(f"⚠️ Failed to set config key {cfgkey} = {v_parsed}: {inner_e}")
-                            changes.append(f"{k} -> {v_parsed}")
-                        if changes:
-                            await self._send_competition_log(f"Config updated: {', '.join(changes)}", guild=guild)
-                            try:
-                                # Small delay to allow config persistence to settle in Red's backend
-                                # This helps avoid situations where .all() might return stale data
-                                try:
-                                    await asyncio.sleep(0.1)
-                                except Exception:
-                                    pass
-                                # Push updated status immediately so admin UI reflects changes
-                                status_after = await self._update_redis_status(guild)
-                                # If Redis is not configured, or we're running in backend mode,
-                                # try to POST the updated status to the backend so /api/admin/config can see it
-                                try:
-                                    backend_url = await self.config.guild(guild).backend_url() if guild else None
-                                    backend_token = await self.config.guild(guild).backend_token() if guild else None
-                                except Exception:
-                                    backend_url = None
-                                    backend_token = None
-                                if backend_url and backend_token and status_after:
-                                    try:
-                                        # POST status to backend so the admin server has the latest
-                                        await self._post_with_temp_session(backend_url.rstrip('/') + '/api/collabwarz/status', json_payload=status_after, headers={"X-CW-Token": backend_token, "Authorization": f"Bearer {backend_token}"}, guild=guild)
-                                    except Exception as e:
-                                        await self._maybe_noisy_log(f"⚠️ CollabWarz: Failed to post status to backend: {e}", guild=guild)
-                                        pass
-                            except Exception:
-                                pass
-                            try:
-                                print("✅ update_config applied:", ", ".join(changes))
-                                # Log the updated status after applying changes for traceability
-                                try:
-                                    import json as _json
-                                    print("⚙️ status_after:", _json.dumps(status_after))
-                                except Exception:
-                                    print(f"⚙️ status_after (raw): {status_after}")
-                                # Read and log the guild config after publishing status so we can
-                                # confirm which values are persisted in the config store.
-                                try:
-                                    cfg_all = await self.config.guild(guild).all()
-                                    try:
-                                        import json as __json
-                                        print("🔁 cfg_all after update_config:", __json.dumps(cfg_all))
-                                    except Exception:
-                                        print("🔁 cfg_all after update_config (raw):", cfg_all)
-                                except Exception as read_all_e:
-                                    try:
-                                        import traceback as _tb
-                                        print(f"⚠️ Failed to read cfg_all after update_config: {read_all_e}\n{_tb.format_exc()}" )
-                                    except Exception:
-                                        print(f"⚠️ Failed to read cfg_all after update_config: {read_all_e}")
-                                try:
-                                    readbacks = {}
-                                    for k in ("announcement_channel", "submission_channel", "test_channel"):
-                                        try:
-                                            readbacks[k] = await getattr(self.config.guild(guild), k)()
-                                        except Exception:
-                                            readbacks[k] = None
-                                    try:
-                                        import json as __json2
-                                        print("🔁 post-status readback keys:", __json2.dumps(readbacks))
-                                    except Exception:
-                                        print("🔁 post-status readback keys (raw):", readbacks)
-                                except Exception as read_e2:
-                                    print(f"⚠️ Failed to read back channel keys after publish: {read_e2}")
-                            except Exception:
-                                pass
-                        else:
-                            print("⚠️ update_config: no recognized changes applied")
-                    except Exception as e:
-                        await self._maybe_noisy_log(f"❌ Failed to apply update_config: {e}", guild=guild)
-            # Backup actions (support via Redis queue)
-            elif norm_action in ("backup_data", "backupdata", "export_backup", "exportbackup"):
-                try:
-                    try:
-                        cfg_all = await self.config.guild(guild).all()
-                    except Exception:
-                        cfg_all = {}
-                    backup = {
-                        "guild_id": guild.id,
-                        "guild_name": guild.name,
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "current_theme": cfg_all.get('current_theme'),
-                        "current_phase": cfg_all.get('current_phase'),
-                        "submitted_teams": cfg_all.get('submitted_teams', {}),
-                        "submissions": cfg_all.get('submissions', {}),
-                        "teams_db": cfg_all.get('teams_db', {}),
-                        "artists_db": cfg_all.get('artists_db', {}),
-                        "songs_db": cfg_all.get('songs_db', {}),
-                        "weeks_db": cfg_all.get('weeks_db', {}),
-                        "voting_results": cfg_all.get('voting_results', {}),
-                        "next_unique_ids": cfg_all.get('next_unique_ids', {}),
-                        "settings": {
-                            "auto_announce": cfg_all.get('auto_announce'),
-                            "suppress_noisy_logs": cfg_all.get('suppress_noisy_logs'),
-                            "safe_mode_enabled": cfg_all.get('safe_mode_enabled', False),
-                        },
-                    }
-                    # Attach created_by if available in action_data
-                    try:
-                        admin_user = action_data.get('admin_user') or action_data.get('user')
-                        if admin_user:
-                            try:
-                                # Attempt to resolve user display name for richer metadata
-                                if isinstance(admin_user, (int, str)):
-                                    try:
-                                        member = guild.get_member(int(admin_user)) if hasattr(guild, 'get_member') else None
-                                    except Exception:
-                                        member = None
-                                    display_name = None
-                                    if member:
-                                        display_name = getattr(member, 'display_name', None) or getattr(member, 'name', None)
-                                    backup['created_by'] = {'user_id': admin_user, 'display_name': display_name}
-                                else:
-                                    backup['created_by'] = {'user_id': admin_user, 'display_name': None}
-                            except Exception:
-                                backup['created_by'] = {'user_id': admin_user, 'display_name': None}
-                    except Exception:
-                        pass
-                    # Save to disk
-                    file_name = f"backup_g{guild.id}_{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.json"
-                    path = os.path.join(self.backup_dir, file_name)
-                    try:
-                        with open(path, 'w', encoding='utf-8') as f:
-                            json.dump(backup, f, indent=2, ensure_ascii=False)
-                        try:
-                            self.latest_backup[guild.id] = file_name
-                        except Exception:
-                            pass
-                        # Persist to Postgres if available
-                        try:
-                            if getattr(self, 'pg_pool', None):
-                                await self._save_backup_to_db(guild, file_name, backup)
-                        except Exception:
-                            pass
-                        print(f"✅ Backup written to {path}")
-                        action_data['result'] = {"success": True, "backup_file": file_name, "backup": backup}
-                    except Exception as e:
-                        action_data['result'] = {"success": False, "message": f"Failed to write backup: {e}"}
-                except Exception as e:
-                    action_data['result'] = {"success": False, "message": str(e)}
-
-            elif norm_action in ("list_backups", "get_backups", "backup_list", "backups_list"):
-                try:
-                    files = []
-                    # Query Postgres first
-                    if getattr(self, 'pg_pool', None):
-                        try:
-                            async with self.pg_pool.acquire() as conn:
-                                rows = await conn.fetch('SELECT file_name, size, created_by_user_id, created_by_display, created_at FROM backups WHERE guild_id=$1 ORDER BY created_at DESC', guild.id)
-                                for row in rows:
-                                    files.append({
-                                        'file': row['file_name'],
-                                        'size': int(row['size']) if row['size'] is not None else 0,
-                                        'ts': row['created_at'].isoformat(),
-                                        'created_by': {'user_id': row['created_by_user_id'], 'display_name': row['created_by_display']} if row['created_by_user_id'] else None
-                                    })
-                        except Exception:
-                            pass
-                    # Fallback to disk listing
-                    if os.path.isdir(self.backup_dir):
-                        prefix = f"backup_g{guild.id}_"
-                        for fn in os.listdir(self.backup_dir):
-                            if fn.startswith(prefix) and fn.endswith('.json'):
-                                path = os.path.join(self.backup_dir, fn)
-                                try:
-                                    stat = os.stat(path)
-                                    created_by = None
-                                    try:
-                                        with open(path, 'r', encoding='utf-8') as f:
-                                            data = json.load(f)
-                                            created_by = data.get('created_by')
-                                    except Exception:
-                                        created_by = None
-                                    files.append({'file': fn, 'size': stat.st_size, 'ts': datetime.utcfromtimestamp(stat.st_mtime).isoformat(), 'created_by': created_by})
-                                except Exception:
-                                    continue
-                    files.sort(key=lambda x: x['ts'], reverse=True)
-                    action_data['result'] = { 'success': True, 'backups': files }
-                except Exception as e:
-                    action_data['result'] = { 'success': False, 'message': f'Failed to list backups: {e}' }
-
-            elif norm_action in ("download_backup", "backup_download", "get_backup", "get_backup_file"):
-                try:
-                    filename = params.get('filename')
-                    if not filename:
-                        action_data['result'] = {'success': False, 'message':'Filename required'}
-                    else:
-                        # Try Postgres first
-                        found = False
-                        if getattr(self, 'pg_pool', None):
-                            try:
-                                async with self.pg_pool.acquire() as conn:
-                                    row = await conn.fetchrow('SELECT backup_content FROM backups WHERE guild_id=$1 AND file_name=$2 LIMIT 1', guild.id, filename)
-                                    if row:
-                                        action_data['result'] = {'success': True, 'backup': row['backup_content'], 'file': filename}
-                                        found = True
-                            except Exception:
-                                pass
-                        if not found:
-                            filepath = os.path.join(self.backup_dir, filename)
-                            if os.path.exists(filepath):
-                                try:
-                                    with open(filepath, 'r', encoding='utf-8') as f:
-                                        backup_json = json.load(f)
-                                    action_data['result'] = {'success': True, 'backup': backup_json, 'file': filename}
-                                    found = True
-                                except Exception as e:
-                                    action_data['result'] = {'success': False, 'message': f'Failed to read backup file: {e}'}
-                            else:
-                                action_data['result'] = {'success': False, 'message': 'File not found'}
-                except Exception as e:
-                    action_data['result'] = {'success': False, 'message': f'Failed to process download request: {e}'}
-
-            elif norm_action == 'restore_backup':
-                if safe_mode:
-                    action_data['result'] = {'success': False, 'message': 'Restore blocked: Safe mode is enabled'}
-                else:
-                    backup = params.get('backup') or {}
-                    if not isinstance(backup, dict):
-                        action_data['result'] = {'success': False, 'message':'Missing or invalid backup object'}
-                    else:
-                        try:
-                            # apply as per HTTP restore (only allowed keys)
-                            if 'current_theme' in backup:
-                                await self.config.guild(guild).current_theme.set(backup['current_theme'])
-                            if 'current_phase' in backup:
-                                await self.config.guild(guild).current_phase.set(backup['current_phase'])
-                            if 'submitted_teams' in backup:
-                                await self.config.guild(guild).submitted_teams.set(backup.get('submitted_teams') or {})
-                            if 'submissions' in backup:
-                                try:
-                                    subs_group = getattr(self.config.guild(guild), 'submissions', None)
-                                    if subs_group is not None:
-                                        await subs_group.set(backup.get('submissions') or {})
-                                except Exception:
-                                    pass
-                            if 'teams_db' in backup:
-                                await self.config.guild(guild).teams_db.set(backup.get('teams_db') or {})
-                            if 'artists_db' in backup:
-                                await self.config.guild(guild).artists_db.set(backup.get('artists_db') or {})
-                            if 'songs_db' in backup:
-                                await self.config.guild(guild).songs_db.set(backup.get('songs_db') or {})
-                            if 'weeks_db' in backup:
-                                await self.config.guild(guild).weeks_db.set(backup.get('weeks_db') or {})
-                            if 'voting_results' in backup:
-                                await self.config.guild(guild).voting_results.set(backup.get('voting_results') or {})
-                            if 'next_unique_ids' in backup:
-                                await self.config.guild(guild).next_unique_ids.set(backup.get('next_unique_ids') or {})
-                            settings = backup.get('settings') or {}
-                            if settings:
-                                if 'auto_announce' in settings:
-                                    await self.config.guild(guild).auto_announce.set(settings.get('auto_announce'))
-                                if 'suppress_noisy_logs' in settings:
-                                    await self.config.guild(guild).suppress_noisy_logs.set(settings.get('suppress_noisy_logs'))
-                                if 'safe_mode_enabled' in settings:
-                                    await self.config.guild(guild).safe_mode_enabled.set(settings.get('safe_mode_enabled', False))
-                            action_data['result'] = {'success': True, 'message': 'Backup restored successfully'}
-                        except Exception as e:
-                            action_data['result'] = {'success': False, 'message': f'Restore failed: {e}'}
-                    
-            elif action == 'set_safe_mode':
-                # Expect param `enable` boolean
-                enable = params.get('enable')
-                if isinstance(enable, str):
-                    v = enable.lower()
-                    if v in ('true', '1'): enable = True
-                    elif v in ('false', '0'): enable = False
-                if not isinstance(enable, bool):
-                    action_data['result'] = { 'success': False, 'message': 'Invalid enable parameter; expected boolean' }
-                else:
-                    try:
-                        await self.config.guild(guild).safe_mode_enabled.set(bool(enable))
-                        action_data['result'] = { 'success': True, 'safe_mode_enabled': bool(enable) }
-                        print(f"✅ Safe mode {'enabled' if enable else 'disabled'} for guild {getattr(guild,'name',None)}")
-                    except Exception as e:
-                        action_data['result'] = { 'success': False, 'message': str(e) }
-
-            else:
-                await self._maybe_noisy_log(f"❓ Unknown action: {repr(action)} (norm: {repr(norm_action)})", guild=guild)
-                print(f"❓ Unknown action: {repr(action)} (norm: {repr(norm_action)}) - full action_data: {action_data}")
-                action_data['status'] = 'failed'
-                action_data['error'] = f'unknown action: {action}'
-            
-            # Mark action as completed
-            action_data['status'] = 'completed'
-            action_data['processed_at'] = datetime.utcnow().isoformat()
-            
-            # Use safe redis helper to store action result
-            try:
-                redis_enabled = await self.config.guild(guild).redis_enabled()
-            except Exception:
-                redis_enabled = False
-            saved_to_redis = False
-            if redis_enabled:
-                try:
-                    await self._maybe_noisy_log(f"🔁 Attempting to save action result to Redis (enabled={redis_enabled})", guild=guild)
-                    await self._maybe_noisy_log(f"🔁 Redis client presence: {bool(self.redis_client)}", guild=guild)
-                    saved_to_redis = await self._safe_redis_setex(
-                        f'collabwarz:action:{action_id}',
-                        86400,
-                        json.dumps(action_data),
-                        guild=guild,
-                    )
-                    await self._maybe_noisy_log(f"🔁 saveToRedis result: {saved_to_redis}", guild=guild)
-                except Exception as e:
-                    saved_to_redis = False
-                    await self._maybe_noisy_log(f"⚠️ Exception when saving action result to Redis: {e}", guild=guild)
-            if not saved_to_redis:
-                try:
-                    backend_url = await self.config.guild(guild).backend_url()
-                    backend_token = await self.config.guild(guild).backend_token()
-                    if backend_url and backend_token:
-                        result_url = backend_url.rstrip('/') + '/api/collabwarz/action-result'
-                        headers = {"X-CW-Token": backend_token}
-                        await self._post_with_temp_session(result_url, json_payload=action_data, headers=headers, timeout=10, guild=guild)
-                except Exception as e:
-                    if 'session is closed' in str(e).lower():
-                        pass
-                    else:
-                        await self._maybe_noisy_log(f"⚠️ CollabWarz: Failed to post action result to backend fallback: {e}", guild=guild)
-            
-            # Update status after processing action
-            await self._update_redis_status(guild)
-
-            # If Redis isn't available, optionally inform backend of action result (fallback)
-            if not self.redis_client:
-                try:
-                    backend_url = await self.config.guild(guild).backend_url()
-                    backend_token = await self.config.guild(guild).backend_token()
-                    if backend_url and backend_token:
-                        result_url = backend_url.rstrip('/') + '/api/collabwarz/action-result'
-                        headers = {"X-CW-Token": backend_token}
-                        async with aiohttp.ClientSession() as session:
-                            async with session.post(result_url, json=action_data, headers=headers, timeout=10) as presp:
-                                        if presp.status != 200:
-                                            await self._log_backend_error(guild, f"⚠️ CollabWarz: Backend result post (fallback) returned {presp.status}")
-                except Exception as e:
-                    if 'session is closed' in str(e).lower():
-                        pass
-                    else:
-                        await self._maybe_noisy_log(f"⚠️ CollabWarz: Failed to post action result to backend fallback: {e}", guild=guild)
-            
-        except Exception as e:
-            await self._maybe_noisy_log(f"❌ CollabWarz: Failed to process action '{action}': {e}", guild=guild)
-            
-            # Mark action as failed
-            action_data['status'] = 'failed'
-            action_data['error'] = str(e)
-            action_data['processed_at'] = datetime.utcnow().isoformat()
-            
-            # Save failed action status as well using safe helper
-            try:
-                redis_enabled = await self.config.guild(guild).redis_enabled()
-            except Exception:
-                redis_enabled = False
-            saved_to_redis = False
-            if redis_enabled:
-                try:
-                    saved_to_redis = await self._safe_redis_setex(
-                        f'collabwarz:action:{action_id}',
-                        86400,
-                        json.dumps(action_data),
-                        guild=guild,
-                    )
-                except Exception as e:
-                    saved_to_redis = False
-                    await self._maybe_noisy_log(f"⚠️ Exception when saving failed action result to Redis: {e}", guild=guild)
-            if not saved_to_redis:
-                try:
-                    backend_url = await self.config.guild(guild).backend_url()
-                    backend_token = await self.config.guild(guild).backend_token()
-                    if backend_url and backend_token:
-                        result_url = backend_url.rstrip('/') + '/api/collabwarz/action-result'
-                        headers = {"X-CW-Token": backend_token}
-                        await self._post_with_temp_session(result_url, json_payload=action_data, headers=headers, timeout=10, guild=guild)
-                except Exception as e:
-                    print(f"⚠️ CollabWarz: Failed to post failed action result to backend fallback: {e}")
-    
-    async def redis_communication_loop(self):
-        """Main Redis communication loop - polls for actions and updates status"""
-        await self.bot.wait_until_ready()
-        
-        # Initialize Redis connection
-        if not await self._init_redis_connection():
-            print("⚠️ CollabWarz: Redis not available, admin panel communication disabled")
-            return
-        
-        print("🔄 CollabWarz: Started Redis communication loop")
-        
-        last_status_update = 0
-        
-        while True:
-            # Exit quickly if we're shutting down
-            if getattr(self, '_shutdown', False):
-                break
-            try:
-                # Get all guilds where this cog is active
-                for guild in self.bot.guilds:
-                    try:
-                        # Check for queued actions
-                        rc = self.redis_client
-                        action_string = None
-                        if rc:
-                            try:
-                                action_string = await rc.rpop('collabwarz:actions')
-                            except Exception as e:
-                                print(f"⚠️ CollabWarz: Redis rpop error: {e}")
-                        if action_string:
-                            action_data = json.loads(action_string)
-                            await self._process_redis_action(guild, action_data)
-                        
-                        # Update status periodically
-                        now = asyncio.get_event_loop().time()
-                        if now - last_status_update > 30:  # Every 30 seconds
-                            await self._update_redis_status(guild)
-                            last_status_update = now
-                            
-                    except Exception as e:
-                        # Use noisy log helper to respect per-guild suppression and avoid noisy traces
-                        await self._maybe_noisy_log(f"❌ CollabWarz: Error processing Redis for guild {guild.name}: {e}", guild=guild)
-                
-                # Sleep before next poll
-                await asyncio.sleep(5)  # Poll every 5 seconds
-                
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                print(f"❌ CollabWarz: Redis communication error: {e}")
-                await asyncio.sleep(30)  # Wait longer on error
-        
-        print("🛑 CollabWarz: Redis communication loop stopped")
-
-    async def backend_communication_loop(self):
-        """Poll the external backend for actions when configured.
-
-        This allows the cog to operate without direct Redis access by polling
-        the backend on Instance 2 for queued actions.
-        """
-        await self.bot.wait_until_ready()
-
-        print("🔁 CollabWarz: Backend communication loop starting (polling backend API)")
-
-        while True:
-            # Exit quickly if we're shutting down
-            if getattr(self, '_shutdown', False):
-                break
-            try:
-                for guild in self.bot.guilds:
-                    try:
-                        backend_url = await self.config.guild(guild).backend_url()
-                        backend_token = await self.config.guild(guild).backend_token()
-                        poll_interval = await self.config.guild(guild).backend_poll_interval()
-
-                        if not backend_url or not backend_token:
-                            # Not configured for this guild
-                            continue
-
-                        # Build request
-                        next_url = backend_url.rstrip("/") + "/api/collabwarz/next-action"
-
-                        # Diagnostics: what mode are we in and whether redis is available
-                        await self._maybe_noisy_log(
-                            f"🔁 CollabWarz: Handling guild {guild.name} (short_lived={getattr(self, 'backend_use_short_lived_sessions', False)}, redis={bool(self.redis_client)})",
-                            guild=guild,
-                        )
-                        headers = {"X-CW-Token": backend_token}
-                        # Use short-lived per-request aiohttp sessions for all backend communication
-                        try:
-                            status_code, body = await self._get_with_temp_session(next_url, headers=headers, timeout=10, guild=guild)
-                            if status_code == 204:
-                                # No action available
-                                pass
-                            elif status_code == 200:
-                                action = None
-                                if isinstance(body, dict):
-                                    action = body.get("action")
-                                if action:
-                                    await self._process_redis_action(guild, action)
-                                    # Report result back to backend using short-lived session
-                                    result_url = backend_url.rstrip('/') + "/api/collabwarz/action-result"
-                                    result_payload = {
-                                        "id": action.get("id"),
-                                        "status": "completed",
-                                        "details": {"processed_by": "collabwarz_cog"},
-                                    }
-                                    try:
-                                        rstatus, rtext = await self._post_with_temp_session(result_url, json_payload=result_payload, headers=headers, timeout=10, guild=guild)
-                                        if rstatus is not None and rstatus != 200:
-                                            await self._log_backend_error(guild, f"⚠️ CollabWarz: Backend result post (short-lived) returned {rstatus}")
-                                    except Exception as e:
-                                        await self._log_backend_error(guild, f"❌ CollabWarz: Result post (short-lived) failed: {e}")
-                            elif status_code is None:
-                                await self._log_backend_error(guild, "❌ CollabWarz: Failed to get a response from backend (short-lived session)")
-                            else:
-                                await self._log_backend_error(guild, f"❌ CollabWarz: Unexpected backend response: {status_code}")
-                        except asyncio.TimeoutError:
-                            await self._maybe_noisy_log("⚠️ CollabWarz: Backend poll timed out", guild=guild)
-                        except Exception as e:
-                            # Ignore noisy session closed errors; report others via throttled helper
-                            if 'session is closed' in str(e).lower():
-                                pass
-                            else:
-                                await self._log_backend_error(guild, f"❌ CollabWarz: Error polling backend (short-lived session): {e}")
-
-                        # After processing, update and export current status back to backend
-                        try:
-                            status_data = await self._update_redis_status(guild)
-                            # If we have status data and backend configured, post it.
-                            if status_data and backend_url and backend_token:
-                                status_url = backend_url.rstrip('/') + '/api/collabwarz/status'
-                                try:
-                                    headers = { 'X-CW-Token': backend_token }
-                                    if getattr(self, 'backend_use_short_lived_sessions', False):
-                                        # Use short-lived session for status post
-                                        rstatus, rtext = await self._post_with_temp_session(status_url, json_payload=status_data, headers=headers, timeout=10, guild=guild)
-                                        if rstatus is not None and rstatus != 200:
-                                            await self._log_backend_error(guild, f"⚠️ CollabWarz: Failed to export status to backend (HTTP {rstatus})")
-                                        elif rstatus is None:
-                                            # Throttle repeated messages for the same guild to avoid log spam
-                                            last = self.backend_error_throttle.get(guild.id, 0)
-                                            now = asyncio.get_running_loop().time()
-                                            if now - last > 120:
-                                                await self._log_backend_error(guild, f"❌ CollabWarz: Failed to export status to backend (no response) for guild {guild.name}")
-                                                self.backend_error_throttle[guild.id] = now
-                                    # Persistent session fallback removed: always use short-lived sessions
-                                except Exception as ee:
-                                    # Completely suppress 'Session is closed' export errors; they are expected in short-lived session setups
-                                    if 'session is closed' in str(ee).lower():
-                                        pass
-                                    else:
-                                        suppressed = await self._is_noisy_logs_suppressed(guild)
-                                        await self._log_backend_error(guild, f"❌ CollabWarz: Error exporting status to backend: {ee}")
-                                        # Only log traceback if noisy logs are enabled for this guild
-                                        if not suppressed:
-                                            await self._log_backend_error(guild, traceback.format_exc())
-                            else:
-                                # No status to export — use noisy log helper to respect per-guild suppression
-                                await self._maybe_noisy_log(f"ℹ️ CollabWarz: No status available to export for guild {guild.name}", guild=guild)
-                        except Exception as e:
-                            # Suppress 'Session is closed' errors completely to avoid noisy logs
-                            if 'session is closed' in str(e).lower():
-                                pass
-                            else:
-                                await self._log_backend_error(guild, f"❌ CollabWarz: Failed to update and export status for guild {guild.name}: {e}")
-
-                        # Sleep according to guild poll interval
-                        await asyncio.sleep(poll_interval or 10)
-
-                    except Exception as e:
-                        # Suppress 'Session is closed' error logs to avoid noisy repeated messages
-                        if 'session is closed' in str(e).lower():
-                            continue
-                        await self._log_backend_error(guild, f"❌ CollabWarz: Error in backend loop for guild {guild.name}: {e}")
-                        continue
-
-                # Short sleep between full guild iterations
-                await asyncio.sleep(1)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                # Suppress common noisy 'session is closed' errors here as well
-                if 'session is closed' in str(e).lower():
-                    await asyncio.sleep(10)
-                    continue
-                await self._maybe_noisy_log(f"❌ CollabWarz: Backend communication loop error: {e}")
-                await asyncio.sleep(10)
-        
-        print("🛑 CollabWarz: Backend communication loop stopped")
-
-    async def _ensure_config_defaults(self):
-        """Ensure older guild configs include any newly added registration keys.
-
-        This ensures older installations still have the `submissions` mapping
-        available to minimize runtime attribute missing errors.
-        """
-        await self.bot.wait_until_ready()
-        for g in self.bot.guilds:
-            try:
-                cfg_all = await self.config.guild(g).all()
-            except Exception:
-                cfg_all = {}
-            if 'submissions' not in cfg_all:
-                try:
-                    subs_group = getattr(self.config.guild(g), 'submissions', None)
-                    if subs_group:
-                        await subs_group.set({})
-                        print(f"ℹ️ CollabWarz: Added missing `submissions` mapping for guild {g.name}")
-                except Exception:
-                    # If we failed to add `submissions`, don't crash; fall back to submitted_teams
-                    pass
-
-    async def _ensure_backend_session(self):
-        """Ensure the persistent backend session exists and is bound to the current loop.
-
-        If it's missing or bound to a different event loop, recreate it on the current loop.
-        """
-        try:
-            current_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            # No running event loop
-            current_loop = None
-        session = self.backend_session
-        if session is None or getattr(session, 'closed', True) or self.backend_session_loop != current_loop:
-            # Close existing session if present
-            if session and not getattr(session, 'closed', True):
-                try:
-                    await session.close()
-                except Exception:
-                    pass
-            # Recreate session on the current loop
-            try:
-                self.backend_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=10, keepalive_timeout=60))
-                self.backend_session_loop = current_loop
-                print(f"🔁 CollabWarz: Persistent backend session (re)created on loop {current_loop} (closed={getattr(self.backend_session, 'closed', 'n/a')})")
-            except Exception as e:
-                await self._maybe_noisy_log(f"❌ CollabWarz: Failed to create persistent backend session: {e}")
-                self.backend_session = None
-                self.backend_session_loop = None
-
-    async def _init_postgres_pool(self):
-        """Initialize Postgres pool for persistent backups if DATABASE_URL is configured."""
-        # Ensure asyncpg is importable; attempt a dynamic import if possible
-        if asyncpg is None:
-            try:
-                # Try to import if it was installed since load time
-                mod = importlib.import_module('asyncpg')
-                globals()['asyncpg'] = mod
-            except Exception:
-                await self._maybe_noisy_log("⚠️ asyncpg not installed; Postgres support disabled")
-                print("⚠️ asyncpg not installed; Postgres support disabled")
-                return False
-        db_url = os.environ.get('DATABASE_URL') or os.environ.get('POSTGRES_URL')
-        if not db_url:
-            await self._maybe_noisy_log("⚠️ No DATABASE_URL or POSTGRES_URL found; Postgres disabled")
-            print("⚠️ No DATABASE_URL or POSTGRES_URL found; Postgres disabled")
-            return False
-        try:
-            self.pg_pool = await asyncpg.create_pool(dsn=db_url, min_size=1, max_size=5)
-            await self._maybe_noisy_log("✅ Postgres pool initialized for backups")
-            print("✅ Postgres pool initialized for backups")
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute('''
-                    CREATE TABLE IF NOT EXISTS backups (
-                        id SERIAL PRIMARY KEY,
-                        guild_id BIGINT NOT NULL,
-                        file_name TEXT NOT NULL,
-                        backup_content JSONB NOT NULL,
-                        size BIGINT DEFAULT 0,
-                        created_by_user_id BIGINT,
-                        created_by_display TEXT,
-                        created_at TIMESTAMPTZ DEFAULT NOW()
-                    );
-                ''')
-            return True
-        except Exception as e:
-            await self._maybe_noisy_log(f"❌ Failed to initialize Postgres pool: {e}")
-            print(f"❌ Failed to initialize Postgres pool: {e}")
-            self.pg_pool = None
-            return False
-
-    async def _attempt_runtime_install_asyncpg(self, ctx: Optional[commands.Context] = None) -> bool:
-        """Attempt to install asyncpg at runtime via pip then import it.
-
-        Returns True if asyncpg becomes importable, False otherwise.
-        If a Context is provided, send informative messages back to that context.
-        """
-        # Avoid trying to install if importlib reports the module
-        try:
-            importlib.import_module('asyncpg')
-            return True
-        except Exception:
-            pass
-
-        # Attempt pip install in a subprocess (non-blocking via run_in_executor)
-        loop = asyncio.get_running_loop()
-        def _install():
-            try:
-                print("🔁 CollabWarz: Attempting to install asyncpg via pip...")
-                subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'asyncpg'])
-                return True
-            except Exception as e:
-                print(f"❌ CollabWarz: pip install asyncpg failed: {e}")
-                return False
-
-        ok = await loop.run_in_executor(None, _install)
-        if not ok:
-            if ctx:
-                try:
-                    await ctx.send("❌ Failed to install asyncpg via pip. Please install package in the environment or redeploy.")
-                except Exception:
-                    pass
-            return False
-
-        # After install, try to import again
-        try:
-            mod = importlib.import_module('asyncpg')
-            globals()['asyncpg'] = mod
-            globals()['PG_AVAILABLE'] = True
-            return True
-        except Exception as e:
-            if ctx:
-                try:
-                    await ctx.send(f"❌ Unable to import asyncpg even after install: {e}")
-                except Exception:
-                    pass
-            return False
-
-
-    async def _save_backup_to_db(self, guild, file_name, backup_json):
-        """Save a backup JSON to Postgres if pool available."""
-        if not getattr(self, 'pg_pool', None):
-            return False
-        try:
-            gid = guild.id if hasattr(guild, 'id') else int(guild)
-            cb = backup_json.get('created_by') if isinstance(backup_json, dict) else None
-            created_by = cb.get('user_id') if cb else None
-            created_by_name = cb.get('display_name') if cb else None
-            size = len(json.dumps(backup_json))
-            async with self.pg_pool.acquire() as conn:
-                await conn.execute('''
-                    INSERT INTO backups (guild_id, file_name, backup_content, size, created_by_user_id, created_by_display, created_at)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7)
-                ''', gid, file_name, json.dumps(backup_json), size, created_by, created_by_name, datetime.utcnow())
-            # Print explicit success log so operators can see that the backup persisted
-            try:
-                await self._maybe_noisy_log(f"✅ Persisted backup to Postgres: {file_name} (guild={gid}, user={created_by})", guild=guild)
-            except Exception:
-                # Best-effort logging; if this fails, ignore
-                pass
-            return True
-        except Exception as e:
-            await self._maybe_noisy_log(f"⚠️ Failed to persist backup to Postgres: {e}", guild=guild)
-            return False
-
-    # ========== RUNTIME REDIS MANAGEMENT COMMANDS ==========
-
-    @commands.group()
-    @checks.is_owner()
-    async def redis(self, ctx: commands.Context):
-        """Manage Redis configuration for the admin panel (owner-only)."""
-        if not ctx.invoked_subcommand:
-            await ctx.send("Available subcommands: `seturl <url>`, `enable`, `disable`, `status`")
-
-    @redis.command(name="seturl")
-    async def redis_seturl(self, ctx: commands.Context, url: str):
-        """Set the Redis URL for this guild and start Redis communication immediately."""
-        if not ctx.guild:
-            await ctx.send("This command must be run in a guild.")
-            return
-
-        await self.config.guild(ctx.guild).redis_url.set(url)
-        await self.config.guild(ctx.guild).redis_enabled.set(True)
-
-        # Restart the redis task if running
-        if self.redis_task:
-            try:
-                self.redis_task.cancel()
-            except Exception:
-                pass
-            self.redis_task = None
-
-        # Start a new loop that will pick up the guild-specific URL
-        self.redis_task = self.bot.loop.create_task(self.redis_communication_loop())
-        await ctx.send("✅ Redis URL saved and Redis communication started (guild-level).")
-
-    @redis.command(name="enable")
-    async def redis_enable(self, ctx: commands.Context):
-        """Enable Redis communication for this guild."""
-        if not ctx.guild:
-            await ctx.send("This command must be run in a guild.")
-            return
-
-        await self.config.guild(ctx.guild).redis_enabled.set(True)
-        if not self.redis_task:
-            self.redis_task = self.bot.loop.create_task(self.redis_communication_loop())
-        await ctx.send("✅ Redis communication enabled for this guild.")
-
-    @redis.command(name="disable")
-    async def redis_disable(self, ctx: commands.Context):
-        """Disable Redis communication for this guild."""
-        if not ctx.guild:
-            await ctx.send("This command must be run in a guild.")
-            return
-
-        await self.config.guild(ctx.guild).redis_enabled.set(False)
-        if self.redis_task:
-            try:
-                self.redis_task.cancel()
-            except Exception:
-                pass
-            self.redis_task = None
-        await ctx.send("✅ Redis communication disabled for this guild.")
-
-    @redis.command(name="status")
-    async def redis_status(self, ctx: commands.Context):
-        """Show Redis configuration/status for this guild."""
-        if not ctx.guild:
-            await ctx.send("This command must be run in a guild.")
-            return
-
-        enabled = await self.config.guild(ctx.guild).redis_enabled()
-        url = await self.config.guild(ctx.guild).redis_url()
-        client_connected = bool(self.redis_client)
-
-        msg = (
-            f"Redis enabled (guild): {enabled}\n"
-            f"Redis URL (guild): {url or '(not set)'}\n"
-            f"Redis library available: {REDIS_AVAILABLE}\n"
-            f"Redis client connected: {client_connected}"
-        )
-        await ctx.send(f"``\n{msg}\n``")
-
-    @redis.command(name="install")
-    @checks.is_owner()
-    async def redis_install(self, ctx: commands.Context):
-        """Attempt to install redis package at runtime (owner-only)."""
-        await ctx.send("🔁 Attempting to install redis package (redis.asyncio)...")
-        ok = await self._attempt_runtime_install_redis(ctx)
-        if ok:
-            await ctx.send("✅ redis.asyncio installed and importable. You can now run `!redis enable` or retry `!redis ping`.")
-        else:
-            await ctx.send("❌ redis runtime install/import failed. Please install via environment/redeploy.")
-
-    @redis.command(name="ping")
-    async def redis_ping(self, ctx: commands.Context):
-        """Ping the Redis server to verify connectivity."""
-        if not REDIS_AVAILABLE:
-            await ctx.send("⚠️ Le paquet Python `redis` n'est pas installé sur cette instance.")
-            return
-
-        # Ensure we have a client (try to initialize using guild config)
-        if not self.redis_client:
-            ok = await self._init_redis_connection(ctx.guild)
-            if not ok:
-                await ctx.send("❌ Impossible de se connecter à Redis (pas d'URL trouvée ou échec de connexion).")
-                return
-
-        try:
-            pong = await self.redis_client.ping()
-            await ctx.send(f"✅ Redis ping réussi: {pong}")
-        except Exception as e:
-            await ctx.send(f"❌ Erreur lors du ping Redis: {e}")
-
-    # ========== BACKEND (Instance 2) CONFIGURATION COMMANDS ==========
-
-    @commands.group()
-    @checks.is_owner()
-    async def backend(self, ctx: commands.Context):
-        """Manage backend API configuration for collabwarz (owner-only)."""
-        if not ctx.invoked_subcommand:
-            await ctx.send("Available subcommands: `set <url> <token>`, `status`, `disable`")
-
-    @backend.command(name="set")
-    async def backend_set(self, ctx: commands.Context, url: str, token: str):
-        """Configure backend URL and shared token for cog polling."""
-        if not ctx.guild:
-            await ctx.send("This command must be run in a guild.")
-            return
-
-        await self.config.guild(ctx.guild).backend_url.set(url)
-        await self.config.guild(ctx.guild).backend_token.set(token)
-        await self.config.guild(ctx.guild).backend_poll_interval.set(10)
-
-        # Restart backend task to pick up new config
-        if self.backend_task:
-            try:
-                self.backend_task.cancel()
-            except Exception:
-                pass
-            self.backend_task = None
-
-        self.backend_task = self.bot.loop.create_task(self.backend_communication_loop())
-        await ctx.send("✅ Backend configuration saved and polling started for this guild.")
-
-    @backend.command(name="disable")
-    async def backend_disable(self, ctx: commands.Context):
-        """Disable backend polling for this guild."""
-        if not ctx.guild:
-            await ctx.send("This command must be run in a guild.")
-            return
-
-        await self.config.guild(ctx.guild).backend_url.set(None)
-        await self.config.guild(ctx.guild).backend_token.set(None)
-
-        # Cancel backend task if running
-        if self.backend_task:
-            try:
-                self.backend_task.cancel()
-            except Exception:
-                pass
-            self.backend_task = None
-
-        await ctx.send("✅ Backend polling disabled for this guild.")
-
-    @backend.command(name="status")
-    async def backend_status(self, ctx: commands.Context):
-        """Show backend configuration/status for this guild."""
-        if not ctx.guild:
-            await ctx.send("This command must be run in a guild.")
-            return
-
-        url = await self.config.guild(ctx.guild).backend_url()
-        token = await self.config.guild(ctx.guild).backend_token()
-        poll_interval = await self.config.guild(ctx.guild).backend_poll_interval()
-        running = bool(self.backend_task)
-
-        token_display = (token[:6] + "..." ) if token else "(not set)"
-
-        msg = (
-            f"Backend URL: {url or '(not set)'}\n"
-            f"Backend token: {token_display}\n"
-            f"Poll interval: {poll_interval}s\n"
-            f"Backend task running: {running}"
-        )
-
-        await ctx.send(f"``\n{msg}\n``")
-
-    @backend.command(name="install_asyncpg")
-    @checks.is_owner()
-    async def backend_install_asyncpg(self, ctx: commands.Context):
-        """Attempt to install `asyncpg` at runtime (owner-only)."""
-        await ctx.send("🔁 Attempting to install asyncpg...")
-        ok = await self._attempt_runtime_install_asyncpg(ctx)
-        if ok:
-            await ctx.send("✅ asyncpg installed and importable. You can now run `!backend enable_postgres` to initialize the pool.")
-        else:
-            await ctx.send("❌ asyncpg install/import failed. Please install it in the environment or re-deploy the bot with asyncpg in requirements.")
-
-    @backend.command(name="enable_postgres")
-    @checks.is_owner()
-    async def backend_enable_postgres(self, ctx: commands.Context, db_url: Optional[str] = None, try_install: bool = False):
-        """Enable Postgres for this cog at runtime. Optionally set DATABASE_URL and attempt to install asyncpg.
-
-        Usage: `!backend enable_postgres <DATABASE_URL>` or `!backend enable_postgres <DATABASE_URL> true` to try runtime install.
-        """
-        # Optionally set DB URL
-        if db_url:
-            os.environ['DATABASE_URL'] = db_url
-        if asyncpg is None:
-            if try_install:
-                await ctx.send("🔁 asyncpg not found; attempting to install...")
-                ok = await self._attempt_runtime_install_asyncpg(ctx)
-                if not ok:
-                    await ctx.send("❌ Failed to install asyncpg at runtime; please install via environment or redeploy.")
-                    return
-            else:
-                await ctx.send("⚠️ asyncpg not installed; use `!backend install_asyncpg` or supply `try_install=True` to attempt an install.")
-                return
-
-        # Initialize the pool
-        await ctx.send("🔁 Initializing Postgres pool...")
-        ok = await self._init_postgres_pool()
-        if ok:
-            await ctx.send("✅ Postgres pool initialized and backups table ensured.")
-        else:
-            await ctx.send("❌ Failed to initialize Postgres pool; check logs for reasons.")
-
-    @backend.command(name="disable_postgres")
-    @checks.is_owner()
-    async def backend_disable_postgres(self, ctx: commands.Context):
-        """Disable Postgres for this cog at runtime (close pool if present)."""
-        if getattr(self, 'pg_pool', None):
-            try:
-                await self.pg_pool.close()
-            except Exception as e:
-                print(f"⚠️ CollabWarz: Error closing Postgres pool: {e}")
-        self.pg_pool = None
-        await ctx.send("✅ Postgres disabled for Cog (pool closed).")
-
-    @backend.command(name="pg_status")
-    @checks.is_owner()
-    async def backend_pg_status(self, ctx: commands.Context):
-        """Show runtime Postgres status for the cog (owner-only)."""
-        pool_status = 'initialized' if getattr(self, 'pg_pool', None) else 'not initialized'
-        pg_mod = 'present' if asyncpg else 'missing'
-        db_url = os.environ.get('DATABASE_URL') or '(not set)'
-        await ctx.send(f"``\nasyncpg: {pg_mod}\npool: {pool_status}\nDATABASE_URL: {db_url}\n``")
-
-    @backend.command(name="persist_backup")
-    @checks.is_owner()
-    async def backend_persist_backup(self, ctx: commands.Context, filename: str):
-        """Force-persist a local backup file to Postgres (owner-only)."""
-        if not ctx.guild:
-            await ctx.send("This command must be run in a guild.")
-            return
-        if not getattr(self, 'pg_pool', None):
-            await ctx.send("❌ Postgres is not initialized. Run `!backend enable_postgres` first.")
-            return
-        path = os.path.join(self.backup_dir, filename)
-        if not os.path.exists(path):
-            await ctx.send(f"❌ Backup not found: {filename}")
-            return
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                backup = json.load(f)
-        except Exception as e:
-            await ctx.send(f"❌ Failed to load backup file: {e}")
-            return
-        ok = await self._save_backup_to_db(ctx.guild, filename, backup)
-        if ok:
-            await ctx.send(f"✅ Backup {filename} persisted to Postgres.")
-        else:
-            await ctx.send(f"❌ Failed to persist backup {filename} to Postgres. Check logs.")
-
-    @backend.command(name="persist_all_backups")
-    @checks.is_owner()
-    async def backend_persist_all_backups(self, ctx: commands.Context):
-        """Persist all local backup files for the guild to Postgres (owner-only)."""
-        if not ctx.guild:
-            await ctx.send("This command must be run in a guild.")
-            return
-        if not getattr(self, 'pg_pool', None):
-            await ctx.send("❌ Postgres is not initialized. Run `!backend enable_postgres` first.")
-            return
-        prefix = f"backup_g{ctx.guild.id}_"
-        files = []
-        try:
-            for fn in os.listdir(self.backup_dir or ''):
-                if fn.startswith(prefix) and fn.endswith('.json'):
-                    files.append(fn)
-        except Exception:
-            await ctx.send("❌ Error listing backup directory.")
-            return
-        if not files:
-            await ctx.send("⚠️ No local backups found for this guild.")
-            return
-        results = { 'persisted': [], 'failed': [] }
-        for fn in files:
-            path = os.path.join(self.backup_dir, fn)
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    backup = json.load(f)
-                ok = await self._save_backup_to_db(ctx.guild, fn, backup)
-                if ok:
-                    results['persisted'].append(fn)
-                else:
-                    results['failed'].append(fn)
-            except Exception:
-                results['failed'].append(fn)
-        await ctx.send(f"✅ Persisted: {len(results['persisted'])} backups. Failed: {len(results['failed'])} backups.")
-    
-    def _get_next_deadline(self, announcement_type: str) -> datetime:
-        """Get the next deadline based on announcement type"""
-        now = datetime.utcnow()
-        day = now.weekday()  # Monday is 0, Sunday is 6
-        
-        if announcement_type == "submission_start":
-            # Submissions end Friday noon
-            days_until_friday = (4 - day) % 7  # 4 = Friday
-            if days_until_friday == 0 and now.hour >= 12:  # Friday afternoon
-                days_until_friday = 7  # Next Friday
-            elif days_until_friday == 0:  # Friday before noon
-                pass  # Same day
-            else:
-                pass  # Days until Friday
-                
-            next_friday = now + timedelta(days=days_until_friday)
-            return next_friday.replace(hour=12, minute=0, second=0, microsecond=0)
-            
-        elif announcement_type == "voting_start" or announcement_type == "reminder":
-            # Voting ends Sunday night
-            days_until_sunday = (6 - day) % 7  # 6 = Sunday
-            if days_until_sunday == 0 and now.hour >= 23:  # Sunday late night
-                days_until_sunday = 7  # Next Sunday
-            elif days_until_sunday == 0:  # Sunday before 11 PM
-                pass  # Same day
-            else:
-                pass  # Days until Sunday
-                
-            next_sunday = now + timedelta(days=days_until_sunday)
-            return next_sunday.replace(hour=23, minute=59, second=59, microsecond=0)
-        
-        # Default fallback
-        return now + timedelta(days=1)
-    
-    async def _count_participating_teams(self, guild) -> int:
-        """Count the number of teams with submissions this competition cycle"""
-        try:
-            week_key = await self._get_competition_week_key(guild)
-            
-            # Count teams from different sources
-            total_teams = set()  # Use set to avoid double-counting
-            
-            # 1. Count Discord registered teams for current week
-            try:
-                cfg_all = await self.config.guild(guild).all()
-            except Exception:
-                cfg_all = {}
-
-            submitted_teams = cfg_all.get('submitted_teams', {})
-            week_teams = submitted_teams.get(week_key, [])
-            for team_name in week_teams:
-                total_teams.add(team_name)
-            
-            # 2. Count web submissions (from submissions config)
-            # Note: submissions config contains all current active submissions
-            # 2. Count web submissions (from submissions config if present)
-            submissions = cfg_all.get('submissions') or {}
-            if isinstance(submissions, dict):
-                for team_name in submissions.keys():
-                    total_teams.add(team_name)
-            else:
-                # If submissions isn't a dict, look for weeks_db or songs_db
-                weeks_db = cfg_all.get('weeks_db') or {}
-                week_info = weeks_db.get(week_key) or {}
-                # If weeks_db stores a teams list or songs list, attempt to extract
-                if isinstance(week_info.get('teams'), list):
-                    for t in week_info.get('teams', []):
-                        total_teams.add(t)
-                elif isinstance(week_info.get('songs'), list):
-                    for s in week_info.get('songs', []):
-                        if isinstance(s, dict) and s.get('team'):
-                            total_teams.add(s.get('team'))
-                else:
-                    # Fallback: examine songs_db and collect teams registered for this week
-                    songs_db = cfg_all.get('songs_db') or {}
-                    for song in songs_db.values():
-                        try:
-                            if song and song.get('week') == week_key and song.get('team'):
-                                total_teams.add(song.get('team'))
-                        except Exception:
-                            continue
-            
-            # 3. Also check for unregistered submissions (fallback for raw Discord messages)
-            validate_enabled = await self.config.guild(guild).validate_discord_submissions()
-            if not validate_enabled:
-                # If validation is disabled, also count raw messages
-                raw_count = await self._count_raw_submissions(guild)
-                # For raw counting, we can't get team names, so just return the max
-                return max(len(total_teams), raw_count)
-            
-            return len(total_teams)
-            
-        except Exception as e:
-            print(f"Error counting teams in {guild.name}: {e}")
-            return 0
-    
-    async def _count_raw_submissions(self, guild) -> int:
-        """Count raw submissions by scanning messages (fallback method)"""
-        try:
-            submission_channel_id = await self.config.guild(guild).submission_channel()
-            if not submission_channel_id:
-                submission_channel_id = await self.config.guild(guild).announcement_channel()
-            
-            if not submission_channel_id:
-                return 0
-            
-            channel = guild.get_channel(submission_channel_id)
-            if not channel:
-                return 0
-            
-            # Get current week identifier for filtering messages
-            now = datetime.now()
-            week_start = now - timedelta(days=now.weekday())
-            
-            team_count = 0
-            async for message in channel.history(after=week_start, limit=None):
-                if 'suno.com' in message.content.lower():
-                    team_count += 1
-            
-            return team_count
-            
-        except Exception as e:
-            print(f"Error counting raw submissions in {guild.name}: {e}")
-            return 0
-    
-    async def _cancel_week_and_restart(self, guild, channel, theme: str):
-        """Cancel current week due to insufficient teams and restart next Monday"""
-        try:
-            # Mark week as cancelled
-            await self.config.guild(guild).week_cancelled.set(True)
-            await self.config.guild(guild).current_phase.set("cancelled")
-            
-            # Calculate next Monday
-            now = datetime.now()
-            days_until_monday = (7 - now.weekday()) % 7
-            if days_until_monday == 0:  # If today is Monday
-                days_until_monday = 7
-            
-            next_monday = now + timedelta(days=days_until_monday)
-            next_monday_ts = self._create_discord_timestamp(next_monday.replace(hour=9, minute=0, second=0), "F")
-            
-            # Create cancellation announcement
-            cancellation_msg = f"""⚠️ **WEEK CANCELLED - INSUFFICIENT PARTICIPATION** ⚠️
-
-🎵 **Theme:** **{theme}**
-
-Unfortunately, we didn't receive enough submissions this week to proceed with voting.
-
-📅 **Competition restarts:** {next_monday_ts}
-🔄 **New theme will be announced** when we restart
-
-Thank you for your understanding! Let's make next week amazing! 🎶"""
-
-            # Check for @everyone ping setting
-            use_everyone_ping = await self.config.guild(guild).use_everyone_ping()
-            if use_everyone_ping:
-                cancellation_msg = f"@everyone\n\n{cancellation_msg}"
-            
-            # Send cancellation message
-            await channel.send(cancellation_msg)
-            
-            # Reset flags for next week
-            current_week = now.strftime("%Y-W%U")
-            await self.config.guild(guild).last_announcement.set(f"week_cancelled_{current_week}")
-            await self.config.guild(guild).winner_announced.set(False)
-            await self.config.guild(guild).theme_generation_done.set(False)
-            
-            print(f"Week cancelled in {guild.name} due to insufficient teams")
-            
-        except Exception as e:
-            print(f"Error cancelling week in {guild.name}: {e}")
+    # ========== HELPER METHODS ==========
     
     def _extract_team_info_from_message(self, message_content: str, mentions: list, guild: discord.Guild, author_id: int) -> dict:
         """Extract team name and partner from Discord message"""
@@ -2419,296 +322,13 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         
         return result
     
-    def _get_current_week_key(self) -> str:
-        """Get current week identifier for tracking submissions (backwards compatibility)"""
-        now = datetime.now()
-        iso_year, iso_week, _ = now.isocalendar()
-        return f"{iso_year}-W{iso_week}"
     
-    async def _get_competition_week_key(self, guild) -> str:
-        """Get current competition week identifier, handling bi-weekly mode"""
-        now = datetime.now()
-        iso_year, iso_week, _ = now.isocalendar()
-        
-        biweekly_mode = await self.config.guild(guild).biweekly_mode()
-        
-        if biweekly_mode:
-            # In bi-weekly mode, only odd weeks have competitions
-            # Week 1, 3, 5, etc. = active weeks
-            # Week 2, 4, 6, etc. = off weeks
-            return f"{iso_year}-W{iso_week}"
-        else:
-            # Regular weekly mode
-            return f"{iso_year}-W{iso_week}"
     
-    async def _is_competition_week(self, guild) -> bool:
-        """Check if current week should have a competition (for bi-weekly mode)"""
-        biweekly_mode = await self.config.guild(guild).biweekly_mode()
         
-        if not biweekly_mode:
-            return True  # Weekly mode - always active
-        
-        # Bi-weekly mode: only odd weeks are active
-        now = datetime.now()
-        iso_year, iso_week, _ = now.isocalendar()
-        
-        # Week 1, 3, 5, etc. are competition weeks
-        # Week 2, 4, 6, etc. are off weeks
-        return iso_week % 2 == 1
-    
-    # ========== COMPREHENSIVE DATA MANAGEMENT SYSTEM ==========
-    
-    async def _get_or_create_artist(self, guild, user_id: int, user_name: str = None) -> dict:
-        """Get or create artist entry in normalized database"""
-        artists_db = await self.config.guild(guild).artists_db()
-        user_id_str = str(user_id)
-        
-        if user_id_str not in artists_db:
-            # Create new artist entry
-            member = guild.get_member(user_id)
-            display_name = user_name or (member.display_name if member else f"User {user_id}")
-            
-            artists_db[user_id_str] = {
-                "name": display_name,
-                "suno_profile": None,  # To be filled when discovered
-                "discord_rank": "Seed",  # Default rank
-                "stats": {
-                    "participations": 0,
-                    "victories": 0,
-                    "petals": 0,
-                    "last_updated": datetime.now().isoformat()
-                },
-                "team_history": [],  # List of {team_id, week_key, role}
-                "song_history": []   # List of song_ids this artist contributed to
-            }
-            await self.config.guild(guild).artists_db.set(artists_db)
-        
-        return artists_db[user_id_str]
-    
-    async def _get_or_create_team(self, guild, team_name: str, member_ids: list, week_key: str) -> int:
-        """Get or create team entry and return team_id"""
-        teams_db = await self.config.guild(guild).teams_db()
-        next_ids = await self.config.guild(guild).next_unique_ids()
-        
-        # Check if exact team composition exists
-        member_ids_set = set(str(uid) for uid in member_ids)
-        for team_id, team_data in teams_db.items():
-            if set(team_data["members"]) == member_ids_set and team_data["name"] == team_name:
-                return int(team_id)
 
-            # helper functions have been moved to class-level methods for reuse
-        
-        # Create new team
-        team_id = next_ids["team_id"]
-        teams_db[str(team_id)] = {
-            "name": team_name,
-            "members": [str(uid) for uid in member_ids],
-            "stats": {
-                "participations": 0,
-                "victories": 0,
-                "first_appearance": week_key,
-                "last_appearance": week_key
-            },
-            "songs_by_week": {}  # {week_key: [song_ids]}
-        }
-        
-        # Update next ID
-        next_ids["team_id"] += 1
-        await self.config.guild(guild).teams_db.set(teams_db)
-        await self.config.guild(guild).next_unique_ids.set(next_ids)
-        
-        return team_id
 
-    async def _get_submissions_safe(self, guild) -> dict:
-        """Return submissions mapping safely, even if 'submissions' is not a registered config key."""
-        try:
-            cfg_all = await self.config.guild(guild).all()
-        except Exception:
-            cfg_all = {}
-        subs = cfg_all.get('submissions') or {}
-        # If the cog tracks submissions in weeks_db structure, try to flatten
-        if not subs:
-            weeks_db = cfg_all.get('weeks_db') or {}
-            # Fallback: no `submissions` mapping present, try the weeks_db/songs_db mappings
-            print(f"⚠️ CollabWarz: No 'submissions' mapping present for guild {guild.name} - falling back to other stores")
-            # try to find current week
-            try:
-                week_key = await self._get_competition_week_key(guild)
-                wk = weeks_db.get(week_key, {})
-                if isinstance(wk, dict) and wk.get('teams'):
-                    # build a dict from list of team names
-                    subs = { t: {} for t in wk.get('teams', []) }
-                elif isinstance(wk, dict) and wk.get('songs'):
-                    subs = {}
-                    for s in wk.get('songs', []):
-                        if isinstance(s, dict) and s.get('team'):
-                            subs.setdefault(s.get('team'), {})
-            except Exception:
-                pass
-        return subs
 
-    async def _clear_submissions_safe(self, guild):
-        try:
-            cfg_all = await self.config.guild(guild).all()
-        except Exception:
-            cfg_all = {}
-        # Clear primary submissions mapping if present
-        if 'submissions' in cfg_all:
-            try:
-                subs_group = getattr(self.config.guild(guild), 'submissions', None)
-                if subs_group:
-                    await subs_group.clear()
-            except Exception:
-                pass
-        # Also clear submitted_teams entries for the current week
-        try:
-            week_key = await self._get_competition_week_key(guild)
-            submitted_teams = cfg_all.get('submitted_teams') or {}
-            if week_key in submitted_teams:
-                submitted_teams[week_key] = []
-                await self.config.guild(guild).submitted_teams.set(submitted_teams)
-        except Exception:
-            pass
 
-    async def _remove_submission_safe(self, guild, team_name):
-        try:
-            cfg_all = await self.config.guild(guild).all()
-        except Exception:
-            cfg_all = {}
-        # Remove from submissions mapping if present
-        if 'submissions' in cfg_all:
-            try:
-                subs = cfg_all.get('submissions') or {}
-                if team_name in subs:
-                    del subs[team_name]
-                    await self._set_submissions_safe(guild, subs)
-                    return True
-            except Exception:
-                pass
-        # Remove from submitted_teams list for current week
-        try:
-            week_key = await self._get_competition_week_key(guild)
-            submitted_teams = cfg_all.get('submitted_teams') or {}
-            wk = submitted_teams.get(week_key, [])
-            if team_name in wk:
-                wk.remove(team_name)
-                submitted_teams[week_key] = wk
-                await self.config.guild(guild).submitted_teams.set(submitted_teams)
-                return True
-        except Exception:
-            pass
-        return False
-
-    async def _set_submissions_safe(self, guild, subs: dict) -> bool:
-        """Set submissions if 'submissions' is registered, otherwise populate submitted_teams for the current week."""
-        try:
-            cfg_all = await self.config.guild(guild).all()
-        except Exception:
-            cfg_all = {}
-
-        if 'submissions' in cfg_all:
-            try:
-                subs_group = getattr(self.config.guild(guild), 'submissions', None)
-                if subs_group:
-                    await subs_group.set(subs)
-                    return True
-            except Exception:
-                pass
-
-        # Fallback to populate submitted_teams
-        try:
-            week_key = await self._get_competition_week_key(guild)
-            submitted_teams = cfg_all.get('submitted_teams') or {}
-            submitted_teams[week_key] = list(subs.keys())
-            await self.config.guild(guild).submitted_teams.set(submitted_teams)
-            return True
-        except Exception:
-            pass
-
-        return False
-    
-    async def _record_song_submission(self, guild, team_id: int, week_key: str, suno_url: str, title: str = None) -> int:
-        """Record a song submission and return song_id"""
-        songs_db = await self.config.guild(guild).songs_db()
-        teams_db = await self.config.guild(guild).teams_db()
-        next_ids = await self.config.guild(guild).next_unique_ids()
-        
-        # Create new song entry
-        song_id = next_ids["song_id"]
-        
-        # Extract Suno song ID for metadata
-        suno_song_id = self._extract_suno_song_id(suno_url)
-        
-        # Fetch Suno metadata immediately to identify author and update profiles
-        suno_metadata = await self._fetch_suno_metadata(suno_song_id, guild)
-        
-        # Determine primary author and update artist profiles
-        primary_author_id = await self._identify_and_update_song_author(
-            guild, team_id, suno_metadata
-        )
-        
-        songs_db[str(song_id)] = {
-            "title": title or suno_metadata.get("title", f"Song {song_id}"),
-            "suno_url": suno_url,
-            "suno_song_id": suno_song_id,
-            "team_id": team_id,
-            "artists": teams_db[str(team_id)]["members"].copy(),
-            "primary_author_id": primary_author_id,  # Track which team member's profile this is from
-            "week_key": week_key,
-            "submission_date": datetime.now().isoformat(),
-            "suno_metadata": suno_metadata,  # Store immediately fetched metadata
-            "vote_stats": {
-                "total_votes": 0,
-                "final_position": None,
-                "won_week": False
-            }
-        }
-        
-        # Update team's song history
-        if week_key not in teams_db[str(team_id)]["songs_by_week"]:
-            teams_db[str(team_id)]["songs_by_week"][week_key] = []
-        teams_db[str(team_id)]["songs_by_week"][week_key].append(song_id)
-        
-        # Update artist song histories
-        artists_db = await self.config.guild(guild).artists_db()
-        for artist_id in teams_db[str(team_id)]["members"]:
-            if artist_id in artists_db:
-                artists_db[artist_id]["song_history"].append(song_id)
-        
-        # Update next ID
-        next_ids["song_id"] += 1
-        
-        # Save all changes
-        await self.config.guild(guild).songs_db.set(songs_db)
-        await self.config.guild(guild).teams_db.set(teams_db)
-        await self.config.guild(guild).artists_db.set(artists_db)
-        await self.config.guild(guild).next_unique_ids.set(next_ids)
-        
-        return song_id
-    
-    async def _update_week_data(self, guild, week_key: str, theme: str, status: str = "active") -> None:
-        """Update or create week data entry"""
-        weeks_db = await self.config.guild(guild).weeks_db()
-        
-        if week_key not in weeks_db:
-            weeks_db[week_key] = {
-                "theme": theme,
-                "start_date": datetime.now().isoformat(),
-                "status": status,  # active, voting, completed, cancelled
-                "teams": [],      # List of team_ids that participated
-                "songs": [],      # List of song_ids submitted
-                "total_votes": 0,
-                "winner_team_id": None,
-                "winner_song_id": None,
-                "vote_breakdown": {},  # {song_id: vote_count}
-                "participants": []     # List of user_ids who participated
-            }
-        else:
-            # Update existing week
-            weeks_db[week_key]["theme"] = theme
-            weeks_db[week_key]["status"] = status
-        
-        await self.config.guild(guild).weeks_db.set(weeks_db)
     
     async def _finalize_week_results(self, guild, week_key: str, winner_team_id: int, winner_song_id: int, vote_results: dict) -> None:
         """Finalize week results and update all related statistics"""
@@ -2800,7 +420,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     async def _update_artist_petals(self, guild, user_id: int) -> None:
         """Sync artist's petal count from AutoReputation cog"""
         try:
-            petal_count = await self._get_user_rep_count(guild, user_id)
+            petal_count = await self.database_manager.get_user_rep_count(guild, user_id)
             artists_db = await self.config.guild(guild).artists_db()
             user_id_str = str(user_id)
             
@@ -2827,7 +447,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     
     def _get_current_week(self) -> str:
         """Get current week identifier (alias for _get_current_week_key for consistency)"""
-        return self._get_current_week_key()
+        return self.config_manager.get_current_week_key()
     
     def _extract_suno_song_id(self, url: str) -> str:
         """Extract Suno song ID from URL
@@ -3010,7 +630,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     
     async def _is_team_already_submitted(self, guild, team_name: str, user_id: int, partner_id: int) -> dict:
         """Check if team or members already submitted this competition cycle"""
-        week_key = await self._get_competition_week_key(guild)
+        week_key = await self.config_manager.get_competition_week_key(guild)
         submitted_teams = await self.config.guild(guild).submitted_teams()
         team_members = await self.config.guild(guild).team_members()
         
@@ -3042,7 +662,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     
     async def _register_team_submission(self, guild, team_name: str, user_id: int, partner_id: int):
         """Register a successful team submission"""
-        week_key = await self._get_competition_week_key(guild)
+        week_key = await self.config_manager.get_competition_week_key(guild)
         
         # Update submitted teams
         submitted_teams = await self.config.guild(guild).submitted_teams()
@@ -3482,7 +1102,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             week_cancelled = await self.config.guild(guild).week_cancelled()
             
             # Get submission stats
-            submissions = await self._get_submissions_safe(guild)
+            submissions = await self.config_manager.get_submissions_safe(guild)
             team_count = len(submissions)
             
             # Get voting results if available
@@ -3556,7 +1176,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             return error_response
         
         try:
-            submissions = await self._get_submissions_safe(guild)
+            submissions = await self.config_manager.get_submissions_safe(guild)
             
             # Enrich submissions with member data
             enriched_submissions = []
@@ -3774,7 +1394,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                         await self.config.guild(guild).current_theme.set(theme)
                         await self.config.guild(guild).current_phase.set('submission')
                         await self.config.guild(guild).week_cancelled.set(False)
-                        await self._clear_submissions_safe(guild)
+                        await self.config_manager.clear_submissions_safe(guild)
                         try:
                             await self._send_competition_log(f"New week started: theme='{theme}'", guild=guild)
                         except Exception:
@@ -3797,7 +1417,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 if await self.config.guild(guild).safe_mode_enabled():
                     result = {"success": False, "message": "Action blocked: Safe mode is enabled"}
                 else:
-                    await self._clear_submissions_safe(guild)
+                    await self.config_manager.clear_submissions_safe(guild)
                     try:
                         await self._send_competition_log("All submissions cleared by admin", guild=guild)
                     except Exception:
@@ -4054,10 +1674,10 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             if not team_name:
                 return web.json_response({"error": "Team name required"}, status=400)
             
-            submissions = await self._get_submissions_safe(guild)
+            submissions = await self.config_manager.get_submissions_safe(guild)
             if team_name in submissions:
                 del submissions[team_name]
-                await self._set_submissions_safe(guild, submissions)
+                await self.config_manager.set_submissions_safe(guild, submissions)
                 return web.json_response({
                     "success": True, 
                     "message": f"Submission from {team_name} removed",
@@ -4287,7 +1907,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             week_cancelled = await self.config.guild(guild).week_cancelled()
             
             # Get submission stats
-            submissions = await self._get_submissions_safe(guild)
+            submissions = await self.config_manager.get_submissions_safe(guild)
             team_count = len(submissions)
             
             # Calculate competition timeline
@@ -4364,7 +1984,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             if not guild:
                 return web.json_response({"error": "API not enabled"}, status=503)
             
-            submissions = await self._get_submissions_safe(guild)
+            submissions = await self.config_manager.get_submissions_safe(guild)
             current_theme = await self.config.guild(guild).current_theme()
             current_phase = await self.config.guild(guild).current_phase()
             
@@ -4590,7 +2210,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 })
             
             # Enrich with submission details
-            submissions = await self._get_submissions_safe(guild)
+            submissions = await self.config_manager.get_submissions_safe(guild)
             enriched_results = []
             
             for team_name, votes in voting_results.get('results', {}).items():
@@ -4698,7 +2318,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 return web.json_response({"error": "Invalid JSON data"}, status=400)
             
             # Validate team exists in current submissions
-            submissions = await self._get_submissions_safe(guild)
+            submissions = await self.config_manager.get_submissions_safe(guild)
             if team_name not in submissions:
                 return web.json_response({
                     "error": "Team not found",
@@ -5821,14 +3441,14 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             )
             
             # ===== COMPREHENSIVE DATA TRACKING =====
-            week_key = await self._get_competition_week_key(guild)
+            week_key = await self.config_manager.get_competition_week_key(guild)
             
             # Ensure artists exist in database
-            await self._get_or_create_artist(guild, message.author.id, message.author.display_name)
-            await self._get_or_create_artist(guild, team_info["partner_id"])
+            await self.database_manager.get_or_create_artist(guild, message.author.id, message.author.display_name)
+            await self.database_manager.get_or_create_artist(guild, team_info["partner_id"])
             
             # Create or get team in normalized database
-            team_id = await self._get_or_create_team(
+            team_id = await self.database_manager.get_or_create_team(
                 guild, 
                 team_info["team_name"], 
                 [message.author.id, team_info["partner_id"]], 
@@ -5836,7 +3456,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             )
             
             # Record song submission
-            song_id = await self._record_song_submission(
+            song_id = await self.database_manager.record_song_submission(
                 guild, 
                 team_id, 
                 week_key, 
@@ -5982,7 +3602,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             success_msg = f"✅ **Submission registered!**\n\n"
             success_msg += f"**Team:** `{team_info['team_name']}`\n"
             success_msg += f"**Members:** {message.author.mention} & {partner_name}\n"
-            competition_key = await self._get_competition_week_key(guild)
+            competition_key = await self.config_manager.get_competition_week_key(guild)
             success_msg += f"**Competition:** {competition_key}\n\n"
             success_msg += "Good luck in the competition! 🎵"
             
@@ -6105,133 +3725,8 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     f"{title} - {message.author.mention} {explanation}{help_text}",
                     delete_after=delete_after
                 )
-        else:
-            # Just send a warning without deleting
-            await message.channel.send(
-                f"{title} - {message.author.mention} {explanation}{help_text}",
-                delete_after=delete_after
-            )
-    
-    async def _get_user_rep_count(self, guild, user_id: int) -> int:
-        """Get user's current rep points using AutoReputation API"""
-        try:
-            # Get AutoReputation cog
-            auto_rep = self.bot.get_cog('AutoReputation')
-            if not auto_rep:
-                print("AutoReputation cog not found")
-                return 0
-            
-            user = guild.get_member(user_id)
-            if not user:
-                return 0
-            
-            # Get petals using AutoReputation API
-            result = await auto_rep.api_get_points(guild, user_id)
-            
-            if result and "petals" in result:
-                return result["petals"]
-            
-            return 0
-            
-        except Exception as e:
-            print(f"Error getting rep count for user {user_id}: {e}")
-            return 0
-    
-    async def _give_rep_to_user(self, guild, user_id: int, amount: int) -> bool:
-        """Give rep points to a user using AutoReputation API"""
-        try:
-            # Get AutoReputation cog
-            auto_rep = self.bot.get_cog('AutoReputation')
-            if not auto_rep:
-                print("AutoReputation cog not found")
-                return False
-            
-            user = guild.get_member(user_id)
-            if not user:
-                return False
-            
-            # Add petals using AutoReputation API
-            result = await auto_rep.api_add_points(
-                guild=guild,
-                user_id=user_id,
-                amount=amount,
-                reason="Competition winner",
-                source_cog="CollabWarz"
-            )
-            
-            # Check if the operation was successful
-            if result and result.get("success"):
-                return True
-            else:
-                print(f"Failed to give rep to user {user_id}: {result}")
-                return False
-            
-        except Exception as e:
-            print(f"Error giving rep to user {user_id}: {e}")
-            return False
-    
-    async def _record_weekly_winner(self, guild, team_name: str, member_ids: list, week_key: str = None):
-        """Record the competition winner and give rep rewards"""
-        try:
-            if week_key is None:
-                week_key = await self._get_competition_week_key(guild)
-            
-            # Record winner
-            weekly_winners = await self.config.guild(guild).weekly_winners()
-            rep_amount = await self.config.guild(guild).rep_reward_amount()
-            
-            # Give rep to each team member
-            rep_results = {}
-            for user_id in member_ids:
-                success = await self._give_rep_to_user(guild, user_id, rep_amount)
-                rep_results[user_id] = success
-            
-            # Record the winner with rep status
-            weekly_winners[week_key] = {
-                "team_name": team_name,
-                "members": member_ids,
-                "rep_given": rep_results,
-                "timestamp": datetime.now().isoformat()
-            }
-            
-            await self.config.guild(guild).weekly_winners.set(weekly_winners)
-            
-            # ===== COMPREHENSIVE DATA TRACKING =====
-            # Find the winning team and song in normalized database
-            teams_db = await self.config.guild(guild).teams_db()
-            songs_db = await self.config.guild(guild).songs_db()
-            
-            winning_team_id = None
-            winning_song_id = None
-            
-            # Find team by name and members
-            for team_id, team_data in teams_db.items():
-                if (team_data["name"] == team_name and 
-                    set(str(uid) for uid in member_ids) == set(team_data["members"])):
-                    winning_team_id = int(team_id)
-                    
-                    # Find the song for this week
-                    if week_key in team_data["songs_by_week"]:
-                        for song_id in team_data["songs_by_week"][week_key]:
-                            if str(song_id) in songs_db and songs_db[str(song_id)]["week_key"] == week_key:
-                                winning_song_id = song_id
-                                break
-                    break
-            
-            # If we found the team and song, finalize results
-            if winning_team_id and winning_song_id:
-                # Get vote counts from current system (placeholder - would integrate with real vote system)
-                vote_results = {str(winning_song_id): 0}  # Would get real vote counts
-                
-                # Finalize all week results
-                await self._finalize_week_results(guild, week_key, winning_team_id, winning_song_id, vote_results)
             # ===== END DATA TRACKING =====
             
-            return rep_results
-            
-        except Exception as e:
-            print(f"Error recording weekly winner: {e}")
-            return {}
     
     async def _create_winner_announcement_with_rep(self, guild, team_name: str, member_ids: list, theme: str, vote_counts: dict = None, from_face_off: bool = False) -> str:
         """Create winner announcement with rep information and voting details"""
@@ -6244,7 +3739,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 user = guild.get_member(user_id)
                 if user:
                     # Get updated rep count (after giving rewards)
-                    total_rep = await self._get_user_rep_count(guild, user_id)
+                    total_rep = await self.database_manager.get_user_rep_count(guild, user_id)
                     
                     member_details.append({
                         "user": user,
@@ -6253,7 +3748,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     })
             
             # Get winning team's song information
-            submissions = await self._get_submissions_safe(guild)
+            submissions = await self.config_manager.get_submissions_safe(guild)
             winning_song_info = submissions.get(team_name, {})
             song_url = winning_song_info.get('track_url', '')
             
@@ -6329,686 +3824,6 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             # Fallback to simple announcement
             return f"🏆 **WINNER ANNOUNCEMENT!** 🏆\n\n🎉 Congratulations to team **{team_name}** for winning **{theme}**! 🎉\n\n� **Commands:** Use `!info` for competition guide or `!status` for details\n\n�🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
     
-    async def announcement_loop(self):
-        """Background task that checks and posts announcements"""
-        await self.bot.wait_until_ready()
-        
-        while not self.bot.is_closed():
-            try:
-                for guild in self.bot.guilds:
-                    await self.check_and_announce(guild)
-            except Exception as e:
-                print(f"Error in announcement loop: {e}")
-            
-            # Check every hour
-            await asyncio.sleep(3600)
-    
-    async def check_and_announce(self, guild: discord.Guild):
-        """Check if announcements need to be posted"""
-        if not await self.config.guild(guild).auto_announce():
-            return
-            
-        channel_id = await self.config.guild(guild).announcement_channel()
-        if not channel_id:
-            return
-            
-        channel = guild.get_channel(channel_id)
-        if not channel:
-            return
-        
-        now = datetime.utcnow()
-        current_phase = await self.config.guild(guild).current_phase()
-        theme = await self.config.guild(guild).current_theme()
-        last_announcement = await self.config.guild(guild).last_announcement()
-        winner_announced = await self.config.guild(guild).winner_announced()
-        biweekly_mode = await self.config.guild(guild).biweekly_mode()
-        
-        # Check if this is a competition week (for bi-weekly mode)
-        is_competition_week = await self._is_competition_week(guild)
-        
-        # In bi-weekly mode, during off weeks, set phase to inactive
-        if biweekly_mode and not is_competition_week:
-            if current_phase not in ["inactive", "paused"]:
-                await self.config.guild(guild).current_phase.set("inactive")
-            return  # Skip all announcements during off weeks
-        
-        # Calculate current phase based on day of week (same for both modes during active weeks)
-        day = now.weekday()  # 0 = Monday, 6 = Sunday
-        iso_year, iso_week, _ = now.isocalendar()
-        
-        # Regular weekly schedule (used for both modes during active weeks)
-        if day < 4:  # Monday to Thursday
-            expected_phase = "submission"
-        elif day == 4 and now.hour < 12:  # Friday before noon
-            expected_phase = "submission"
-        else:  # Friday noon onwards to Sunday
-            expected_phase = "voting"
-        
-        # Get current competition identifier for tracking
-        competition_key = await self._get_competition_week_key(guild)
-        current_week = iso_week  # Keep for backwards compatibility with existing code
-        
-        # Check for phase transitions and send appropriate announcements
-        announcement_posted = False
-        
-        # 1. Check if we need to announce start of submission phase (Monday)
-        # Also handle restart after cancelled week
-        week_cancelled = await self.config.guild(guild).week_cancelled()
-        face_off_active = await self.config.guild(guild).face_off_active()
-        
-        # Delay start if face-off is active (start Tuesday instead of Monday)
-        should_restart = False
-        if face_off_active:
-            # Check if face-off deadline has passed
-            face_off_deadline_str = await self.config.guild(guild).face_off_deadline()
-            if face_off_deadline_str:
-                face_off_deadline = datetime.fromisoformat(face_off_deadline_str)
-                
-                if now >= face_off_deadline:
-                    # Face-off time is up, process results
-                    await self._process_voting_end(guild)
-                    
-                    # Start new week on Tuesday if face-off just ended
-                    if day == 1:  # Tuesday
-                        should_restart = True
-        else:
-            # Check if we should start a new competition
-            if biweekly_mode:
-                # In bi-weekly mode, only start on Monday of odd weeks (competition weeks)
-                should_restart = (is_competition_week and  # Only on competition weeks
-                                 expected_phase == "submission" and 
-                                 (current_phase != "submission" or current_phase == "cancelled" or week_cancelled) and 
-                                 last_announcement != f"submission_start_{competition_key}" and
-                                 day == 0)  # Monday only
-            else:
-                # Normal weekly start
-                should_restart = (expected_phase == "submission" and 
-                                 (current_phase != "submission" or current_phase == "cancelled" or week_cancelled) and 
-                                 last_announcement != f"submission_start_{competition_key}" and
-                                 day == 0)  # Monday only
-        
-        if should_restart:
-            # Reset cancelled week flag
-            if week_cancelled:
-                await self.config.guild(guild).week_cancelled.set(False)
-            
-            # Check if we have a pending theme for this week
-            await self._apply_next_week_theme_if_ready(guild)
-            
-            # Get the current theme (may have been updated)
-            current_theme = await self.config.guild(guild).current_theme()
-            
-            await self._post_announcement(channel, guild, "submission_start", current_theme)
-            await self.config.guild(guild).current_phase.set("submission")
-            await self.config.guild(guild).last_announcement.set(f"submission_start_{competition_key}")
-            await self.config.guild(guild).winner_announced.set(False)
-            await self.config.guild(guild).theme_generation_done.set(False)  # Reset for next cycle
-            await self.config.guild(guild).week_cancelled.set(False)  # Reset cancelled flag
-            
-            # Note: Team registrations are automatically separated by week, no need to clear
-            announcement_posted = True
-        
-        # 2. Check if we need to announce start of voting phase
-        elif (expected_phase == "voting" and 
-              current_phase != "voting" and 
-              last_announcement != f"voting_start_{competition_key}"):
-            
-            # In both modes, voting starts on Friday noon during active weeks
-            should_start_voting = (day == 4 and now.hour >= 12)  # Friday noon
-                
-            if should_start_voting:
-                # Check if we have enough teams to proceed with voting
-                team_count = await self._count_participating_teams(guild)
-                min_teams = await self.config.guild(guild).min_teams_required()
-                try:
-                    min_teams = int(min_teams) if min_teams is not None else 2
-                except Exception:
-                    min_teams = 2
-                
-                if team_count < min_teams:
-                    # Cancel the competition due to insufficient participation
-                    await self._cancel_week_and_restart(guild, channel, theme)
-                    announcement_posted = True
-                else:
-                    # Proceed with normal voting phase
-                    await self._post_announcement(channel, guild, "voting_start", theme)
-                    await self.config.guild(guild).current_phase.set("voting")
-                    await self.config.guild(guild).last_announcement.set(f"voting_start_{competition_key}")
-                    announcement_posted = True
-        
-        # 3. Check for reminder announcements 
-        if not announcement_posted:
-            # Same reminder schedule for both modes during active weeks
-            # Submission reminder (Thursday evening)
-            if (expected_phase == "submission" and 
-                day == 3 and now.hour >= 18 and  # Thursday after 6 PM
-                last_announcement != f"submission_reminder_{competition_key}"):
-                
-                reminder_text = "Friday 12:00"
-                if biweekly_mode:
-                    reminder_text += " (Next competition in 2 weeks)"
-                
-                await self._post_announcement(channel, guild, "reminder", theme, reminder_text)
-                await self.config.guild(guild).last_announcement.set(f"submission_reminder_{competition_key}")
-                announcement_posted = True
-            
-            # Voting reminder (Saturday evening)
-            elif (expected_phase == "voting" and 
-                  day == 5 and now.hour >= 18 and  # Saturday after 6 PM
-                  last_announcement != f"voting_reminder_{competition_key}"):
-                
-                await self._post_announcement(channel, guild, "reminder", theme, "Sunday 23:59")
-                await self.config.guild(guild).last_announcement.set(f"voting_reminder_{competition_key}")
-                announcement_posted = True
-        
-        # 4. Check for winner announcement (Sunday evening after voting ends)
-        # Same timing for both modes during active weeks
-        should_announce_winner = (day == 6 and now.hour >= 20)  # Sunday after 8 PM
-            
-        if (not announcement_posted and 
-            should_announce_winner and
-            not winner_announced and
-            last_announcement != f"winner_{competition_key}"):
-            
-            # Process voting results automatically
-            await self._process_voting_end(guild)
-            await self.config.guild(guild).last_announcement.set(f"winner_{competition_key}")
-            # winner_announced will be set by _process_voting_end if successful
-        
-        # 5. Check for next theme generation (Sunday evening after winner announcement)
-        theme_generation_done = await self.config.guild(guild).theme_generation_done()
-        next_week_theme = await self.config.guild(guild).next_week_theme()
-        
-        # Same timing for both modes during active weeks
-        should_generate_theme = (day == 6 and now.hour >= 21)  # Sunday after 9 PM
-        
-        if (not announcement_posted and
-            should_generate_theme and
-            winner_announced and
-            not theme_generation_done and
-            not next_week_theme):  # Only generate if no theme already set for next cycle
-            
-            await self._generate_next_week_theme(guild)
-            await self.config.guild(guild).theme_generation_done.set(True)
-    
-    async def _post_announcement(self, channel, guild, announcement_type: str, theme: str, deadline: str = None, force: bool = False):
-        """Helper method to post an announcement"""
-        try:
-            # Check if confirmation is required and not forced
-            require_confirmation = await self.config.guild(guild).require_confirmation()
-            admin_id = await self.config.guild(guild).admin_user_id()
-            
-            if require_confirmation and not force and admin_id:
-                # Store pending announcement and request confirmation
-                pending_data = {
-                    "type": announcement_type,
-                    "theme": theme,
-                    "deadline": deadline,
-                    "channel_id": channel.id,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-                await self.config.guild(guild).pending_announcement.set(pending_data)
-                
-                # Send confirmation request to admin
-                admin_user = self.bot.get_user(admin_id)
-                if admin_user:
-                    await self._send_confirmation_request(admin_user, guild, announcement_type, theme, deadline)
-                    print(f"Confirmation request sent to admin for {announcement_type} in {guild.name}")
-                    return
-            
-            # Special handling for winner announcements
-            if announcement_type == "winner":
-                # For winner announcements, we need team and member information
-                # This will be handled by manual winner declaration instead
-                announcement = await self.generate_announcement(guild, announcement_type, theme, deadline)
-            else:
-                # Generate normal announcement
-                announcement = await self.generate_announcement(guild, announcement_type, theme, deadline)
-            
-            embed = discord.Embed(
-                description=announcement,
-                color=discord.Color.green()
-            )
-            embed.set_footer(text="SoundGarden's Collab Warz")
-            
-            # Check if @everyone ping is enabled
-            use_everyone_ping = await self.config.guild(guild).use_everyone_ping()
-            
-            if use_everyone_ping:
-                await channel.send("@everyone", embed=embed)
-            else:
-                await channel.send(embed=embed)
-            print(f"Posted {announcement_type} announcement in {guild.name}")
-            
-            # Clear pending announcement if it was confirmed
-            await self.config.guild(guild).pending_announcement.set(None)
-            
-        except Exception as e:
-            print(f"Error posting announcement in {guild.name}: {e}")
-    
-    async def _send_confirmation_request(self, admin_user, guild, announcement_type: str, theme: str, deadline: str = None):
-        """Send a confirmation request to the admin via DM"""
-        try:
-            # Generate preview of the announcement
-            preview = await self.generate_announcement(guild, announcement_type, theme, deadline)
-            
-            embed = discord.Embed(
-                title="🤖 Collab Warz - Confirmation Required",
-                description=f"**Server:** {guild.name}\n**Type:** {announcement_type.replace('_', ' ').title()}",
-                color=discord.Color.blue()
-            )
-            
-            embed.add_field(
-                name="📝 Proposed Announcement",
-                value=preview[:1000] + ("..." if len(preview) > 1000 else ""),
-                inline=False
-            )
-            
-            embed.add_field(
-                name="🎵 Current Theme",
-                value=f"**{theme}**",
-                inline=True
-            )
-            
-            if deadline:
-                embed.add_field(
-                    name="⏰ Deadline",
-                    value=deadline,
-                    inline=True
-                )
-            
-            # Determine timeout message
-            if announcement_type == "submission_start":
-                timeout_msg = "⏰ **Auto-posts at next Monday 9 AM UTC if no response**"
-            else:
-                timeout_minutes = (await self.config.guild(guild).confirmation_timeout()) // 60
-                timeout_msg = f"⏰ **Auto-posts in {timeout_minutes} minutes if no response**"
-            
-            embed.add_field(
-                name="📋 Actions Available",
-                value=(
-                    "✅ **React with ✅** to approve and post\n"
-                    "❌ **React with ❌** to cancel\n"
-                    "🔄 **React with 🔄** then reply `newtheme: Your Theme`\n"
-                    f"💬 Or use `[p]cw confirm {guild.id}` to approve\n"
-                    f"🚫 Or use `[p]cw deny {guild.id}` to cancel\n\n"
-                    f"{timeout_msg}"
-                ),
-                inline=False
-            )
-            
-            embed.set_footer(text=f"Guild ID: {guild.id} | Auto-expires in 30 minutes")
-            
-            message = await admin_user.send(embed=embed)
-            
-            # Add reaction options
-            await message.add_reaction("✅")
-            await message.add_reaction("❌")
-            await message.add_reaction("🔄")
-            
-            # Start timeout task with smart timeout calculation
-            if announcement_type == "submission_start":
-                timeout = self._calculate_smart_timeout(announcement_type)
-            else:
-                timeout = await self.config.guild(guild).confirmation_timeout()
-            
-            self.bot.loop.create_task(self._handle_confirmation_timeout(guild, timeout))
-            
-        except Exception as e:
-            print(f"Error sending confirmation request: {e}")
-    
-    async def _handle_confirmation_timeout(self, guild, timeout_seconds: int):
-        """Handle automatic posting if no confirmation received within timeout"""
-        await asyncio.sleep(timeout_seconds)
-        
-        # Check if there's still a pending announcement
-        pending = await self.config.guild(guild).pending_announcement()
-        if not pending:
-            return  # Already handled
-        
-        try:
-            # Auto-post the announcement
-            channel = guild.get_channel(pending["channel_id"])
-            if channel:
-                await self._post_announcement(
-                    channel, guild, pending["type"], 
-                    pending["theme"], pending.get("deadline"), force=True
-                )
-                
-                # Notify admin about auto-posting
-                admin_id = await self.config.guild(guild).admin_user_id()
-                if admin_id:
-                    admin_user = self.bot.get_user(admin_id)
-                    if admin_user:
-                        try:
-                            await admin_user.send(
-                                f"⏰ **Auto-posted after timeout**\n"
-                                f"Server: {guild.name}\n"
-                                f"Type: {pending['type'].replace('_', ' ').title()}\n"
-                                f"Theme: {pending['theme']}\n\n"
-                                f"*No response received within {timeout_seconds//60} minutes*"
-                            )
-                        except:
-                            pass  # DM might be blocked
-                
-                print(f"Auto-posted {pending['type']} announcement after timeout in {guild.name}")
-        except Exception as e:
-            print(f"Error auto-posting announcement in {guild.name}: {e}")
-    
-    async def _generate_next_week_theme(self, guild):
-        """Generate theme for next week and request admin confirmation"""
-        try:
-            # Check if a theme is already set for next week
-            existing_theme = await self.config.guild(guild).next_week_theme()
-            if existing_theme:
-                print(f"Theme already exists for next week in {guild.name}: {existing_theme}")
-                return
-            
-            ai_url = await self.config.guild(guild).ai_api_url()
-            ai_key = await self.config.guild(guild).ai_api_key()
-            
-            if not (ai_url and ai_key):
-                print(f"No AI configuration for theme generation in {guild.name}")
-                return
-            
-            # Generate new theme with AI
-            suggested_theme = await self._generate_theme_with_ai(ai_url, ai_key, guild)
-            
-            if not suggested_theme:
-                print(f"Failed to generate theme for {guild.name}")
-                return
-            
-            # Store suggested theme
-            await self.config.guild(guild).next_week_theme.set(suggested_theme)
-            
-            # Send confirmation request to admin
-            admin_id = await self.config.guild(guild).admin_user_id()
-            if admin_id:
-                admin_user = self.bot.get_user(admin_id)
-                if admin_user:
-                    await self._send_theme_confirmation_request(admin_user, guild, suggested_theme)
-                    
-                    # Store pending theme confirmation
-                    next_week = (datetime.utcnow().isocalendar()[1] + 1) % 53 or 1
-                    await self.config.guild(guild).pending_theme_confirmation.set({
-                        "theme": suggested_theme,
-                        "week": next_week,
-                        "timestamp": datetime.utcnow().isoformat()
-                    })
-                    
-                    print(f"Theme generation request sent to admin for {guild.name}: {suggested_theme}")
-        
-        except Exception as e:
-            print(f"Error generating next week theme in {guild.name}: {e}")
-    
-    async def _generate_theme_with_ai(self, api_url: str, api_key: str, guild) -> Optional[str]:
-        """Generate a new theme using AI"""
-        prompt = (
-            "Generate a creative and inspiring theme for a weekly music collaboration competition. "
-            "The theme should be 2-4 words, evocative, and spark creativity for musicians. "
-            "Examples: 'Cosmic Dreams', 'Urban Legends', 'Ocean Depths', 'Heart Break', 'Forest Tales'. "
-            "Never use 'Neon', 'Rain', 'City', 'Cracks', 'Coffee', 'Stains', 'Lights', 'Untold', 'Waves', 'Skyline', 'Midnight', 'Echoes', 'Shadows', 'Reflections', 'Whispers', 'Memories', 'Unfold', 'Embrace', 'Void', or similar overused words. "
-            "Respond with ONLY the theme name, no quotes or additional text."
-        )
-        
-        # Get configurable AI parameters
-        ai_model = await self.config.guild(guild).ai_model() or "gpt-3.5-turbo"
-        ai_temperature = await self.config.guild(guild).ai_temperature() or 0.9
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    api_url,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": ai_model,
-                        "messages": [
-                            {"role": "system", "content": "You are a creative theme generator for music competitions."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        "max_tokens": 20,
-                        "temperature": ai_temperature
-                    },
-                    timeout=aiohttp.ClientTimeout(total=15)
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        theme = data["choices"][0]["message"]["content"].strip()
-                        # Clean up the response (remove quotes, extra whitespace)
-                        theme = theme.strip('"\'').strip()
-                        return theme
-        except Exception as e:
-            print(f"AI theme generation error: {e}")
-            return None
-    
-    async def _send_theme_confirmation_request(self, admin_user, guild, suggested_theme: str):
-        """Send theme confirmation request to admin via DM"""
-        try:
-            current_theme = await self.config.guild(guild).current_theme()
-            
-            embed = discord.Embed(
-                title="🎨 Next Week Theme - Confirmation Required",
-                description=f"**Server:** {guild.name}\n**For:** Next week's competition",
-                color=discord.Color.purple()
-            )
-            
-            embed.add_field(
-                name="🤖 AI Generated Theme",
-                value=f"**{suggested_theme}**",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="📝 Current Theme",
-                value=f"*{current_theme}* (this week)",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="📅 Timeline",
-                value="• **Now**: Preview for next week\n• **Monday 9 AM**: Theme will be used\n• **You have until Monday morning** to decide",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="📋 Actions Available",
-                value=(
-                    "✅ **React with ✅** to approve AI theme\n"
-                    "❌ **React with ❌** to keep current theme\n"
-                    "🎨 **Reply with:** `nexttheme: Your Custom Theme`\n"
-                    f"💬 Or use `[p]cw confirmtheme {guild.id}` to approve\n"
-                    f"🚫 Or use `[p]cw denytheme {guild.id}` to reject\n\n"
-                    "⏰ **If no response by Monday 9 AM: AI theme will be used automatically**"
-                ),
-                inline=False
-            )
-            
-            embed.set_footer(text=f"Guild ID: {guild.id} | Theme for next week")
-            
-            message = await admin_user.send(embed=embed)
-            
-            # Add reaction options
-            await message.add_reaction("✅")
-            await message.add_reaction("❌")
-            await message.add_reaction("🎨")
-            
-        except Exception as e:
-            print(f"Error sending theme confirmation request: {e}")
-    
-    async def _apply_next_week_theme_if_ready(self, guild):
-        """Apply next week theme if available and it's Monday"""
-        try:
-            next_week_theme = await self.config.guild(guild).next_week_theme()
-            pending_confirmation = await self.config.guild(guild).pending_theme_confirmation()
-            
-            if next_week_theme:
-                # Apply the AI-generated or confirmed theme
-                await self.config.guild(guild).current_theme.set(next_week_theme)
-                print(f"Applied next week theme in {guild.name}: {next_week_theme}")
-                
-                # Clear the next week theme
-                await self.config.guild(guild).next_week_theme.set(None)
-                await self.config.guild(guild).pending_theme_confirmation.set(None)
-                
-                # Notify admin that theme was applied
-                admin_id = await self.config.guild(guild).admin_user_id()
-                if admin_id:
-                    admin_user = self.bot.get_user(admin_id)
-                    if admin_user:
-                        try:
-                            await admin_user.send(
-                                f"🎨 **Theme Applied for New Week**\n"
-                                f"Server: {guild.name}\n"
-                                f"New Theme: **{next_week_theme}**\n"
-                                f"The new week has started with this theme!"
-                            )
-                        except:
-                            pass  # DM might be blocked
-                            
-        except Exception as e:
-            print(f"Error applying next week theme in {guild.name}: {e}")
-    
-    def _calculate_smart_timeout(self, announcement_type: str) -> int:
-        """Calculate timeout based on announcement type and next submission phase"""
-        now = datetime.utcnow()
-        
-        if announcement_type == "submission_start":
-            # For submission start, use next Monday if we're not on Monday
-            days_until_monday = (7 - now.weekday()) % 7  # 0 if Monday, else days until next Monday
-            if days_until_monday == 0 and now.hour < 9:  # Monday before 9 AM
-                # We're on Monday morning, use short timeout
-                return 3600  # 1 hour
-            elif days_until_monday == 0:  # Monday after 9 AM
-                # Next Monday
-                next_monday = now + timedelta(days=7)
-            else:
-                # Calculate next Monday
-                next_monday = now + timedelta(days=days_until_monday)
-            
-            # Set to Monday 9 AM
-            next_monday = next_monday.replace(hour=9, minute=0, second=0, microsecond=0)
-            timeout_seconds = int((next_monday - now).total_seconds())
-            
-            # Minimum 1 hour, maximum 7 days
-            return max(3600, min(timeout_seconds, 7*24*3600))
-        
-        else:
-            # For other announcements, use configured timeout
-            return 1800  # 30 minutes default
-        
-    async def generate_announcement(self, guild: discord.Guild, announcement_type: str, theme: str, deadline: Optional[str] = None) -> str:
-        """
-        Generate an announcement using AI.
-        Falls back to template if AI is not configured.
-        
-        announcement_type: "submission_start", "voting_start", "reminder", "winner"
-        """
-        # Try AI generation first
-        ai_url = await self.config.guild(guild).ai_api_url()
-        ai_key = await self.config.guild(guild).ai_api_key()
-        
-        if ai_url and ai_key:
-            try:
-                announcement = await self._generate_with_ai(announcement_type, theme, deadline, ai_url, ai_key, guild)
-                if announcement:
-                    return announcement
-            except Exception as e:
-                print(f"AI generation failed: {e}")
-        
-        # Fallback to templates
-        return await self._get_template_announcement(guild, announcement_type, theme, deadline)
-    
-    async def _generate_with_ai(self, announcement_type: str, theme: str, deadline: Optional[str], api_url: str, api_key: str, guild) -> Optional[str]:
-        """Generate announcement using AI API (OpenAI-compatible format)"""
-        
-        # Generate Discord timestamp for deadline if not provided
-        if not deadline:
-            deadline_dt = self._get_next_deadline(announcement_type)
-            deadline = self._create_discord_timestamp(deadline_dt, "R")  # Relative time
-            deadline_full = self._create_discord_timestamp(deadline_dt, "F")  # Full date/time
-        else:
-            # If deadline is already provided, assume it's already formatted
-            deadline_full = deadline
-        
-        prompts = {
-            "submission_start": f"Create an exciting Discord announcement for a music collaboration competition called 'Collab Warz'. The submission phase is starting. This week's theme is '{theme}'. Include the deadline as '{deadline_full}' (this is a Discord timestamp that will show properly formatted). Make it enthusiastic, creative, and encourage participants. Keep it under 300 characters. Use emojis.",
-            "voting_start": f"Create an engaging Discord announcement that voting has started for Collab Warz music competition with theme '{theme}'. Encourage everyone to listen and vote. Include the deadline as '{deadline_full}' (this is a Discord timestamp). Keep it under 300 characters. Use emojis.",
-            "reminder": f"Create a friendly reminder Discord message that voting for Collab Warz (theme: '{theme}') ends {deadline} (this is a Discord timestamp showing relative time). Encourage people to vote if they haven't. Keep it under 200 characters. Use emojis.",
-            "winner": f"Create a celebratory Discord announcement for the winner of last week's Collab Warz with theme '{theme}'. Make it exciting and congratulatory. Keep it under 250 characters. Use emojis."
-        }
-        
-        prompt = prompts.get(announcement_type, "")
-        
-        # Get configurable AI parameters
-        ai_model = await self.config.guild(guild).ai_model() or "gpt-3.5-turbo"
-        ai_temperature = await self.config.guild(guild).ai_temperature() or 0.8
-        ai_max_tokens = await self.config.guild(guild).ai_max_tokens() or 150
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    api_url,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": ai_model,
-                        "messages": [
-                            {"role": "system", "content": "You are a creative announcement writer for a music competition community."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        "max_tokens": ai_max_tokens,
-                        "temperature": ai_temperature
-                    },
-                    timeout=aiohttp.ClientTimeout(total=15)
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return data["choices"][0]["message"]["content"].strip()
-        except Exception as e:
-            print(f"AI API error: {e}")
-            return None
-    
-    async def _get_template_announcement(self, guild, announcement_type: str, theme: str, deadline: Optional[str]) -> str:
-        """Fallback template announcements with Discord timestamps"""
-        
-        # Check if bi-weekly mode is enabled
-        biweekly_mode = await self.config.guild(guild).biweekly_mode()
-        
-        # Generate Discord timestamp for deadline if not provided
-        if not deadline:
-            deadline_dt = self._get_next_deadline(announcement_type)
-            deadline = self._create_discord_timestamp(deadline_dt, "R")  # Relative time
-            deadline_full = self._create_discord_timestamp(deadline_dt, "F")  # Full date/time
-        else:
-            # If deadline is already provided, assume it's already formatted
-            deadline_full = deadline
-        
-        # Create mode-specific text
-        if biweekly_mode:
-            cycle_text = "🎵 **Collab Warz - COMPETITION WEEK!** 🎵\n\n✨ **This week's theme:** **{theme}** ✨\n\n📝 **Submission Phase:** Monday to Friday noon\n🗳️ **Voting Phase:** Friday noon to Sunday\n\nTeam up with someone and create magic together! 🤝"
-            winner_next = "🔥 Enjoy next week's break, then get ready for the next competition!\n\n*Next competition starts in 2 weeks!* 🚀"
-            schedule_info = "📅 **Bi-Weekly Schedule:** Competition every other week (odd weeks only)"
-        else:
-            cycle_text = "🎵 **Collab Warz - NEW WEEK STARTS!** 🎵\n\n✨ **This week's theme:** **{theme}** ✨\n\n📝 **Submission Phase:** Monday to Friday noon\n🗳️ **Voting Phase:** Friday noon to Sunday\n\nTeam up with someone and create magic together! 🤝"
-            winner_next = "🔥 Get ready for next week's challenge!\n\n*New theme drops Monday morning!* 🚀"
-            schedule_info = ""
-        
-        templates = {
-            "submission_start": f"{cycle_text.format(theme=theme)}\n\n**📋 How to Submit (Discord):**\nIn ONE message, include:\n• `Team name: YourTeamName`\n• Tag your partner: `@username`\n• Your Suno.com link (only accepted format)\n\n**🌐 Alternative:** Submit & vote on our website:\n**https://collabwarz.soundgarden.app**\n\n**💡 Need Help?** Use `!info` for submission guide or `!status` for current competition status\n\n{schedule_info}\n\n⏰ **Submissions deadline:** {deadline_full}",
-            
-            "voting_start": f"🗳️ **VOTING IS NOW OPEN!** 🗳️\n\n🎵 **Theme:** **{theme}**\n\nThe submissions are in! Time to listen and vote for your favorites! 🎧\n\n**🌐 Listen & Vote:** https://collabwarz.soundgarden.app\n\n**💡 Commands:** Use `!info` for competition guide or `!status` for detailed status\n\nEvery vote counts - support the artists! 💫\n\n⏰ **Voting closes:** {deadline_full}",
-            
-            "reminder": f"⏰ **FINAL CALL!** ⏰\n\n{'🎵 Submissions' if 'submission' in announcement_type else '🗳️ Voting'} for **{theme}** ends {deadline}!\n\n{'Submit your collaboration now!' if 'submission' in announcement_type else 'Cast your votes and support the artists!'} 🎶\n\n🌐 **Website:** https://collabwarz.soundgarden.app\n💡 **Help:** Use `!info` or `!status` for guidance\n\n{'⏰ Last chance to team up and create!' if 'submission' in announcement_type else '⏰ Every vote matters!'}",
-            
-            "winner": f"🏆 **WINNER ANNOUNCEMENT!** 🏆\n\n🎉 Congratulations to the champions of **{theme}**! 🎉\n\nIncredible collaboration and amazing music! 🎵✨\n\n🌐 **Listen to all tracks:** https://collabwarz.soundgarden.app\n💡 **Commands:** Use `!info` for competition guide or `!status` for details\n\n{winner_next}"
-        }
-        
-        return templates.get(announcement_type, f"Collab Warz update: {theme}")
     
     @commands.group(name="collabwarz", aliases=["cw"])
     @checks.admin_or_permissions(manage_guild=True)
@@ -7398,7 +4213,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         deadline = "Soon"  # In production, get from config
         
         async with ctx.typing():
-            announcement = await self.generate_announcement(ctx.guild, announcement_type, theme, deadline)
+            announcement = await self.announcement_manager.generate_announcement(ctx.guild, announcement_type, theme, deadline)
             
             embed = discord.Embed(
                 description=announcement,
@@ -7550,7 +4365,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             admin_user = ctx.guild.get_member(admin_id)
             if admin_user and admin_user.id == ctx.author.id:
                 # Admin is generating manually, send them the confirmation
-                await self._send_theme_confirmation_request(admin_user, ctx.guild, suggested_theme)
+                await self.announcement_manager._send_theme_confirmation_request(admin_user, ctx.guild, suggested_theme)
                 await ctx.send(f"✅ Theme generated: **{suggested_theme}**\nCheck your DMs for confirmation options.")
             else:
                 await ctx.send(f"✅ Theme generated for next week: **{suggested_theme}**\nAdmin will receive confirmation request.")
@@ -7769,22 +4584,22 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             for week_key, week_teams in team_members.items():
                 # Update or create week data
                 theme = f"Week {week_key}"  # Default theme
-                await self._update_week_data(guild, week_key, theme, "completed")
+                await self.database_manager.update_week_data(guild, week_key, theme, "completed")
                 weeks_created += 1
                 
                 for team_name, member_ids in week_teams.items():
                     if len(member_ids) >= 2:  # Valid team
                         # Create artists
                         for member_id in member_ids:
-                            await self._get_or_create_artist(guild, member_id)
+                            await self.database_manager.get_or_create_artist(guild, member_id)
                             artists_created += 1
                         
                         # Create team
-                        team_id = await self._get_or_create_team(guild, team_name, member_ids, week_key)
+                        team_id = await self.database_manager.get_or_create_team(guild, team_name, member_ids, week_key)
                         teams_created += 1
                         
                         # Create placeholder song (we don't have URLs from old system)
-                        song_id = await self._record_song_submission(
+                        song_id = await self.database_manager.record_song_submission(
                             guild, team_id, week_key, 
                             f"https://suno.com/legacy/{team_id}_{week_key}",
                             f"{team_name} - {week_key}"
@@ -8063,7 +4878,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         day = now.weekday()
         iso_year, iso_week, _ = now.isocalendar()
         
-        is_competition_week = await self._is_competition_week(ctx.guild)
+        is_competition_week = await self.config_manager.is_competition_week(ctx.guild)
         
         if biweekly_mode and not is_competition_week:
             expected_phase = "inactive"  # Off week
@@ -8071,7 +4886,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             expected_phase = "submission" if day <= 2 else "voting"
         
         current_week = iso_week
-        competition_key = await self._get_competition_week_key(ctx.guild)
+        competition_key = await self.config_manager.get_competition_week_key(ctx.guild)
         
         embed = discord.Embed(
             title="🎵 Collab Warz Status",
@@ -8382,7 +5197,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         if channel_id:
             channel = ctx.guild.get_channel(channel_id)
             if channel:
-                await self._post_announcement(channel, ctx.guild, "submission_start", current_theme)
+                await self.announcement_manager._post_announcement(channel, ctx.guild, "submission_start", current_theme)
         
         await ctx.send(f"🎵 **New week started!**\nTheme: **{current_theme}**\nPhase: **Submission**")
     
@@ -8555,7 +5370,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     async def _test_post_announcement(self, channel, guild, announcement_type: str, theme: str, deadline: str = None):
         """Helper method to post test announcements (bypasses confirmation)"""
         try:
-            announcement = await self.generate_announcement(guild, announcement_type, theme, deadline)
+            announcement = await self.announcement_manager.generate_announcement(guild, announcement_type, theme, deadline)
             
             embed = discord.Embed(
                 description=announcement,
@@ -8808,14 +5623,14 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     async def count_teams_manual(self, ctx):
         """Manually count current participating teams"""
         # Get detailed breakdown for debugging
-        week_key = await self._get_competition_week_key(ctx.guild)
+        week_key = await self.config_manager.get_competition_week_key(ctx.guild)
         
         # Count Discord registered teams
         submitted_teams = await self.config.guild(ctx.guild).submitted_teams()
         discord_teams = set(submitted_teams.get(week_key, []))
         
         # Count web submissions  
-        submissions = await self._get_submissions_safe(ctx.guild)
+        submissions = await self.config_manager.get_submissions_safe(ctx.guild)
         web_teams = set(submissions.keys())
         
         # Count raw submissions if validation is disabled
@@ -8954,7 +5769,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     @collabwarz.command(name="listteams")
     async def list_current_teams(self, ctx):
         """List all registered teams for current competition cycle"""
-        week_key = await self._get_competition_week_key(ctx.guild)
+        week_key = await self.config_manager.get_competition_week_key(ctx.guild)
         submitted_teams = await self.config.guild(ctx.guild).submitted_teams()
         team_members = await self.config.guild(ctx.guild).team_members()
         
@@ -8990,7 +5805,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
     async def clear_week_teams(self, ctx, week: str = None):
         """Clear team registrations for specified competition cycle (or current cycle) - ADMIN USE ONLY"""
         if week is None:
-            week = await self._get_competition_week_key(ctx.guild)
+            week = await self.config_manager.get_competition_week_key(ctx.guild)
         
         # Show warning about permanent deletion
         embed = discord.Embed(
@@ -10554,7 +7369,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 member_ids = [member1.id, member2.id]
                 
                 # Record winner and give rep
-                rep_results = await self._record_weekly_winner(ctx.guild, team_name, member_ids)
+                rep_results = await self.database_manager.record_weekly_winner(ctx.guild, team_name, member_ids)
                 
                 # Create winner announcement
                 winner_msg = await self._create_winner_announcement_with_rep(ctx.guild, team_name, member_ids, theme)
@@ -10771,7 +7586,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             await ctx.send("❌ Announcement channel not found")
             return
         
-        await self._post_announcement(
+        await self.announcement_manager._post_announcement(
             channel, target_guild, 
             pending["type"], pending["theme"], 
             pending.get("deadline"), force=True
@@ -10827,7 +7642,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
             channel = ctx.guild.get_channel(channel_id)
             if channel:
                 current_theme = await self.config.guild(ctx.guild).current_theme()
-                await self._post_announcement(channel, ctx.guild, "submission_start", current_theme, force=True)
+                await self.announcement_manager._post_announcement(channel, ctx.guild, "submission_start", current_theme, force=True)
         
         embed = discord.Embed(
             title="🔄 Week Interrupted & Restarted",
@@ -10921,7 +7736,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
         theme = custom_theme or await self.config.guild(ctx.guild).current_theme()
         deadline = "Soon" if "reminder" in announcement_type else None
         
-        await self._post_announcement(channel, ctx.guild, announcement_type, theme, deadline, force=True)
+        await self.announcement_manager._post_announcement(channel, ctx.guild, announcement_type, theme, deadline, force=True)
         await ctx.send(f"🚨 **FORCED POST** - {announcement_type.replace('_', ' ').title()} announcement posted")
     
     @commands.Cog.listener()
@@ -11281,7 +8096,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 await channel.send(content=content, embed=embed)
             
             # Record winner and distribute rep
-            await self._record_weekly_winner(guild, winning_team, members)
+            await self.database_manager.record_weekly_winner(guild, winning_team, members)
             
             # Mark winner as announced
             await self.config.guild(guild).winner_announced.set(True)
@@ -11317,7 +8132,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                     # Approve announcement
                     channel = guild.get_channel(pending["channel_id"])
                     if channel:
-                        await self._post_announcement(
+                        await self.announcement_manager._post_announcement(
                             channel, guild, pending["type"], 
                             pending["theme"], pending.get("deadline"), force=True
                         )
@@ -11392,7 +8207,7 @@ Thank you for your understanding! Let's make next week amazing! 🎶"""
                 
                 channel = guild.get_channel(pending["channel_id"])
                 if channel:
-                    await self._post_announcement(
+                    await self.announcement_manager._post_announcement(
                         channel, guild, pending["type"], 
                         new_theme, pending.get("deadline"), force=True
                     )

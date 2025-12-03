@@ -1,0 +1,80 @@
+Executing <Task pending name='Task-1' coro=<IsolatedAsyncioTestCase._asyncioLoopRunner() running at C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:95> wait_for=<Future pending cb=[Task.task_wakeup()] created at C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:429> created at C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py:117> took 0.109 seconds
+FEE..
+======================================================================
+ERROR: test_process_redis_action_start_phase (__main__.TestRedisManager)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Projets\SoundGarden\collabwarz\redis_manager.py", line 448, in _process_redis_action
+    print(f"\U0001f3af CollabWarz: Processing Redis action '{action}' (ID: {action_id})")
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f3af' in position 0: character maps to <undefined>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py", line 64, in _callTestMethod
+    self._callMaybeAsync(method)
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py", line 87, in _callMaybeAsync
+    return self._asyncioTestLoop.run_until_complete(fut)
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py", line 649, in run_until_complete
+    return future.result()
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py", line 101, in _asyncioLoopRunner
+    ret = await awaitable
+  File "C:\Projets\SoundGarden\collabwarz\tests\test_redis_manager.py", line 111, in test_process_redis_action_start_phase
+    await self.redis_manager._process_redis_action(guild, action_data)
+  File "C:\Projets\SoundGarden\collabwarz\redis_manager.py", line 450, in _process_redis_action
+    print("\U0001f3af CollabWarz: Processing Redis action (unable to format action debug)")
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f3af' in position 0: character maps to <undefined>
+
+======================================================================
+ERROR: test_process_redis_action_unknown (__main__.TestRedisManager)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Projets\SoundGarden\collabwarz\redis_manager.py", line 448, in _process_redis_action
+    print(f"\U0001f3af CollabWarz: Processing Redis action '{action}' (ID: {action_id})")
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f3af' in position 0: character maps to <undefined>
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py", line 64, in _callTestMethod
+    self._callMaybeAsync(method)
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py", line 87, in _callMaybeAsync
+    return self._asyncioTestLoop.run_until_complete(fut)
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py", line 649, in run_until_complete
+    return future.result()
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py", line 101, in _asyncioLoopRunner
+    ret = await awaitable
+  File "C:\Projets\SoundGarden\collabwarz\tests\test_redis_manager.py", line 126, in test_process_redis_action_unknown
+    await self.redis_manager._process_redis_action(guild, action_data)
+  File "C:\Projets\SoundGarden\collabwarz\redis_manager.py", line 450, in _process_redis_action
+    print("\U0001f3af CollabWarz: Processing Redis action (unable to format action debug)")
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+UnicodeEncodeError: 'charmap' codec can't encode character '\U0001f3af' in position 0: character maps to <undefined>
+
+======================================================================
+FAIL: test_init_redis_connection (__main__.TestRedisManager)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py", line 64, in _callTestMethod
+    self._callMaybeAsync(method)
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py", line 87, in _callMaybeAsync
+    return self._asyncioTestLoop.run_until_complete(fut)
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py", line 649, in run_until_complete
+    return future.result()
+  File "C:\Users\Hemo\AppData\Local\Programs\Python\Python310\lib\unittest\async_case.py", line 101, in _asyncioLoopRunner
+    ret = await awaitable
+  File "C:\Projets\SoundGarden\collabwarz\tests\test_redis_manager.py", line 78, in test_init_redis_connection
+    self.assertTrue(result)
+AssertionError: False is not true
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.403s
+
+FAILED (failures=1, errors=2)
