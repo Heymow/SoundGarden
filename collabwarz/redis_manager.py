@@ -565,10 +565,8 @@ class RedisManager:
                     if safe_mode:
                         print(f"⚠️ Remove submission blocked by Safe Mode (team: {team_name}) in guild {guild.name}")
                     else:
-                        submissions = await self.cog._get_submissions_safe(guild)
-                        if team_name in submissions:
-                            del submissions[team_name]
-                            await self.cog._set_submissions_safe(guild, submissions)
+                        success = await self.cog._remove_submission_safe(guild, team_name)
+                        if success:
                             print(f"✅ Removed submission for team {team_name}")
                         else:
                             print(f"⚠️ No submission found for team {team_name}")

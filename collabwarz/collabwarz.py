@@ -43,6 +43,8 @@ from typing import Optional
 from aiohttp import web
 import traceback
 import os
+import re
+import sys
 
 from .redis_manager import RedisManager
 from .announcements import AnnouncementManager
@@ -321,6 +323,11 @@ class CollabWarz(commands.Cog):
             result["errors"].append("❌ **Partner mention missing**: Please mention your collaboration partner with @username")
         
         return result
+    
+    def _extract_suno_urls_from_text(self, text: str) -> list:
+        """Extract valid Suno URLs from text"""
+        suno_pattern = r'https?://(?:www\.)?suno\.com/(?:song|s)/[a-zA-Z0-9-]+'
+        return re.findall(suno_pattern, text)
     
     
     
@@ -5766,22 +5773,29 @@ class CollabWarz(commands.Cog):
         
         await ctx.send(embed=embed)
 
-    async def _cancel_week_and_restart(self, guild, channel, theme):
+    async def _cancel_week_and_restart(self, guild, channel, theme, reason=None):
         """Cancel current week due to lack of participation and restart"""
         await self.config.guild(guild).week_cancelled.set(True)
         await self.config.guild(guild).current_phase.set("submission")
         
+        if not channel:
+            return
+
         # Post cancellation announcement
+        desc = f"**Theme:** {theme}\n\n"
+        if reason:
+            desc += f"{reason}\n\n"
+        else:
+            desc += "We didn't receive enough submissions to hold a voting phase this week. "
+            desc += "The competition has been cancelled for this week.\n\n"
+            
+        desc += "**Next Steps:**\n"
+        desc += "• A new theme will be announced on Monday!\n"
+        desc += "• Get ready for the next round!"
+
         embed = discord.Embed(
             title="⚠️ Competition Update",
-            description=(
-                f"**Theme:** {theme}\n\n"
-                "We didn't receive enough submissions to hold a voting phase this week. "
-                "The competition has been cancelled for this week.\n\n"
-                "**Next Steps:**\n"
-                "• A new theme will be announced on Monday!\n"
-                "• Get ready for the next round!"
-            ),
+            description=desc,
             color=discord.Color.orange()
         )
         await channel.send(embed=embed)
@@ -5792,41 +5806,6 @@ class CollabWarz(commands.Cog):
         except Exception:
             pass
 
-    async def _process_voting_end(self, guild):
-        """Process end of voting phase and announce winners"""
-        # Get voting results
-        voting_results = await self.database_manager.get_voting_results(guild)
-        
-        if not voting_results or not voting_results.get('results'):
-            # No votes recorded
-            return
-            
-        # Get winner
-        results = voting_results.get('results', {})
-        if not results:
-            return
-            
-        # Sort by votes
-        sorted_results = sorted(results.items(), key=lambda x: x[1], reverse=True)
-        winner_team = sorted_results[0][0]
-        winner_votes = sorted_results[0][1]
-        
-        # Get team members
-        team_members = await self.config.guild(guild).team_members()
-        week_key = await self.config_manager.get_competition_week_key(guild)
-        members = team_members.get(week_key, {}).get(winner_team, [])
-        
-        # Record winner
-        await self.database_manager.record_weekly_winner(guild, winner_team, members, week_key)
-        
-        # Update config
-        await self.config.guild(guild).winner_announced.set(True)
-        
-        # Log it
-        try:
-            await self._send_competition_log(f"Winner determined: {winner_team} ({winner_votes} votes)", guild=guild)
-        except Exception:
-            pass
     
     async def _count_participating_teams(self, guild) -> int:
         """Count number of teams participating in current competition"""
@@ -8110,9 +8089,35 @@ class CollabWarz(commands.Cog):
         await self.config.guild(guild).face_off_deadline.set(None)
         await self.config.guild(guild).face_off_results.set({})
     
+    async def _determine_winners(self, guild):
+        """Determine winners from voting results"""
+        voting_results = await self.database_manager.get_voting_results(guild)
+        
+        if not voting_results or not voting_results.get('results'):
+            return [], False, {}
+            
+        results = voting_results.get('results', {})
+        if not results:
+            return [], False, {}
+            
+        # Sort by votes
+        sorted_results = sorted(results.items(), key=lambda x: x[1], reverse=True)
+        max_votes = sorted_results[0][1]
+        
+        # Find all teams with max votes
+        winners = [team for team, votes in sorted_results if votes == max_votes]
+        is_tie = len(winners) > 1
+        
+        return winners, is_tie, results
+
     async def _process_voting_end(self, guild: discord.Guild):
         """Process the end of voting phase and determine winners"""
         try:
+            # Get channel and theme for potential cancellation
+            channel_id = await self.config.guild(guild).announcement_channel()
+            channel = guild.get_channel(channel_id) if channel_id else None
+            theme = await self.config.guild(guild).current_theme()
+
             # Check if there's an active face-off
             face_off_active = await self.config.guild(guild).face_off_active()
             
@@ -8137,7 +8142,7 @@ class CollabWarz(commands.Cog):
             
             if not winning_teams:
                 # No votes or error, cancel week
-                await self._cancel_week_and_restart(guild, "No votes received")
+                await self._cancel_week_and_restart(guild, channel, theme, reason="No votes received")
                 return
             
             if is_tie and len(winning_teams) > 1:
@@ -8161,7 +8166,19 @@ class CollabWarz(commands.Cog):
         except Exception as e:
             print(f"Error processing voting end: {e}")
             # Fallback: cancel week
-            await self._cancel_week_and_restart(guild, f"Error processing results: {e}")
+            await self._cancel_week_and_restart(guild, channel, theme, reason=f"Error processing results: {e}")
+
+    async def _get_submissions_safe(self, guild):
+        return await self.config_manager.get_submissions_safe(guild)
+
+    async def _clear_submissions_safe(self, guild):
+        return await self.config_manager.clear_submissions_safe(guild)
+
+    async def _remove_submission_safe(self, guild, team_name):
+        return await self.config_manager.remove_submission_safe(guild, team_name)
+
+    async def _set_submissions_safe(self, guild, submissions):
+        return await self.config_manager.set_submissions_safe(guild, submissions)
     
     async def _announce_winner(self, guild: discord.Guild, winning_team: str, 
                              vote_counts: dict = None, from_face_off: bool = False):
